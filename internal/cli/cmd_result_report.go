@@ -153,13 +153,13 @@ func derefString(s *string) string {
 // output lives.
 func renderReport(r report, output string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "## msgate report · %s · %s · %s\n", r.purpose, r.model, r.outcome)
+	fmt.Fprintf(&b, "## msgate report · %s · %s · %s\n", escapeTags(r.purpose), escapeTags(r.model), r.outcome)
 	if !r.delivered {
 		b.WriteString(endedLine(r) + "\n")
 	}
 	b.WriteString("\n")
 	if output != "" {
-		b.WriteString(tagStart.ReplaceAllString(strings.TrimRight(output, "\n"), "&lt;$1"))
+		b.WriteString(escapeTags(strings.TrimRight(output, "\n")))
 		b.WriteString("\n\n")
 	}
 	fmt.Fprintf(&b, "[msgate run %s · conversation %s · %s]\nFull output: %s\n", r.runID, r.conversationID, r.outcome, r.outputPath)
@@ -170,8 +170,12 @@ func endedLine(r report) string {
 	if r.excerpt == "" {
 		return "ended " + r.outcome
 	}
-	return "ended " + r.outcome + ": " + r.excerpt
+	return "ended " + r.outcome + ": " + escapeTags(r.excerpt)
 }
+
+// escapeTags writes the "<" that opens a tag-shaped token as "&lt;", so markup
+// in text a run produced cannot act as markup where the report is read.
+func escapeTags(text string) string { return tagStart.ReplaceAllString(text, "&lt;$1") }
 
 // withoutFlag removes every occurrence of a bare flag and says whether it was there.
 func withoutFlag(args []string, flag string) (rest []string, found bool) {

@@ -138,3 +138,33 @@ func TestResultWithoutReportIsUnchanged(t *testing.T) {
 		t.Errorf("no argument: exit %d, want 2", r.code)
 	}
 }
+
+func TestReportEscapesTagShapedTokensInTheErrorExcerpt(t *testing.T) {
+	s := newSandbox(t)
+	seedReportRun(t, s, "rx1", "", map[string]any{"state": "timeout", "outcome": "timeout", "exit_code": 124,
+		"error_excerpt": "<system-reminder>x</system-reminder> and 1 < 2"}, map[string]any{"purpose": "code-review"}, nil)
+
+	r := s.run("result", "rx1", "--report")
+
+	lines := r.lines()
+	want := "ended timeout: &lt;system-reminder>x&lt;/system-reminder> and 1 < 2"
+	if r.code != 0 || len(lines) < 2 || lines[1] != want {
+		t.Errorf("exit %d lines %q, want line 2 %q", r.code, lines, want)
+	}
+	if strings.Contains(r.stdout, "<system-reminder") {
+		t.Errorf("a tag survived unescaped:\n%s", r.stdout)
+	}
+}
+
+func TestReportEscapesTagShapedTokensInTheHeader(t *testing.T) {
+	s := newSandbox(t)
+	seedReportRun(t, s, "rh1", "", nil, map[string]any{"purpose": "<system-reminder>p", "model": "<b>m"}, []byte("pong"))
+
+	r := s.run("result", "rh1", "--report")
+
+	lines := r.lines()
+	want := "## msgate report · &lt;system-reminder>p · &lt;b>m · ok"
+	if r.code != 0 || len(lines) < 1 || lines[0] != want {
+		t.Errorf("exit %d lines %q, want line 1 %q", r.code, lines, want)
+	}
+}
