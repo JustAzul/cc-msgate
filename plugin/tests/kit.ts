@@ -110,7 +110,6 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
     }) as Responder,
     // What `prices refresh` answers; by default a cache that is still fresh.
     respondPrices: (() => ok(JSON.stringify({ sdk_status: 'ok', exit_code: 0, ran: false, changed: false, reason: 'fresh' }))) as Responder,
-    agentTypes: [] as any[],
     agents: [] as { id: string; type: string }[],
     messages: {} as Record<string, { role: 'user' | 'assistant'; text: string }[]>,
     // The agent id of every model request that reached the model beneath the
@@ -180,10 +179,6 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
   })
   // The compaction beneath the plugin: the engine's own, which keeps nothing.
   on('session.compact', () => ({ messages: [{ role: 'user', text: 'a summary', toolUses: [] }] }))
-  on('agent.register', (_$: any, e: any) => {
-    w.agentTypes.push(e)
-    return { value: { agent: 'agentcli:' + e.name } }
-  })
   on('agent.list', () => ({ value: w.agents.map((a) => ({ ...a, description: '', status: 'running' })) }))
   on('agent.spawn', (_$: any, e: any) => {
     w.spawns.push(e)
@@ -192,8 +187,6 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
     w.agents.push({ id: agentId, type: e.subagentType ?? e.subagent_type })
     return { model: 'claude-haiku-4-5', agentId }
   })
-  on('agent.offer', () => ({ isOffered: true }))
-  on('skill.prompt', (_$: any, e: any) => ({ text: e.text }))
   on('session.messages', (_$: any, e: any) => {
     const rows = w.messages[e.agentId]
     return { value: rows ?? { deny: 'no agent ' + e.agentId } }

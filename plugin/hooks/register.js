@@ -36,11 +36,9 @@ import {
   ADMIT_TIMEOUT_MS,
   AGENT_SOURCE,
   CONVERSATIONS_KEY,
-  DISPATCH_SKILL,
   LOST_CONVERSATION,
   HEARTBEAT_MS,
   SLICE_TIMEOUT_MS,
-  agentSpecs,
   answerText,
   conversationOf,
   costText,
@@ -82,10 +80,6 @@ import { ETA_TIMEOUT_MS, ETA_UNAVAILABLE, etaCommand, etaText, endedSince, finis
 
 const COMMAND = 'agentcli-jobs'
 const NO_TOOLS = 'agentcli agents run no tools: an agentcli job answers for them.'
-// Set once the dispatch skill has loaded in this session; the agent types are
-// offered to the model only then. Session state is never shared with another
-// session, so no session can close another's gate.
-const DISPATCH_LOADED = { plugin: 'agentcli', key: 'dispatchLoaded' }
 // The band's lines: one for each run another caller flagged with
 // --agent-feedback that is still going. Session state, so the band redraws on
 // each write and a reload keeps what it shows.
@@ -203,7 +197,6 @@ export function register(on, options) {
   )
   on('session.start', async ($, e, next) => {
     await registerTools($)
-    await registerAgentTypes($)
     if (timer !== null) timer.cancel()
     timer = $.clock.every(POLL_MS, () => {
       void poll($)
@@ -255,19 +248,8 @@ export function register(on, options) {
 
   on('command.run', { command: 'agentcli-jobs' }, async ($) => listJobs($))
 
-  // The agent types. Every way these hooks can fail ends in an answer that
-  // says the hand-off failed, never in a Claude model's answer.
-  on('skill.prompt', async ($, e, next) => {
-    if (e.skill === $.plugin.name + ':' + DISPATCH_SKILL) await $.state.set(DISPATCH_LOADED, true)
-    return next(e)
-  })
-
-  on('agent.offer', async ($, e, next) => {
-    const type = typeOf($.plugin.name, e.agent)
-    if (type === null) return next(e)
-    return (await isOfferedHere($)) ? next(e) : { isOffered: false }
-  }).catch(($, e, next) => (next.called || typeOf($.plugin.name, e.agent) === null ? next(e) : { isOffered: false }))
-
+  // Every way the hooks below can fail ends in an answer that says the
+  // hand-off failed, never in a Claude model's answer.
   // The text an agentcli subagent's turn started with: its prompt when a
   // session that saves no transcript has no rows to read it from.
   on('turn.start', async ($, e, next) => {
@@ -1044,23 +1026,6 @@ async function outputPathOf($, bin, runId) {
   } catch {
     return null
   }
-}
-
-async function registerAgentTypes($) {
-  for (const spec of agentSpecs()) {
-    try {
-      await $.agent.register(spec)
-    } catch (error) {
-      // One type that fails to register must not keep the others from it.
-      $.ui.log('could not register agent type ' + spec.name + ': ' + messageOf(error), { to: 'debug' })
-    }
-  }
-}
-
-// The agent types are offered to the model only once the dispatch skill has
-// loaded in this session.
-async function isOfferedHere($) {
-  return (await $.state.get(DISPATCH_LOADED)).value === true
 }
 
 // subagentTypeOf returns this plugin's type name for the agent whose loop an

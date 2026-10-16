@@ -1,4 +1,4 @@
-// Pure helpers for the agent types the mod registers. Each type is a subagent
+// Pure helpers for the agent types the mod answers. Each type is a subagent
 // whose every model request is answered by an agentcli job, never by a Claude
 // model. Nothing here touches the mods API, so these functions can be read and
 // tested on their own.
@@ -7,7 +7,6 @@ import { RESULT_OUTPUT_BYTES, cutBytes, isTerminal, resultNote } from './lib.js'
 import { formatCost, formatLowerBound } from './prices.js'
 
 export const AGENT_SOURCE = 'agent'
-export const DISPATCH_SKILL = 'dispatch'
 export const CONVERSATIONS_KEY = 'agent-conversations'
 export const ADMIT_TIMEOUT_MS = 30000
 export const CONVERSATIONS_LIMIT = 500
@@ -23,47 +22,15 @@ const REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g
 const REVISION_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._/~^-]{0,254}$/
 const REVIEW_TARGETS = "'uncommitted', 'base <branch>' or 'commit <sha>'"
 
-const SHARED_NOTE =
-  ' The prompt must stand on its own: the agent sees nothing of this session.' +
-  ' Use only when the user asks for Codex, GPT or another agent; never choose it on your own.'
-
-const TYPES = {
-  'second-opinion': 'Codex judges a decision, plan or design already drafted. Read-only.',
-  'code-review':
-    "Codex runs its own review of a diff and returns findings with file and line. The prompt is the target and nothing else: " +
-    REVIEW_TARGETS + '. Read-only.',
-  'cross-check': 'Codex looks over finished code named by file path for what was missed. Read-only.',
-  'expert-persona': 'Codex answers a judgment question as a senior practitioner of the field the prompt names. Read-only.',
-  delegation: 'Codex does well-scoped mechanical work and may write files in the working directory.',
-  adhoc: 'Codex answers anything else, with the provider defaults.',
-}
-
-// What the real model reads if the plugin hook ever fails to answer a request.
-const FALLTHROUGH_PROMPT =
-  'A plugin hook answers every request made to this agent. If you are reading this, the hand-off failed. ' +
-  'Reply with exactly this line and nothing else, and call no tools: ' + HANDOFF_FAILED
+// The agent types whose subagents the mod answers.
+const TYPE_NAMES = ['second-opinion', 'code-review', 'cross-check', 'expert-persona', 'delegation', 'adhoc']
 
 export function agentTypeNames() {
-  return Object.keys(TYPES)
-}
-
-// agentSpecs is what the mod registers. The model and tool list matter only if
-// the hook fails to answer: the cheapest model, one read-only tool, and the
-// tool.call guard refuses even that.
-export function agentSpecs() {
-  return agentTypeNames().map((name) => ({
-    name,
-    description: TYPES[name] + SHARED_NOTE,
-    prompt: FALLTHROUGH_PROMPT,
-    model: 'haiku',
-    tools: ['Read'],
-    omitClaudeMd: true,
-    background: true,
-  }))
+  return [...TYPE_NAMES]
 }
 
 // typeOf returns the agent type name for a full type ("<plugin>:<name>") this
-// plugin registered, or null.
+// plugin answers, or null.
 export function typeOf(pluginName, fullType) {
   const prefix = pluginName + ':'
   if (typeof fullType !== 'string' || !fullType.startsWith(prefix)) return null

@@ -3,7 +3,6 @@ import { SESSION, isShim, ok, startTurn, step, world } from './kit'
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 const HANDOFF_FAILED = 'agentcli: the hand-off to the agent failed, so this is not its answer.'
-const TYPES = ['adhoc', 'code-review', 'cross-check', 'delegation', 'expert-persona', 'second-opinion']
 const JOB_FLAGS = ['--background', '--json', '--source', 'agent', '--session-id', SESSION]
 
 function admitted(runId = 'run-1', conversationId = 'conv-1') {
@@ -34,38 +33,6 @@ function subagent(w: any, id: string, type: string, rows: { role: 'user' | 'assi
   w.agents.push({ id, type })
   w.messages[id] = rows
 }
-
-test('the mod registers one background agent type per scenario, only for when the user asks', async ($, on) => {
-  const w = world(on)
-  await $.session.start(START)
-
-  expect(w.agentTypes.map((t) => t.name).sort()).toEqual([...TYPES].sort())
-  for (const spec of w.agentTypes) {
-    expect(spec.background).toBe(true)
-    expect(spec.description).toContain('Use only when the user asks')
-    // If the hook ever fails to answer, the stand-in model is the cheapest one
-    // with a read-only tool list, and its prompt makes it say so.
-    expect(spec.model).toBe('haiku')
-    expect(spec.tools).toEqual(['Read'])
-    expect(spec.prompt).toContain(HANDOFF_FAILED)
-  }
-})
-
-test('the agent types are hidden from the model until the dispatch skill loads in the session', async ($, on) => {
-  const w = world(on)
-  await $.session.start(START)
-  const offer = (agent: string) => $.agent.offer({ agent, description: '', source: 'plugin', provider: { plugin: 'agentcli', tier: 'user' } } as any)
-
-  expect(await offer('agentcli:delegation')).toEqual({ isOffered: false })
-  expect(await offer('Explore')).toEqual({ isOffered: true })
-
-  await $.skill.prompt({ skill: 'agentcli:other', text: '' })
-  expect(await offer('agentcli:delegation')).toEqual({ isOffered: false })
-
-  await $.skill.prompt({ skill: 'agentcli:dispatch', text: 'Dispatch' })
-  expect(await offer('agentcli:delegation')).toEqual({ isOffered: true })
-  expect(w.runs).toEqual([])
-})
 
 test('a subagent of an agent type is answered by an agentcli job, never by the model', async ($, on) => {
   const w = world(on)
