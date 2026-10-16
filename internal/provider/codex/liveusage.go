@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/provider"
 )
 
 // liveReadChunk is how much of the session file one backward read takes.

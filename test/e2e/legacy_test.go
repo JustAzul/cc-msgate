@@ -228,10 +228,10 @@ func TestLegacyImportResolvesTheHomeLikeTheCLI(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"AGENTCLI_HOME", []string{"AGENTCLI_HOME=" + filepath.Join(base, "a")}, nil, filepath.Join(base, "a")},
-		{"XDG_STATE_HOME", []string{"XDG_STATE_HOME=" + filepath.Join(base, "x")}, nil, filepath.Join(base, "x", "agentcli")},
-		{"default", []string{"HOME=" + filepath.Join(base, "h")}, nil, filepath.Join(base, "h", ".local", "state", "agentcli")},
-		{"--home wins", []string{"AGENTCLI_HOME=" + filepath.Join(base, "ignored")}, []string{"--home", filepath.Join(base, "o")}, filepath.Join(base, "o")},
+		{"MSGATE_HOME", []string{"MSGATE_HOME=" + filepath.Join(base, "a")}, nil, filepath.Join(base, "a")},
+		{"XDG_STATE_HOME", []string{"XDG_STATE_HOME=" + filepath.Join(base, "x")}, nil, filepath.Join(base, "x", "msgate")},
+		{"default", []string{"HOME=" + filepath.Join(base, "h")}, nil, filepath.Join(base, "h", ".local", "state", "msgate")},
+		{"--home wins", []string{"MSGATE_HOME=" + filepath.Join(base, "ignored")}, []string{"--home", filepath.Join(base, "o")}, filepath.Join(base, "o")},
 	}
 	for _, c := range cases {
 		args := append([]string{"--from", legacyFixture()}, c.args...)

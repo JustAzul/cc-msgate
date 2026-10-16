@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func mustIndex(t *testing.T, s *store.Store, session string, runs ...string) {

@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/prices"
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/store"
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/prices"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 func init() {
@@ -25,7 +25,7 @@ func init() {
 }
 
 // defaultPricesURL is the LiteLLM price list a refresh reads unless
-// AGENTCLI_PRICES_URL names another source or switches the refresh off.
+// MSGATE_PRICES_URL names another source or switches the refresh off.
 const defaultPricesURL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 
 func runPrices(ctx *Context, args []string) int {
@@ -46,7 +46,7 @@ func runPricesShow(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: agentcli prices [--json]\n       agentcli prices refresh [--max-age <duration>] [--json]")
+		fmt.Fprintln(ctx.Stderr, "usage: msgate prices [--json]\n       msgate prices refresh [--max-age <duration>] [--json]")
 		return ExitOK
 	}
 	if err != nil {
@@ -65,7 +65,7 @@ func runPricesShow(ctx *Context, args []string) int {
 		if ctx.JSON {
 			return printJSON(ctx, map[string]any{"cached": false})
 		}
-		fmt.Fprintln(ctx.Stdout, "no price cache: run agentcli prices refresh")
+		fmt.Fprintln(ctx.Stdout, "no price cache: run msgate prices refresh")
 		return ExitOK
 	}
 	if ctx.JSON {
@@ -164,7 +164,7 @@ func runPricesRefresh(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: agentcli prices refresh [--max-age <duration>] [--json]")
+		fmt.Fprintln(ctx.Stderr, "usage: msgate prices refresh [--max-age <duration>] [--json]")
 		return ExitOK
 	}
 	if err != nil {
@@ -180,7 +180,7 @@ func runPricesRefresh(ctx *Context, args []string) int {
 	}
 	st := store.Open(home)
 
-	url := ctx.Getenv("AGENTCLI_PRICES_URL")
+	url := ctx.Getenv("MSGATE_PRICES_URL")
 	if url == "" {
 		url = defaultPricesURL
 	}
@@ -315,10 +315,10 @@ func sameVerdicts(a, b *prices.Cache) bool {
 // fetchOptions are the refresh's request bounds, shortened by the test seams.
 func fetchOptions(ctx *Context) prices.FetchOptions {
 	var opts prices.FetchOptions
-	if d, ok := envMillis(ctx.Getenv, "AGENTCLI_TEST_PRICES_TIMEOUT_MS"); ok {
+	if d, ok := envMillis(ctx.Getenv, "MSGATE_TEST_PRICES_TIMEOUT_MS"); ok {
 		opts.Timeout = d
 	}
-	if n, err := strconv.ParseInt(ctx.Getenv("AGENTCLI_TEST_PRICES_MAX_BYTES"), 10, 64); err == nil && n > 0 {
+	if n, err := strconv.ParseInt(ctx.Getenv("MSGATE_TEST_PRICES_MAX_BYTES"), 10, 64); err == nil && n > 0 {
 		opts.MaxBytes = n
 	}
 	return opts

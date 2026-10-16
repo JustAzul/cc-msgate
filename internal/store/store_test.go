@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func TestResolveHome(t *testing.T) {
@@ -19,9 +20,11 @@ func TestResolveHome(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"agentcli home wins", map[string]string{"AGENTCLI_HOME": "/a", "XDG_STATE_HOME": "/x", "HOME": "/h"}, "/a"},
-		{"xdg", map[string]string{"XDG_STATE_HOME": "/x", "HOME": "/h"}, "/x/agentcli"},
-		{"default", map[string]string{"HOME": "/h"}, "/h/.local/state/agentcli"},
+		{"msgate home wins", map[string]string{"MSGATE_HOME": "/a", "XDG_STATE_HOME": "/x", "HOME": "/h"}, "/a"},
+		{"xdg", map[string]string{"XDG_STATE_HOME": "/x", "HOME": "/h"}, "/x/msgate"},
+		{"default", map[string]string{"HOME": "/h"}, "/h/.local/state/msgate"},
+		{"old home variable ignored", map[string]string{"AGENTCLI_HOME": "/old", "XDG_STATE_HOME": "/x", "HOME": "/h"}, "/x/msgate"},
+		{"old home variable ignored without xdg", map[string]string{"AGENTCLI_HOME": "/old", "HOME": "/h"}, "/h/.local/state/msgate"},
 	}
 	for _, c := range cases {
 		got, err := store.ResolveHome(env(c.env))
@@ -31,6 +34,13 @@ func TestResolveHome(t *testing.T) {
 	}
 	if _, err := store.ResolveHome(env(nil)); err == nil {
 		t.Error("expected error when nothing resolves")
+	}
+	if _, err := store.ResolveHome(env(map[string]string{"AGENTCLI_HOME": "/old"})); err == nil {
+		t.Error("AGENTCLI_HOME alone must not resolve a home")
+	}
+	_, err := store.ResolveHome(env(nil))
+	if err == nil || !strings.Contains(err.Error(), "MSGATE_HOME") {
+		t.Errorf("error %v must name MSGATE_HOME", err)
 	}
 }
 

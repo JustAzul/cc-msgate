@@ -1,4 +1,4 @@
-module github.com/JustAzul/agentcli
+module github.com/JustAzul/cc-msgate
 
 go 1.27
 

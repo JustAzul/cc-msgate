@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// proc is an agentcli process started in the background of a test.
+// proc is a msgate process started in the background of a test.
 type proc struct {
 	t      *testing.T
 	cmd    *exec.Cmd
@@ -24,15 +24,15 @@ type proc struct {
 	start  time.Time
 }
 
-// start launches agentcli without waiting for it, with the same environment
+// start launches msgate without waiting for it, with the same environment
 // run builds. The process, and any provider group recorded for runID, are
 // killed at cleanup so a failing test leaves nothing behind.
 func (s *sandbox) start(runID string, args ...string) *proc {
 	s.t.Helper()
 	p := &proc{t: s.t, done: make(chan struct{})}
-	p.cmd = exec.Command(agentcliBin, args...)
+	p.cmd = exec.Command(msgateBin, args...)
 	p.cmd.Dir = s.t.TempDir()
-	p.cmd.Env = []string{"PATH=" + s.path, "HOME=" + s.t.TempDir(), "AGENTCLI_HOME=" + s.home}
+	p.cmd.Env = []string{"PATH=" + s.path, "HOME=" + s.t.TempDir(), "MSGATE_HOME=" + s.home}
 	for k, v := range s.env {
 		p.cmd.Env = append(p.cmd.Env, k+"="+v)
 	}
@@ -80,7 +80,7 @@ func (p *proc) wait(limit time.Duration) result {
 	case <-p.done:
 		return p.waited
 	case <-time.After(limit):
-		p.t.Fatalf("agentcli still running after %v (stderr so far: %q)", limit, p.errb.String())
+		p.t.Fatalf("msgate still running after %v (stderr so far: %q)", limit, p.errb.String())
 		return result{}
 	}
 }

@@ -1,10 +1,10 @@
 // Command import-legacy loads the retired codex-hub telemetry file into the
-// agentcli telemetry store.
+// msgate telemetry store.
 //
 // Usage: import-legacy --from <legacy jsonl> [--home <dir>] [--lock-wait <duration>]
 //
-// The home is resolved like the CLI does (AGENTCLI_HOME, XDG_STATE_HOME,
-// ~/.local/state/agentcli) unless --home is given. Exit 0: done, 1: I/O or
+// The home is resolved like the CLI does (MSGATE_HOME, XDG_STATE_HOME,
+// ~/.local/state/msgate) unless --home is given. Exit 0: done, 1: I/O or
 // lock failure, 2: usage error. The last stdout line summarizes the run:
 // imported=N skipped_existing=N unparseable=N.
 //
@@ -29,8 +29,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/store"
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 const (
@@ -49,7 +49,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		fmt.Fprintln(stderr, "usage: import-legacy --from <legacy jsonl> [--home <dir>] [--lock-wait <duration>]")
 	}
 	from := fset.String("from", "", "legacy telemetry file")
-	homeFlag := fset.String("home", "", "agentcli home (default: resolved like the CLI)")
+	homeFlag := fset.String("home", "", "msgate home (default: resolved like the CLI)")
 	lockWait := fset.Duration("lock-wait", 30*time.Second, "how long to wait for the telemetry lock")
 	if err := fset.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -155,7 +155,7 @@ type converted struct {
 	line []byte
 }
 
-// convert maps one legacy line to an agentcli run record and returns the time
+// convert maps one legacy line to a msgate run record and returns the time
 // whose month file should hold it. ok is false when the line is not a JSON
 // object or its ts cannot be read.
 func convert(raw []byte, occurrence int) (converted, time.Time, bool) {

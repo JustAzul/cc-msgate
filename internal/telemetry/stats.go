@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/prices"
-	"github.com/JustAzul/agentcli/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/prices"
+	"github.com/JustAzul/cc-msgate/internal/provider"
 )
 
 // cleanOutputMaxBytes is the output size at or below which a successful hook

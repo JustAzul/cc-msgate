@@ -7,8 +7,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/store"
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 func init() {
@@ -50,7 +50,7 @@ func windowFlags(ctx *Context, name string, args []string) (w window, asJSON boo
 	ctx.JSON = wantsJSON(args)
 	if err := fset.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintf(ctx.Stderr, "usage: agentcli %s [--days N | --all] [--session-id ID] [--json]\n", name)
+			fmt.Fprintf(ctx.Stderr, "usage: msgate %s [--days N | --all] [--session-id ID] [--json]\n", name)
 			return w, false, ExitOK, true
 		}
 		return w, false, ctx.Fail(ExitUsage, "%v", err), true
@@ -104,7 +104,7 @@ func runRuns(ctx *Context, args []string) int {
 	}
 	if n := folded.Skipped.Total(); n > 0 {
 		s := folded.Skipped
-		fmt.Fprintf(ctx.Stderr, "agentcli: skipped %d telemetry lines (unknown_kind=%d unknown_version=%d unparseable=%d)\n",
+		fmt.Fprintf(ctx.Stderr, "msgate: skipped %d telemetry lines (unknown_kind=%d unknown_version=%d unparseable=%d)\n",
 			n, s.UnknownKind, s.UnknownVersion, s.Unparseable)
 	}
 	return ExitOK

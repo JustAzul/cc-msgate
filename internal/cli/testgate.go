@@ -9,11 +9,11 @@ import (
 const testGateLimit = 10 * time.Second
 
 // readerGate lets a test act between a reader's first look at a run and the
-// rest of its work. When AGENTCLI_TEST_READ_GATE names a path, the reader
+// rest of its work. When MSGATE_TEST_READ_GATE names a path, the reader
 // creates <path>.reached and waits for <path>.release to appear. It is
 // inert otherwise.
 func readerGate(ctx *Context) {
-	path := ctx.Getenv("AGENTCLI_TEST_READ_GATE")
+	path := ctx.Getenv("MSGATE_TEST_READ_GATE")
 	if path == "" {
 		return
 	}

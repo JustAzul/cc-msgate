@@ -106,7 +106,7 @@ func TestPruneRetentionPrecedence(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			s := twoRuns(t)
 			if c.env != "" {
-				s.set("AGENTCLI_RETENTION_DAYS", c.env)
+				s.set("MSGATE_RETENTION_DAYS", c.env)
 			}
 			r := s.run(append([]string{"prune", "--json"}, c.args...)...)
 			if got := r.json(t)["removed"]; r.code != 0 || got != c.removed {
@@ -132,7 +132,7 @@ func TestPruneUsageErrorsExit2(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			s := twoRuns(t)
 			if c.env != "" {
-				s.set("AGENTCLI_RETENTION_DAYS", c.env)
+				s.set("MSGATE_RETENTION_DAYS", c.env)
 			}
 			r := s.run(append([]string{"prune", "--json"}, c.args...)...)
 			if r.code != 2 || r.json(t)["sdk_status"] != "usage_error" {
@@ -177,7 +177,7 @@ func TestPrunedRunIsNotFoundForEveryReader(t *testing.T) {
 func removeAtGate(t *testing.T, s *sandbox, id string, args ...string) result {
 	t.Helper()
 	gate := filepath.Join(t.TempDir(), "gate")
-	s.set("AGENTCLI_TEST_READ_GATE", gate)
+	s.set("MSGATE_TEST_READ_GATE", gate)
 	p := s.start("", args...)
 	deadline := time.Now().Add(10 * time.Second)
 	for !exists(gate + ".reached") {

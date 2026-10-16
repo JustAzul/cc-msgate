@@ -38,7 +38,7 @@ if [ -z "${BUILD_SEQ:-}" ]; then
   BUILD_SEQ=$(git rev-list --count HEAD 2>/dev/null) || die "BUILD_SEQ is not set and git cannot count commits"
 fi
 
-pkg=github.com/JustAzul/agentcli/internal/version
+pkg=github.com/JustAzul/cc-msgate/internal/version
 ldflags="-s -w -X $pkg.Version=$version -X $pkg.SourceCommit=$SOURCE_SHA -X $pkg.BuildSeq=$BUILD_SEQ"
 
 cp -R plugin/. "$out/"
@@ -46,7 +46,7 @@ cp -R plugin/. "$out/"
 # development files; they are not part of the shipped plugin.
 rm -rf "$out/tests" "$out/.claude-plugin/types" "$out/tsconfig.json"
 cp LICENSE README.md "$out/"
-chmod 755 "$out/bin/agentcli"
+chmod 755 "$out/bin/msgate"
 mkdir -p "$out/libexec"
 
 platforms="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
@@ -54,7 +54,7 @@ for p in $platforms; do
   os=${p%/*}
   arch=${p#*/}
   CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false -ldflags "$ldflags" \
-    -o "$out/libexec/agentcli-$os-$arch" ./cmd/agentcli
+    -o "$out/libexec/msgate-$os-$arch" ./cmd/msgate
 done
 
 if command -v sha256sum >/dev/null 2>&1; then
@@ -66,7 +66,7 @@ fi
   cd "$out"
   : >SHA256SUMS
   for p in $platforms; do
-    sum "libexec/agentcli-${p%/*}-${p#*/}" >>SHA256SUMS
+    sum "libexec/msgate-${p%/*}-${p#*/}" >>SHA256SUMS
   done
 )
 echo "build-dist: wrote $out (version $version, build_seq $BUILD_SEQ)"

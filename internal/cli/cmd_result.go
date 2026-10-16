@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func init() {
@@ -15,7 +15,7 @@ func init() {
 
 func runResultCmd(ctx *Context, args []string) int {
 	if len(args) != 1 {
-		return ctx.Fail(ExitUsage, "usage: agentcli result <run_id>")
+		return ctx.Fail(ExitUsage, "usage: msgate result <run_id>")
 	}
 	home, err := store.ResolveHome(ctx.Getenv)
 	if err != nil {
@@ -27,14 +27,14 @@ func runResultCmd(ctx *Context, args []string) int {
 		return code
 	}
 	if !isTerminalState(state.State) {
-		return ctx.Fail(ExitBusy, "run %s is still %s; wait for it with: agentcli wait %s", state.RunID, state.State, state.RunID)
+		return ctx.Fail(ExitBusy, "run %s is still %s; wait for it with: msgate wait %s", state.RunID, state.State, state.RunID)
 	}
 	f, err := os.Open(state.OutputPath)
 	if errors.Is(err, os.ErrNotExist) {
 		if !st.RunExists(state.RunID) {
 			return ctx.Fail(ExitNotFound, "no run %q", state.RunID)
 		}
-		fmt.Fprintf(ctx.Stderr, "agentcli: run %s produced no output file\n", state.RunID)
+		fmt.Fprintf(ctx.Stderr, "msgate: run %s produced no output file\n", state.RunID)
 		return ExitOK
 	}
 	if err != nil {

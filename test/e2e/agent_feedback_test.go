@@ -23,7 +23,7 @@ func TestAgentFeedbackIsRecordedForARunWithASession(t *testing.T) {
 		args  []string
 	}{
 		{"flag", func(s *sandbox) *sandbox { return s }, []string{"--agent-feedback", "--session-id", "sess-a"}},
-		{"env", func(s *sandbox) *sandbox { return s.set("AGENTCLI_AGENT_FEEDBACK", "1") }, []string{"--session-id", "sess-a"}},
+		{"env", func(s *sandbox) *sandbox { return s.set("MSGATE_AGENT_FEEDBACK", "1") }, []string{"--session-id", "sess-a"}},
 		{"session from the environment", func(s *sandbox) *sandbox { return s.set("CLAUDE_CODE_SESSION_ID", "sess-a") }, []string{"--agent-feedback"}},
 	}
 	for _, c := range cases {
@@ -62,7 +62,7 @@ func TestAgentFeedbackWithoutASessionRunsAndSaysWhyItIsOff(t *testing.T) {
 }
 
 func TestAgentFeedbackIsOffByDefault(t *testing.T) {
-	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("AGENTCLI_AGENT_FEEDBACK", "0")
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("MSGATE_AGENT_FEEDBACK", "0")
 
 	r := s.run("exec", "--run-id", "af3", "--session-id", "sess-a", "q")
 

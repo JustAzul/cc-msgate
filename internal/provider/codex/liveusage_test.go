@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/provider/codex"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/provider/codex"
 )
 
 var runStart = time.Date(2026, 10, 7, 21, 0, 0, 0, time.UTC)

@@ -155,7 +155,7 @@ func TestSendRunsInTheConversationsDirectory(t *testing.T) {
 	a := symlinkedGitRepo(t)
 	conv := startConversation(t, s, "t1", "--cwd", a)
 	rec := s.recordTo()
-	// The sandbox runs agentcli from an unrelated temporary directory.
+	// The sandbox runs msgate from an unrelated temporary directory.
 	if r := s.run("send", conv, "--run-id", "t2", "x"); r.code != 0 {
 		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
 	}

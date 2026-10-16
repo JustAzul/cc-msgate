@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/prices"
+	"github.com/JustAzul/cc-msgate/internal/prices"
 )
 
 func rat(s string) *big.Rat {

@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/runner"
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 // workerCommand is the internal entry point a job's detached worker runs.
@@ -23,7 +23,7 @@ func init() {
 // could not run the job at all.
 func runWorker(ctx *Context, args []string) int {
 	if len(args) != 1 || store.ValidateRunID(args[0]) != nil {
-		return ctx.Fail(ExitUsage, "usage: agentcli %s <run_id>", workerCommand)
+		return ctx.Fail(ExitUsage, "usage: msgate %s <run_id>", workerCommand)
 	}
 	runID := args[0]
 	home, err := store.ResolveHome(ctx.Getenv)
@@ -55,7 +55,7 @@ func runWorker(ctx *Context, args []string) int {
 		return ctx.Fail(ExitInternal, "unknown provider %q", req.Provider)
 	}
 
-	if d, ok := envMillis(ctx.Getenv, "AGENTCLI_TEST_WORKER_STALL_MS"); ok {
+	if d, ok := envMillis(ctx.Getenv, "MSGATE_TEST_WORKER_STALL_MS"); ok {
 		time.Sleep(d) // lets a test hold the run between queued and running
 	}
 	// The runner re-reads the state once it holds the run lock: a run settled

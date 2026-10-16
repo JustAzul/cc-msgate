@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/cli"
-	"github.com/JustAzul/agentcli/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/cli"
+	"github.com/JustAzul/cc-msgate/internal/provider"
 )
 
 // noReviewProvider declares exec support only.
@@ -27,8 +27,8 @@ func TestReviewRefusedWhenProviderCannotReview(t *testing.T) {
 	provider.Register(noReviewProvider{})
 	home := t.TempDir()
 	var out, errb bytes.Buffer
-	code := cli.Run([]string{"agentcli", "review", "--provider", "testprov", "--base", "main"},
-		[]string{"AGENTCLI_HOME=" + home}, strings.NewReader(""), &out, &errb)
+	code := cli.Run([]string{"msgate", "review", "--provider", "testprov", "--base", "main"},
+		[]string{"MSGATE_HOME=" + home}, strings.NewReader(""), &out, &errb)
 	if code != cli.ExitUsage {
 		t.Fatalf("exit %d, want %d (stderr %q)", code, cli.ExitUsage, errb.String())
 	}

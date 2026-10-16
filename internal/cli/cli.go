@@ -13,7 +13,7 @@ import (
 	"time"
 
 	// Provider adapters register themselves from init().
-	_ "github.com/JustAzul/agentcli/internal/provider/codex"
+	_ "github.com/JustAzul/cc-msgate/internal/provider/codex"
 )
 
 // Context is what a command sees of its process.
@@ -44,12 +44,12 @@ func (c *Context) Getenv(key string) string {
 
 // Warnf prints one warning line on stderr.
 func (c *Context) Warnf(format string, a ...any) {
-	fmt.Fprintf(c.Stderr, "agentcli: warning: "+format+"\n", a...)
+	fmt.Fprintf(c.Stderr, "msgate: warning: "+format+"\n", a...)
 }
 
 // Errorf prints one error line on stderr.
 func (c *Context) Errorf(format string, a ...any) {
-	fmt.Fprintf(c.Stderr, "agentcli: "+format+"\n", a...)
+	fmt.Fprintf(c.Stderr, "msgate: "+format+"\n", a...)
 }
 
 // Fail prints the error on stderr and, in JSON mode, the FRAME error object on
@@ -148,7 +148,7 @@ func register(c Command) {
 	commands[c.Name] = c
 }
 
-// Main runs agentcli with os.Args-shaped args (args[0] is the program name)
+// Main runs msgate with os.Args-shaped args (args[0] is the program name)
 // and the caller environment, and returns the process exit code.
 func Main(args []string, env []string) int {
 	return Run(args, env, os.Stdin, os.Stdout, os.Stderr)
@@ -183,7 +183,7 @@ func usage(w io.Writer) {
 		}
 	}
 	sort.Strings(names)
-	fmt.Fprintln(w, "usage: agentcli <command> [flags] [prompt] [-- native flags]")
+	fmt.Fprintln(w, "usage: msgate <command> [flags] [prompt] [-- native flags]")
 	fmt.Fprintln(w, "commands:")
 	for _, n := range names {
 		fmt.Fprintf(w, "  %-10s %s\n", n, commands[n].Summary)

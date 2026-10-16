@@ -4,10 +4,10 @@ import (
 	"errors"
 	"io"
 
-	"github.com/JustAzul/agentcli/internal/profile"
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/runner"
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/profile"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 // turn is one fully validated provider turn, ready to plan, admit and run.

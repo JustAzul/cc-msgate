@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/runner"
 )
 
 func TestForegroundRunIsVisibleToOtherShells(t *testing.T) {
@@ -19,11 +19,11 @@ func TestForegroundRunIsVisibleToOtherShells(t *testing.T) {
 	st := waitForState(t, s, "vis1", "a running state with the provider group", hasProviderGroup)
 
 	if got := int(st["worker_pid"].(float64)); got != p.pid() {
-		t.Errorf("worker_pid = %d, want the agentcli pid %d", got, p.pid())
+		t.Errorf("worker_pid = %d, want the msgate pid %d", got, p.pid())
 	}
 	pgid := int(st["provider_pgid"].(float64))
 	if own, err := syscall.Getpgid(p.pid()); err != nil || pgid == own {
-		t.Errorf("provider_pgid = %d, agentcli group = %d (%v); the provider needs a group of its own", pgid, own, err)
+		t.Errorf("provider_pgid = %d, msgate group = %d (%v); the provider needs a group of its own", pgid, own, err)
 	}
 	if got, err := syscall.Getpgid(pgid); err != nil || got != pgid {
 		t.Errorf("pid %d is not the leader of group %d (getpgid = %d, %v)", pgid, pgid, got, err)
@@ -54,8 +54,8 @@ func TestForegroundRunIsVisibleToOtherShells(t *testing.T) {
 // shutdownEnv shortens the grace and drain waits so lifecycle tests run in
 // seconds; the defaults are asserted separately.
 func shutdownEnv(s *sandbox, grace, drain time.Duration) *sandbox {
-	return s.set("AGENTCLI_TEST_SHUTDOWN_GRACE_MS", strconv.Itoa(int(grace.Milliseconds()))).
-		set("AGENTCLI_TEST_SHUTDOWN_DRAIN_MS", strconv.Itoa(int(drain.Milliseconds())))
+	return s.set("MSGATE_TEST_SHUTDOWN_GRACE_MS", strconv.Itoa(int(grace.Milliseconds()))).
+		set("MSGATE_TEST_SHUTDOWN_DRAIN_MS", strconv.Itoa(int(drain.Milliseconds())))
 }
 
 func TestTimeoutKillsTheWholeGroup(t *testing.T) {

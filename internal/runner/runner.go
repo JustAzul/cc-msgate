@@ -17,9 +17,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/store"
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 const stderrTailBytes = 64 * 1024
@@ -56,7 +56,7 @@ type Job struct {
 type Result struct {
 	State        store.State
 	ProviderExit *int // nil when the provider never ran to an exit
-	ExitCode     int  // the process exit code agentcli should use
+	ExitCode     int  // the process exit code msgate should use
 	SDKStatus    string
 	Usage        *provider.Usage
 }
@@ -70,7 +70,7 @@ const (
 	SDKStatusInternalError   = "internal_error"
 )
 
-// exitInternal is the exit code of a run that failed inside agentcli.
+// exitInternal is the exit code of a run that failed inside msgate.
 const exitInternal = 70
 
 // Run executes a foreground run to a terminal state. It returns an error only
@@ -336,7 +336,7 @@ type endReason int
 const (
 	endExited  endReason = iota // the provider finished on its own
 	endTimeout                  // the timeout expired first
-	endSignal                   // agentcli was asked to stop first
+	endSignal                   // msgate was asked to stop first
 )
 
 // ended is how the provider's wait finished.

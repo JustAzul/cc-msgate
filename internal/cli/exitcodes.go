@@ -1,7 +1,7 @@
 package cli
 
 // SDK exit codes. Provider exits pass through unchanged; a signal n
-// that terminates agentcli itself maps to 128+n.
+// that terminates msgate itself maps to 128+n.
 const (
 	ExitOK                = 0
 	ExitUsage             = 2   // usage error detected before spawning

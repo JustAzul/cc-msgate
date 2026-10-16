@@ -163,7 +163,7 @@ func TestUsageNeedsASubcommand(t *testing.T) {
 	for _, args := range [][]string{{"usage"}, {"usage", "bogus"}} {
 		s := newSandbox(t)
 		r := s.run(args...)
-		if r.code != 2 || !strings.Contains(r.stderr, "usage: agentcli usage add") {
+		if r.code != 2 || !strings.Contains(r.stderr, "usage: msgate usage add") {
 			t.Errorf("%v: exit %d stderr %q", args, r.code, r.stderr)
 		}
 	}

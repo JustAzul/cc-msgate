@@ -85,7 +85,7 @@ func (ps *priceServer) configure(f func(*priceServer)) {
 func refreshing(t *testing.T) (*sandbox, *priceServer) {
 	t.Helper()
 	ps := newPriceServer(t)
-	s := newSandbox(t).set("AGENTCLI_PRICES_URL", ps.URL).set("FAKECODEX_MODELS", catalogFixture())
+	s := newSandbox(t).set("MSGATE_PRICES_URL", ps.URL).set("FAKECODEX_MODELS", catalogFixture())
 	seedModelRuns(t, s, `"model":"m-zero"`)
 	return s, ps
 }

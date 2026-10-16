@@ -360,7 +360,7 @@ func TestSecurityPermissions(t *testing.T) {
 }
 
 func TestOutputModeTightenedWhenProviderWritesLoose(t *testing.T) {
-	// A real provider writes output.md with the process umask; agentcli
+	// A real provider writes output.md with the process umask; msgate
 	// tightens it to 0600.
 	dir := t.TempDir()
 	script := `#!/bin/sh

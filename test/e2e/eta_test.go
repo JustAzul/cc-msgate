@@ -199,9 +199,9 @@ func TestETACwdDefaultsToTheWorkingDirectory(t *testing.T) {
 	s := newSandbox(t)
 	here, other := t.TempDir(), t.TempDir()
 	seedETA(t, s, etaRun(t, "e1", here, 30000), etaRun(t, "e2", other, 90000))
-	cmd := exec.Command(agentcliBin, "eta", "--scenario", "code-review", "--json")
+	cmd := exec.Command(msgateBin, "eta", "--scenario", "code-review", "--json")
 	cmd.Dir = here
-	cmd.Env = []string{"PATH=" + s.path, "HOME=" + t.TempDir(), "AGENTCLI_HOME=" + s.home}
+	cmd.Env = []string{"PATH=" + s.path, "HOME=" + t.TempDir(), "MSGATE_HOME=" + s.home}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
@@ -225,9 +225,9 @@ func TestETARelativeCwdIsResolvedAgainstTheWorkingDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedETA(t, s, etaRun(t, "e1", project, 20000), etaRun(t, "e2", project, 40000))
-	cmd := exec.Command(agentcliBin, "eta", "--scenario", "code-review", "--cwd", "project", "--json")
+	cmd := exec.Command(msgateBin, "eta", "--scenario", "code-review", "--cwd", "project", "--json")
 	cmd.Dir = parent
-	cmd.Env = []string{"PATH=" + s.path, "HOME=" + t.TempDir(), "AGENTCLI_HOME=" + s.home}
+	cmd.Env = []string{"PATH=" + s.path, "HOME=" + t.TempDir(), "MSGATE_HOME=" + s.home}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {

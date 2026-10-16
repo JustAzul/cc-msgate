@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func init() {
@@ -17,7 +17,7 @@ func init() {
 }
 
 // defaultRetentionDays is how old a finished run must be to be pruned when
-// neither --older-than nor AGENTCLI_RETENTION_DAYS says otherwise.
+// neither --older-than nor MSGATE_RETENTION_DAYS says otherwise.
 const defaultRetentionDays = 30
 
 // retentionDays is a non-negative whole number of days.
@@ -74,7 +74,7 @@ func runPrune(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: agentcli prune [--older-than <days>] [--dry-run] [--auto] [--json]")
+		fmt.Fprintln(ctx.Stderr, "usage: msgate prune [--older-than <days>] [--dry-run] [--auto] [--json]")
 		return ExitOK
 	}
 	if err != nil {
@@ -99,15 +99,15 @@ func runPrune(ctx *Context, args []string) int {
 	return pruneHome(ctx, store.Open(home), days, dryRun, 0, false)
 }
 
-// envRetentionDays is AGENTCLI_RETENTION_DAYS, or the default when it is unset.
+// envRetentionDays is MSGATE_RETENTION_DAYS, or the default when it is unset.
 func envRetentionDays(getenv func(string) string) (int, error) {
-	raw := getenv("AGENTCLI_RETENTION_DAYS")
+	raw := getenv("MSGATE_RETENTION_DAYS")
 	if raw == "" {
 		return defaultRetentionDays, nil
 	}
 	n, err := parseDays(raw)
 	if err != nil {
-		return 0, fmt.Errorf("AGENTCLI_RETENTION_DAYS must be a whole number of days, 0 or more, got %q", raw)
+		return 0, fmt.Errorf("MSGATE_RETENTION_DAYS must be a whole number of days, 0 or more, got %q", raw)
 	}
 	return n, nil
 }
@@ -118,7 +118,7 @@ func pruneHome(ctx *Context, st *store.Store, days int, dryRun bool, budget time
 		OlderThan: time.Duration(days) * 24 * time.Hour, Now: ctx.Now, DryRun: dryRun, Budget: budget,
 		Warn: func(msg string) { ctx.Warnf("%s", msg) },
 	}
-	if step, ok := envMillis(ctx.Getenv, "AGENTCLI_TEST_PRUNE_STEP_MS"); ok {
+	if step, ok := envMillis(ctx.Getenv, "MSGATE_TEST_PRUNE_STEP_MS"); ok {
 		opts.AfterRun = func(string) { time.Sleep(step) } // makes a run's handling slow enough to outlast a short budget
 	}
 	res, err := st.Prune(opts)
@@ -195,7 +195,7 @@ func autoPrune(ctx *Context, st *store.Store, days int, dryRun bool) int {
 		}
 	}
 	budget := autoPruneBudget
-	if d, ok := envMillis(ctx.Getenv, "AGENTCLI_TEST_PRUNE_BUDGET_MS"); ok {
+	if d, ok := envMillis(ctx.Getenv, "MSGATE_TEST_PRUNE_BUDGET_MS"); ok {
 		budget = d
 	}
 	return pruneHome(ctx, st, days, dryRun, budget, true)
@@ -204,7 +204,7 @@ func autoPrune(ctx *Context, st *store.Store, days int, dryRun bool) int {
 // autoPruneOff reports whether an automatic pass has nothing to do: the
 // opt-out is set, or the home does not exist yet.
 func autoPruneOff(ctx *Context, st *store.Store) bool {
-	if ctx.Getenv("AGENTCLI_NO_PRUNE") == "1" {
+	if ctx.Getenv("MSGATE_NO_PRUNE") == "1" {
 		return true
 	}
 	_, err := os.Stat(st.Home)

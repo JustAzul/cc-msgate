@@ -9,7 +9,7 @@ import (
 	"sort"
 	"text/tabwriter"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func init() {
@@ -29,7 +29,7 @@ func runStatus(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: agentcli status [run_id] [--session-id <id>] [--json]")
+		fmt.Fprintln(ctx.Stderr, "usage: msgate status [run_id] [--session-id <id>] [--json]")
 		return ExitOK
 	}
 	if err != nil {

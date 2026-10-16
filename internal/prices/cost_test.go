@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/prices"
+	"github.com/JustAzul/cc-msgate/internal/prices"
 )
 
 func price(t *testing.T, input, cached, write, output string) prices.Price {

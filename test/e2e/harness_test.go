@@ -1,4 +1,4 @@
-// Package e2e runs black-box tests against the built agentcli binary and the
+// Package e2e runs black-box tests against the built msgate binary and the
 // fake codex provider.
 package e2e
 
@@ -16,10 +16,10 @@ import (
 )
 
 var (
-	agentcliBin string // absolute path to the built agentcli
-	agentcliDir string // directory holding agentcli only (no codex)
-	fakeDir     string // directory holding the fake provider as "codex"
-	repoRoot    string
+	msgateBin string // absolute path to the built msgate
+	msgateDir string // directory holding msgate only (no codex)
+	fakeDir   string // directory holding the fake provider as "codex"
+	repoRoot  string
 )
 
 func TestMain(m *testing.M) {
@@ -35,17 +35,17 @@ func realMain(m *testing.M) int {
 		return 1
 	}
 	repoRoot = root
-	tmp, err := os.MkdirTemp("", "agentcli-e2e-*")
+	tmp, err := os.MkdirTemp("", "msgate-e2e-*")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	defer os.RemoveAll(tmp)
-	agentcliDir = filepath.Join(tmp, "agentcli-bin")
+	msgateDir = filepath.Join(tmp, "msgate-bin")
 	fakeDir = filepath.Join(tmp, "fake-bin")
-	agentcliBin = filepath.Join(agentcliDir, "agentcli")
+	msgateBin = filepath.Join(msgateDir, "msgate")
 	builds := []struct{ out, pkg string }{
-		{agentcliBin, "./cmd/agentcli"},
+		{msgateBin, "./cmd/msgate"},
 		{filepath.Join(fakeDir, "codex"), "./internal/testutil/fakecodex"},
 	}
 	for _, b := range builds {
@@ -79,17 +79,17 @@ func findRepoRoot() (string, error) {
 
 func fixture(name string) string { return filepath.Join(repoRoot, "testdata", "codex", name+".jsonl") }
 
-// sandbox is one test's isolated world: its own AGENTCLI_HOME and PATH.
+// sandbox is one test's isolated world: its own MSGATE_HOME and PATH.
 type sandbox struct {
 	t     *testing.T
-	home  string // AGENTCLI_HOME (not created in advance)
+	home  string // MSGATE_HOME (not created in advance)
 	path  string
 	env   map[string]string
 	stdin string
 }
 
 // newSandbox puts the fake codex on PATH and switches the price refresh off; a
-// test that refreshes sets AGENTCLI_PRICES_URL to its own server. The child
+// test that refreshes sets MSGATE_PRICES_URL to its own server. The child
 // environment is built explicitly and never inherited, so the host's
 // CLAUDE_CODE_SESSION_ID or a real codex cannot leak in.
 func newSandbox(t *testing.T) *sandbox {
@@ -98,13 +98,13 @@ func newSandbox(t *testing.T) *sandbox {
 		t:    t,
 		home: filepath.Join(t.TempDir(), "home"),
 		path: fakeDir + string(os.PathListSeparator) + "/usr/bin:/bin",
-		env:  map[string]string{"AGENTCLI_PRICES_URL": "off"},
+		env:  map[string]string{"MSGATE_PRICES_URL": "off"},
 	}
 }
 
 // withoutProvider removes the fake from PATH.
 func (s *sandbox) withoutProvider() *sandbox {
-	s.path = agentcliDir
+	s.path = msgateDir
 	return s
 }
 
@@ -147,9 +147,9 @@ func (r result) json(t *testing.T) map[string]any {
 
 func (s *sandbox) run(args ...string) result {
 	s.t.Helper()
-	cmd := exec.Command(agentcliBin, args...)
+	cmd := exec.Command(msgateBin, args...)
 	cmd.Dir = s.t.TempDir()
-	cmd.Env = []string{"PATH=" + s.path, "HOME=" + s.t.TempDir(), "AGENTCLI_HOME=" + s.home}
+	cmd.Env = []string{"PATH=" + s.path, "HOME=" + s.t.TempDir(), "MSGATE_HOME=" + s.home}
 	for k, v := range s.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

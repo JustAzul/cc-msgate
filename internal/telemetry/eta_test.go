@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 // etaRun is a folded run as telemetry.Fold yields it: numbers are json.Number.

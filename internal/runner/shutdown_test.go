@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/runner"
 )
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -21,7 +21,7 @@ func TestShutdownDefaultsAreFiveSeconds(t *testing.T) {
 
 func TestShutdownTestOverrides(t *testing.T) {
 	got := runner.ShutdownFromEnv(envOf(map[string]string{
-		"AGENTCLI_TEST_SHUTDOWN_GRACE_MS": "250", "AGENTCLI_TEST_SHUTDOWN_DRAIN_MS": "120",
+		"MSGATE_TEST_SHUTDOWN_GRACE_MS": "250", "MSGATE_TEST_SHUTDOWN_DRAIN_MS": "120",
 	}))
 	if want := (runner.Shutdown{Grace: 250 * time.Millisecond, Drain: 120 * time.Millisecond}); got != want {
 		t.Errorf("overrides = %+v, want %+v", got, want)
@@ -31,7 +31,7 @@ func TestShutdownTestOverrides(t *testing.T) {
 func TestShutdownIgnoresUnusableOverrides(t *testing.T) {
 	for _, bad := range []string{"abc", "0", "-5", ""} {
 		got := runner.ShutdownFromEnv(envOf(map[string]string{
-			"AGENTCLI_TEST_SHUTDOWN_GRACE_MS": bad, "AGENTCLI_TEST_SHUTDOWN_DRAIN_MS": bad,
+			"MSGATE_TEST_SHUTDOWN_GRACE_MS": bad, "MSGATE_TEST_SHUTDOWN_DRAIN_MS": bad,
 		}))
 		if got != runner.DefaultShutdown {
 			t.Errorf("override %q gave %+v, want the defaults", bad, got)
