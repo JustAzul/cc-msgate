@@ -495,7 +495,8 @@ A run any other caller starts with `--agent-feedback` (see
 that starts `msgate · ` with its purpose, its source, how long it has run, what
 it has cost so far and a short summary of what it is doing, gone once it ends.
 The band shows the flagged runs whose source is not `agent`, since the rows the
-engine answers show their own runs. Only you see the band: nothing about the run
+engine answers show their own runs, and not those that have a
+[hidden row](#hidden-rows). Only you see the band: nothing about the run
 enters the conversation, and the caller that started it delivers its result.
 
 The summaries come from `claude-haiku-5-5` at low effort: the mod sends a
@@ -579,6 +580,29 @@ How a backed row behaves:
 - **Step limit.** The engine answers at most eight steps of a turn. From the
   ninth on it passes the step down, so the fallback model the agent type
   registered ends the turn, and it writes one line to the debug log.
+
+### Hidden rows
+
+A plugin can show a flagged run as a row of its own. It backs a type with
+`command: 'follow'` and `promptMode: 'run-id'`, lists the runs to show with
+[`flaggedRuns()`](#flaggedruns) and spawns one row per run, with the prompt
+`msgate run <run_id>`. The engine answers such a row only when the plugin that
+backed its type spawned it, and only for a run of the session that asks to be
+shown; any other row of the type passes to the model beneath.
+- **Registered.** The engine registers a row when it opens, with the run its
+  prompt names. The run leaves the band then, and `flaggedRuns()` no longer
+  lists it, whatever becomes of the row.
+- **Follow.** The row shows what the run is doing, as a backed row does. It
+  starts no run: the hook that started the run delivers its result.
+- **Answer.** The turn ends with the plain text
+  `msgate run <run_id> ended <outcome>`, never a hand-back, and a later step of
+  the turn repeats it. Nothing of it reaches Claude.
+- **Stop.** Stopping the row hides it and does not cancel the run, and the band
+  does not show that run again.
+- **Auto permission mode.** There Claude Code does not let a row end with plain
+  text, and a hand-back would deliver the row's text to Claude, so the spawn is
+  refused (`msgate: a hidden row does not open in the auto permission mode`)
+  and the run stays in the band.
 
 ## For plugin authors: the msgate interface
 
@@ -666,7 +690,7 @@ runs of Claude or of another plugin.
 
 Resolves `[{ run_id, purpose, source, started_at }]`: the session's runs that
 asked to be shown with `--agent-feedback`, are not finished, and whose source is
-not `agent`, leaving out every run that already has a hidden row. `purpose` is
+not `agent`, leaving out every run that already has a [hidden row](#hidden-rows). `purpose` is
 `""` for a run with none, and `started_at` is `null` for a run that has not
 started. Any plugin can call it. It is refused with `msgate:flaggedRuns:failed`.
 

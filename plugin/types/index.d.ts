@@ -164,6 +164,9 @@ declare module 'claude-code' {
       // The run ids each plugin admitted through `run`, oldest first, at most 200
       // per plugin: what `jobs` lists.
       admittedRuns: { [plugin: string]: string[] }
+      // The run each hidden row follows, by agent id, oldest row first, at most
+      // 200: the rows the engine answers.
+      hiddenRows: { [agentId: string]: string }
     }
   }
 }

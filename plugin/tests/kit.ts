@@ -205,8 +205,10 @@ export function world(on: any, opts: { store?: Record<string, unknown>; backed?:
   // The backed types of the interface are the one state value the world holds:
   // the interface methods (driven through msgateAs) write it and the rows' hooks
   // read it, so a test can back a type and then run a row of it.
-  on('state.get', { plugin: 'msgate', key: 'backedTypes' }, () => ({ value: { value: w.state.get('backedTypes')?.value, version: w.state.get('backedTypes')?.version ?? 0 } }))
-  on('state.set', { plugin: 'msgate', key: 'backedTypes' }, (_$: any, e: any) => ({ value: stateWrite(w.state, 'backedTypes', e.value, e.ifVersion) }))
+  for (const key of ['backedTypes', 'hiddenRows']) {
+    on('state.get', { plugin: 'msgate', key }, () => ({ value: { value: w.state.get(key)?.value, version: w.state.get(key)?.version ?? 0 } }))
+    on('state.set', { plugin: 'msgate', key }, (_$: any, e: any) => ({ value: stateWrite(w.state, key, e.value, e.ifVersion) }))
+  }
   // The compaction beneath the plugin: the engine's own, which keeps nothing.
   on('session.compact', () => ({ messages: [{ role: 'user', text: 'a summary', toolUses: [] }] }))
   on('agent.list', () => ({ value: w.agents.map((a) => ({ ...a, description: '', status: 'running' })) }))

@@ -81,6 +81,7 @@ import {
 import { BAND_REFRESH_MS, bandLine, flaggedRuns, followedRuns, labelled, withProgress } from './band.js'
 import { createSummarizer } from './summarizer.js'
 import { backedTypeOf } from './backed.js'
+import { FOLLOW, admitSpawn, checkRun, endedText, hiddenRunIds, hiddenRunOf, stoppedText } from './hidden.js'
 import { createService } from './service.js'
 import { INTERFACE, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveRun, serveVersion } from './iface.js'
 import { summaryRecording } from './summary.js'
@@ -222,6 +223,9 @@ export function register(on, options) {
   on('msgate.run', ($, e, next) => serveRun($, e, next.origin.plugin)).catch(() => ({ deny: 'msgate:run:failed' }))
   on('msgate.jobs', ($, e, next) => serveJobs($, e, next.origin.plugin)).catch(() => ({ deny: 'msgate:jobs:failed' }))
   on('msgate.flaggedRuns', ($) => serveFlaggedRuns($)).catch(() => ({ deny: 'msgate:flaggedRuns:failed' }))
+  // The engine answers a hidden row only when the plugin that backed its type
+  // spawned it, which only this hook sees. A hook that fails lets the spawn go on.
+  on('agent.spawn', ($, e, next) => admitSpawn($, e, next.origin.plugin, next)).catch(($, e, next) => next(e))
   on('session.start', async ($, e, next) => {
     await registerTools($)
     if (timer !== null) timer.cancel()
@@ -286,6 +290,7 @@ export function register(on, options) {
   on('turn.step', async function* ($, e, next) {
     const row = await rowOf($, e.agentId)
     if (row === null) return yield* next(e)
+    if (row.backed.command === FOLLOW) return yield* hiddenStep($, e, next, row)
     if (await isOverStepLimit($, e)) return yield* next(e)
     // A later step of a turn that has answered (the tool is missing in the
     // default permission mode, or the request repeats) needs no new run.
@@ -910,6 +915,7 @@ async function refreshBand($) {
   if (!isBandDue()) return
   isRefreshingBand = true
   try {
+    await dropHidden($)
     const read = await readFollowed($)
     // Applied to the list as it is now: a poll may have changed it meanwhile.
     setFollowed(withProgress(followed, read))
@@ -922,6 +928,13 @@ async function refreshBand($) {
   } finally {
     isRefreshingBand = false
   }
+}
+
+// dropHidden lets the band go of the runs that have a hidden row: the row shows
+// them from then on.
+async function dropHidden($) {
+  const hidden = await hiddenRunIds($)
+  if (followed.some((run) => hidden.has(run.run_id))) setFollowed(followed.filter((run) => !hidden.has(run.run_id)))
 }
 
 // isBandDue tells that a refresh has work: the first poll has read the session's
@@ -1241,6 +1254,41 @@ async function* answer(e, text) {
   return { turnId: e.turnId, index: e.index, answer: text, toolUses: [], stopReason: 'end_turn', usage: null }
 }
 
+// hiddenStep answers a step of a hidden row: it follows the run the row was
+// registered with and ends the turn with plain text, without admitting a run. A
+// later step of the turn repeats the text. A row that is not registered, or whose
+// run the engine does not answer for, passes to the model beneath.
+async function* hiddenStep($, e, next, row) {
+  const answered = answeredText(e)
+  if (answered !== null) return yield* answer(e, answered)
+
+  const runId = await hiddenRunOf($, e.agentId)
+  const bin = shimPath($.plugin.root)
+  const checked = runId === null ? { isPassed: true } : await checkRun($, bin, runId)
+  if (checked.isPassed) return yield* next(e)
+
+  yield thinking('msgate · ' + row.name)
+  const text = checked.error === undefined ? yield* followHidden($, bin, { agentId: e.agentId, row }, runId, next.signal) : handoffFailure(checked.error)
+  rememberAnswer(e, text)
+  return yield* answer(e, text)
+}
+
+// followHidden shows a hidden row's run as it works and returns the text that
+// ends the turn. Stopping the row ends the turn and leaves the run going.
+async function* followHidden($, bin, turn, runId, signal) {
+  turnAgents.set(turn.agentId, { runId, type: turn.row.name })
+  try {
+    yield* watchRun($, bin, runId, signal)
+    if (signal.aborted) return stoppedText(runId)
+    const read = await readFinished($, bin, runId)
+    return read.failure === undefined ? endedText(read.run) : read.failure
+  } catch (error) {
+    return handoffFailure(messageOf(error))
+  } finally {
+    turnAgents.delete(turn.agentId)
+  }
+}
+
 // followTurn shows the turn's run as it works and returns the answer. `turn`
 // names the agent, the turn and the agent's row.
 async function* followTurn($, turn, signal) {
@@ -1368,11 +1416,20 @@ async function newProgress($, bin, runId, from) {
   return { next: from, text: [], state: null }
 }
 
-async function finalAnswer($, bin, runId) {
+// readFinished reads a run that should have ended: { run }, or { failure } with
+// the text that says why it cannot be answered for.
+async function readFinished($, bin, runId) {
   const status = await $.process.run([bin, 'status', runId, '--json'])
   const run = status.exitCode === 0 ? finishedRun(status.stdout) : null
-  if (run === null) return handoffFailure('could not read run ' + runId + '. ' + failureText(status))
-  if (!isTerminal(run.state)) return handoffFailure('run ' + runId + ' is still ' + run.state + '; read it later with the msgate jobs tool.')
+  if (run === null) return { failure: handoffFailure('could not read run ' + runId + '. ' + failureText(status)) }
+  if (!isTerminal(run.state)) return { failure: handoffFailure('run ' + runId + ' is still ' + run.state + '; read it later with the msgate jobs tool.') }
+  return { run }
+}
+
+async function finalAnswer($, bin, runId) {
+  const read = await readFinished($, bin, runId)
+  if (read.failure !== undefined) return read.failure
+  const run = read.run
 
   const output = await $.process.run([bin, 'result', runId])
   if (output.exitCode !== 0) return handoffFailure('could not read the output of run ' + runId + '. ' + failureText(output))
