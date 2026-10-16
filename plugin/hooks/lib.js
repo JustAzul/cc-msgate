@@ -6,6 +6,8 @@ export const POLL_MS = 15000
 export const NOTICE_OUTPUT_BYTES = 8192
 export const RESULT_OUTPUT_BYTES = 65536
 export const JOB_SOURCE = 'mod'
+// The source of a job a plugin starts through the interface.
+export const pluginSource = (caller) => 'plugin:' + caller
 export const NOTIFIED_LIMIT = 500
 export const DELIVERY_PREFIX = 'delivery:'
 // The most pending entries one poll reads, and how long a session's queue may sit
@@ -29,6 +31,10 @@ export function shimPath(pluginRoot) {
   return pluginRoot + '/bin/agentcli'
 }
 
+export function messageOf(error) {
+  return String(error && error.message ? error.message : error)
+}
+
 function isId(value) {
   return typeof value === 'string' && ID_PATTERN.test(value)
 }
@@ -40,8 +46,8 @@ function fail(error) {
 // turnCommand builds the argv and standard input of a command that starts a
 // background turn: `exec` opens a conversation, `send` continues the one the
 // input names. The prompt goes on standard input so no prompt text ever becomes
-// part of an argument.
-export function turnCommand(bin, sessionId, input) {
+// part of an argument. `source` is the label of whoever starts the job.
+export function turnCommand(bin, sessionId, input, source) {
   const args = input ?? {}
   if (typeof args.prompt !== 'string' || args.prompt.trim() === '') {
     return fail('prompt is required and must be a non-empty string')
@@ -56,7 +62,7 @@ export function turnCommand(bin, sessionId, input) {
   } else {
     argv.push('exec')
   }
-  argv.push('--background', '--json', '--source', JOB_SOURCE, '--session-id', sessionId)
+  argv.push('--background', '--json', '--source', source, '--session-id', sessionId)
   for (const name of OPTIONAL_FLAGS) {
     const value = args[name]
     if (value === undefined || value === null || value === '') continue

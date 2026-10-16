@@ -1,6 +1,7 @@
 // Shared stubs for the mod tests: a fake world beneath the mod where the
 // msgate binary, the store, the clock and the display calls are all in memory.
 import { mock } from 'claude-code/testing'
+import { createVersionCache, serveBackType, serveJobs, serveRun, serveVersion } from '../hooks/iface.js'
 
 export const SESSION = 'sess-1'
 // The mod runs the plugin's own shim: an absolute path ending in bin/agentcli.
@@ -107,6 +108,15 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
     storeSetHold: null as null | Promise<void>,
     sessionId: SESSION,
     refuseCommand: false,
+    // The named values of the session's state the interface reads and writes,
+    // each with its version.
+    state: new Map<string, { value: unknown; version: number }>(),
+    // What a process the mod runs answers: the call is kept in `runs`.
+    processRun: async (argv: string[], init?: any): Promise<Reply> => {
+      w.runs.push({ argv: [...argv], stdin: init?.stdin, cwd: init?.cwd, timeoutMs: init?.timeoutMs })
+      const answer = isPrices(argv) ? w.respondPrices : w.respond
+      return answer([...argv], init ?? {})
+    },
     respond: ((argv: string[]) => {
       throw new Error('unexpected msgate call: ' + argv.join(' '))
     }) as Responder,
@@ -175,11 +185,12 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
     return { value: undefined }
   })
   on('store.keys', () => ({ value: [...w.store.keys()] }))
-  on('process.run', async (_$: any, e: any) => {
-    w.runs.push({ argv: [...e.argv], stdin: e.init?.stdin, cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs })
-    const answer = isPrices(e.argv) ? w.respondPrices : w.respond
-    return { value: await answer([...e.argv], e.init ?? {}) }
-  })
+  on('process.run', async (_$: any, e: any) => ({ value: await w.processRun(e.argv, e.init) }))
+  // The backed types of the interface are the one state value the world holds:
+  // the interface methods (driven through msgateAs) write it and the rows' hooks
+  // read it, so a test can back a type and then run a row of it.
+  on('state.get', { plugin: 'msgate', key: 'backedTypes' }, () => ({ value: { value: w.state.get('backedTypes')?.value, version: w.state.get('backedTypes')?.version ?? 0 } }))
+  on('state.set', { plugin: 'msgate', key: 'backedTypes' }, (_$: any, e: any) => ({ value: stateWrite(w.state, 'backedTypes', e.value, e.ifVersion) }))
   // The compaction beneath the plugin: the engine's own, which keeps nothing.
   on('session.compact', () => ({ messages: [{ role: 'user', text: 'a summary', toolUses: [] }] }))
   on('agent.list', () => ({ value: w.agents.map((a) => ({ ...a, description: '', status: 'running' })) }))
@@ -265,3 +276,44 @@ function answerText(chunks: any[], result: any): string {
 export const withoutSpawnNotices = (toasts: string[]) => toasts.filter((text) => !text.startsWith('msgate · spawned '))
 
 export const POLL_MS = 15000
+
+// A write to a versioned value, as the engine's $.state.set answers it.
+function stateWrite(state: Map<string, { value: unknown; version: number }>, key: string, value: unknown, ifVersion?: number) {
+  const held = state.get(key)
+  if (ifVersion !== undefined && ifVersion !== (held?.version ?? 0)) return { isSet: false, version: held?.version ?? 0 }
+  const version = (held?.version ?? 0) + 1
+  state.set(key, { value: JSON.parse(JSON.stringify(value)), version })
+  return { isSet: true, version }
+}
+
+// The engine's `$` as the interface methods use it, over the world. The test's
+// own `$` carries only the core nouns, so a method that needs the process,
+// state or session nouns is handed this one.
+export function engineOf(w: ReturnType<typeof world>) {
+  return {
+    plugin: { name: 'msgate', root: '/plugin' },
+    session: { id: async () => w.sessionId },
+    process: { run: (argv: string[], init?: any) => w.processRun(argv, init) },
+    state: {
+      get: async (ref: { key: string }) => ({ value: w.state.get(ref.key)?.value, version: w.state.get(ref.key)?.version ?? 0 }),
+      set: async (ref: { key: string }, value: unknown, options?: { ifVersion?: number }) => stateWrite(w.state, ref.key, value, options?.ifVersion),
+    },
+    ui: { log: async (text: string) => void w.debugLogs.push(text) },
+  }
+}
+
+// A second plugin calling the engine's interface: the call carries the plugin
+// the host stamps on it (`next.origin.plugin`), which the test's `$` cannot, so
+// the methods are driven with the caller named. `versions` is what one load has
+// read of the engine's version; a fresh one stands for the module loading again.
+export const CALLER = 'p2'
+export const OTHER_CALLER = 'p3'
+export function msgateAs(w: ReturnType<typeof world>, caller: string = CALLER, versions = createVersionCache()) {
+  const $ = engineOf(w)
+  return {
+    backType: (args: unknown) => serveBackType($, args, caller),
+    version: () => serveVersion($, versions),
+    run: (args: unknown) => serveRun($, args, caller),
+    jobs: (args: unknown) => serveJobs($, args, caller),
+  }
+}

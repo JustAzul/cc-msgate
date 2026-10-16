@@ -34,6 +34,55 @@ export type MsgateCompleteMeta = {
   attrs?: { readonly [key: string]: string }
 }
 
+/** What a plugin backs one of its agent types with; see `backType`. */
+export type MsgateBackedType = {
+  command: 'exec' | 'review'
+  promptMode: 'free' | 'review-target'
+  model?: string
+  effort?: string
+  sandbox?: 'read-only' | 'workspace-write'
+}
+
+/**
+ * The arguments of `backType`. `type` matches ^[a-z0-9][a-z0-9-]{0,63}$; `review`
+ * needs the `review-target` prompt mode and the reverse; `model`, `effort` and
+ * `sandbox` are the settings the engine runs the type's agents with.
+ */
+export type MsgateBackTypeArgs = MsgateBackedType & { type: string }
+
+/** The arguments of `run`; the same as the run tool's. */
+export type MsgateRunArgs = {
+  prompt: string
+  /** Continues that conversation; left out, a new one starts. */
+  conversation_id?: string
+  purpose?: string
+  provider?: string
+  model?: string
+  effort?: string
+  sandbox?: 'read-only' | 'workspace-write'
+  cwd?: string
+}
+
+export type MsgateRunResult = {
+  conversation_id: string
+  run_id: string
+  /** True when the run continued the conversation the call named. */
+  continued: boolean
+}
+
+/** A run as `status --json` prints it: these keys, and others the binary adds. */
+export type MsgateRun = {
+  run_id: string
+  conversation_id: string
+  state: string
+  outcome: string | null
+  purpose?: string
+  /** `plugin:<caller>` for a run started through this interface. */
+  source: string
+  output_path: string
+  [key: string]: unknown
+}
+
 declare module 'claude-code' {
   interface EngineInterface {
     msgate: {
@@ -50,6 +99,37 @@ declare module 'claude-code' {
        * model was called.
        */
       complete: (args: { request: ModelCompleteRequest; meta: MsgateCompleteMeta }) => Promise<ModelCompleteResult>
+      /**
+       * Marks the caller's agent type `<caller>:<type>` as one the engine
+       * answers, replacing an earlier call for the same type, and resolves that
+       * full type. A plugin can back only its own types. It rejects with
+       * `msgate:backType:<field>` naming the first argument it refuses (type,
+       * command, promptMode, model, effort or sandbox).
+       */
+      backType: (args: MsgateBackTypeArgs) => Promise<{ type: string }>
+      /**
+       * The engine's release version, for example `1.0.0`. It rejects with
+       * `msgate:version:unavailable` when the engine's binary cannot report it.
+       */
+      version: () => Promise<string>
+      /**
+       * Starts a background job like the run tool, with the source
+       * `plugin:<caller>`. The engine does not deliver its result to Claude: the
+       * caller reads it with `jobs`. It rejects with `msgate:run:<why>`.
+       */
+      run: (args: MsgateRunArgs) => Promise<MsgateRunResult>
+      /**
+       * `list` resolves the session's runs the caller started; `status` one such
+       * run; `result` its output (cut at 64 KiB, with a note naming the file);
+       * `cancel` the confirmation of the request. `status`, `result` and
+       * `cancel` reject a run the caller did not start with `msgate:jobs:not-yours`.
+       * Other refusals are `msgate:jobs:<why>`.
+       */
+      jobs: {
+        (args: { action: 'list' }): Promise<{ runs: MsgateRun[] }>
+        (args: { action: 'status'; run_id: string }): Promise<MsgateRun>
+        (args: { action: 'result' | 'cancel'; run_id: string }): Promise<string>
+      }
     }
   }
 
@@ -60,6 +140,9 @@ declare module 'claude-code' {
       hookRuns: { run_id: string; text: string }[]
       // The ids of the runs announced as spawned, newest last, at most 500.
       spawnNotified: string[]
+      // The agent types the engine answers, by full type (`<plugin>:<type>`),
+      // written by `backType`.
+      backedTypes: { [fullType: string]: MsgateBackedType }
     }
   }
 }

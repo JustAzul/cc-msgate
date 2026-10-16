@@ -44,18 +44,27 @@ if [ ! -s "$log" ]; then
 fi
 
 status=0
+methods="complete backType version run jobs"
 # The interface is mounted: the engine.create line names it with its methods.
-grep -E -q 'engine\.create: .*\$\.msgate \(msgate: [a-z, ]*complete' "$log"
-if [ $? -ne 0 ]; then
+mounted=$(grep -E 'engine\.create: .*\$\.msgate \(msgate: ' "$log" | head -n 1)
+if [ -z "$mounted" ]; then
   echo "verify-plugin: the log does not show the msgate interface mounted" >&2
   status=1
 fi
-# The module loaded and hooks the interface's event.
-grep -E -q 'hooks module msgate@[^ ]+ loaded .*events: [^ ]*msgate\.complete' "$log"
-if [ $? -ne 0 ]; then
-  echo "verify-plugin: the log does not show the msgate hooks module loaded with msgate.complete" >&2
-  status=1
-fi
+for method in $methods; do
+  if ! printf '%s\n' "$mounted" | grep -E -q "\(msgate: ([A-Za-z]+, )*$method(,|\))"; then
+    echo "verify-plugin: the msgate interface is not mounted with its method $method" >&2
+    status=1
+  fi
+done
+# The module loaded and hooks the event that answers each method.
+loaded=$(grep -E 'hooks module msgate@[^ ]+ loaded ' "$log" | head -n 1)
+for method in $methods; do
+  if ! printf '%s\n' "$loaded" | grep -E -q "events: ([^ ]*,)?msgate\.$method(,| |\$)"; then
+    echo "verify-plugin: the log does not show the msgate hooks module loaded with msgate.$method" >&2
+    status=1
+  fi
+done
 # No line says the msgate module failed to load or was unloaded.
 grep -E -i 'msgate.*(did not load|failed to load|was unloaded)|(did not load|failed to load|was unloaded).*msgate' "$log" >"$work/failures"
 case $? in
@@ -72,7 +81,7 @@ case $? in
 esac
 
 if [ "$status" -eq 0 ]; then
-  echo "verify-plugin: ok, the msgate interface is mounted"
+  echo "verify-plugin: ok, the msgate interface is mounted with $methods"
 else
   kept=${TMPDIR:-/tmp}/msgate-verify-plugin.debug
   cp "$log" "$kept" && echo "verify-plugin: the debug log is kept at $kept" >&2

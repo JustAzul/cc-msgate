@@ -1,7 +1,9 @@
+import { admitJob } from './admission.js'
 import {
   POLL_MS,
   EXIT_RUN_NOT_FOUND,
   DELIVERY_PREFIX,
+  admittedJob,
   attemptedRuns,
   isAbandoned,
   isSameQueue,
@@ -12,7 +14,6 @@ import {
   withAttempt,
   withEntry,
   withoutRun,
-  admittedJob,
   purposeOf,
   withPurpose,
   failureText,
@@ -27,13 +28,14 @@ import {
   sessionJobs,
   shimPath,
   isTerminal,
+  JOB_SOURCE,
+  messageOf,
   modJobs,
   RESULT_OUTPUT_BYTES,
   resultNote,
   cutBytes,
   statusText,
   toastText,
-  turnCommand,
 } from './lib.js'
 import {
   ADMIT_TIMEOUT_MS,
@@ -76,7 +78,8 @@ import {
 } from './prices.js'
 import { BAND_REFRESH_MS, bandLine, flaggedRuns, followedRuns, labelled, withProgress } from './band.js'
 import { createSummarizer } from './summarizer.js'
-import { NOUN, createService } from './service.js'
+import { createService } from './service.js'
+import { INTERFACE, createVersionCache, serveBackType, serveJobs, serveRun, serveVersion } from './iface.js'
 import { summaryRecording } from './summary.js'
 import { modelCallCommand } from './modelcall.js'
 import { ETA_TIMEOUT_MS, ETA_UNAVAILABLE, etaCommand, etaText, endedSince, finishedTail, isAnnounceable, listedRuns, spawnNotice } from './spawn.js'
@@ -181,6 +184,8 @@ let spawnWrites = Promise.resolve()
 let summaries = createSummarizer({})
 // The msgate.complete calls this load is serving.
 let service = createService()
+// The version this load has read for the interface.
+let versionCache = createVersionCache()
 // Conversation records are read, changed and written back; one write at a time
 // keeps two agents admitted together from dropping each other's record.
 let conversationWrites = Promise.resolve()
@@ -192,12 +197,19 @@ export function register(on, options) {
   startTexts.clear()
   isLossToastShown = false
   service = createService()
+  versionCache = createVersionCache()
   // Only the spread and the noun: a step that fails unloads the whole plugin.
-  on('engine.create', async (_$, e, next) => ({ ...(await next(e)), msgate: NOUN }))
+  on('engine.create', async (_$, e, next) => ({ ...(await next(e)), msgate: INTERFACE }))
   // The caller reads the denial's prefix to know whether the model was called.
   on('msgate.complete', ($, e, next) => service.serve(servicePorts($), e, { signal: next.signal, caller: next.origin.plugin })).catch((_$, e, next) =>
     service.failed(e, next.error.kind),
   )
+  // The other methods answer from the caller the host stamped on the call; a hook
+  // that fails gives the caller the refusal of its method, not the engine's failure.
+  on('msgate.backType', ($, e, next) => serveBackType($, e, next.origin.plugin)).catch(() => ({ deny: 'msgate:backType:failed' }))
+  on('msgate.version', ($, e, next) => serveVersion($, versionCache)).catch(() => ({ deny: 'msgate:version:failed' }))
+  on('msgate.run', ($, e, next) => serveRun($, e, next.origin.plugin)).catch(() => ({ deny: 'msgate:run:failed' }))
+  on('msgate.jobs', ($, e, next) => serveJobs($, e, next.origin.plugin)).catch(() => ({ deny: 'msgate:jobs:failed' }))
   on('session.start', async ($, e, next) => {
     await registerTools($)
     if (timer !== null) timer.cancel()
@@ -351,22 +363,12 @@ async function registerTools($) {
 
 // startTurn serves the run tool.
 async function startTurn($, e) {
-  const sessionId = await $.session.id()
-  const bin = shimPath($.plugin.root)
-  const built = turnCommand(bin, sessionId, e)
-  if (built.error) return { deny: built.error }
-  let reply
-  try {
-    reply = await $.process.run(built.argv, { stdin: built.stdin })
-  } catch (error) {
-    return { deny: 'msgate could not run: ' + String(error && error.message ? error.message : error) }
-  }
-  if (reply.exitCode !== 0) return { deny: failureText(reply) }
-  const ids = admittedJob(reply.stdout)
-  if (ids === null) return { deny: 'msgate printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500) }
+  const admitted = await admitJob($, e, JOB_SOURCE)
+  if (admitted.error !== undefined) return { deny: admitted.error }
+  const { ids, sessionId, bin } = admitted
   await enqueueDelivery($, sessionId, queueEntry(ids, e.purpose, await $.clock.now()))
   startNotice($, () => notifyTurn($, bin, ids.run_id))
-  return { result: JSON.stringify({ ...ids, continued: built.isContinuation }) }
+  return { result: JSON.stringify({ ...ids, continued: admitted.isContinuation }) }
 }
 
 // The delivery queues are read, changed and written back one write at a time,
@@ -1345,8 +1347,4 @@ async function finalAnswer($, bin, runId) {
 // failureOf names why a hook failed, from the engine's HookFailure.
 function failureOf(failure) {
   return failure?.message ?? failure?.kind ?? 'unknown'
-}
-
-function messageOf(error) {
-  return String(error && error.message ? error.message : error)
 }
