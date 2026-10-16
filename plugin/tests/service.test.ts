@@ -82,7 +82,7 @@ test('an unknown contract version, call id, provider or request is denied before
   for (const [why, meta, request] of cases) {
     const p = ports()
     const got = await call(createService(), p, meta, CTX(), request)
-    expect(got).toEqual({ deny: 'agentcli:pre-model:' + why })
+    expect(got).toEqual({ deny: 'msgate:pre-model:' + why })
     expect(p.seen.completions).toHaveLength(0)
   }
 })
@@ -111,7 +111,7 @@ test('a call id already in flight is denied as a duplicate, and is served again 
   await reached.promise
 
   const second = ports()
-  expect(await call(service, second)).toEqual({ deny: 'agentcli:pre-model:duplicate' })
+  expect(await call(service, second)).toEqual({ deny: 'msgate:pre-model:duplicate' })
   expect(second.seen.completions).toHaveLength(0)
 
   held.release(answered('ok'))
@@ -251,7 +251,7 @@ test('a model call the engine refuses to send is denied as after-model, nothing 
     throw new Error('model not allowed')
   }
 
-  expect(await call(service, p)).toEqual({ deny: 'agentcli:after-model:refused' })
+  expect(await call(service, p)).toEqual({ deny: 'msgate:after-model:refused' })
 
   expect(p.seen.recordings).toHaveLength(0)
   expect(await call(service, ports())).toHaveProperty('value')
@@ -265,10 +265,10 @@ test('a hook that fails before the model call is denied as pre-model, and the ca
   await Promise.resolve()
 
   // The hook ran out of budget while it waited: the handler answers for it.
-  expect(service.failed({ meta: META }, 'timeout')).toEqual({ deny: 'agentcli:pre-model:abandoned-timeout' })
+  expect(service.failed({ meta: META }, 'timeout')).toEqual({ deny: 'msgate:pre-model:abandoned-timeout' })
 
   held.release(AT)
-  expect(await pending).toEqual({ deny: 'agentcli:pre-model:cancelled' })
+  expect(await pending).toEqual({ deny: 'msgate:pre-model:cancelled' })
   expect(slow.seen.completions).toHaveLength(0)
 })
 
@@ -285,7 +285,7 @@ test('a hook that fails once the model call is made is denied as after-model', a
   void call(service, slow)
   await reached.promise
 
-  expect(service.failed({ meta: META }, 'throw')).toEqual({ deny: 'agentcli:after-model:throw' })
+  expect(service.failed({ meta: META }, 'throw')).toEqual({ deny: 'msgate:after-model:throw' })
   held.release(answered('ok'))
 })
 
@@ -296,7 +296,7 @@ test('a dispatch abandoned before the model call is made is denied as pre-model 
 
   const got = await call(createService(), p, META, { signal: abort.signal, caller: 'followups' })
 
-  expect(got).toEqual({ deny: 'agentcli:pre-model:cancelled' })
+  expect(got).toEqual({ deny: 'msgate:pre-model:cancelled' })
   expect(p.seen.completions).toHaveLength(0)
 })
 
@@ -313,19 +313,19 @@ test('a hook that was not run because of a re-entry is pre-model and leaves the 
   const first = call(service, slow)
   await reached.promise
 
-  expect(service.failed({ meta: META }, 're-entry')).toEqual({ deny: 'agentcli:pre-model:re-entry' })
+  expect(service.failed({ meta: META }, 're-entry')).toEqual({ deny: 'msgate:pre-model:re-entry' })
 
   held.release(answered('ok'))
   expect(await first).toHaveProperty('value')
 })
 
 test('a failure with no call of this id in flight proves nothing about the model', () => {
-  expect(createService().failed({ meta: META }, 'throw')).toEqual({ deny: 'agentcli:unknown-state:throw' })
-  expect(createService().failed(undefined, 'timeout')).toEqual({ deny: 'agentcli:unknown-state:timeout' })
+  expect(createService().failed({ meta: META }, 'throw')).toEqual({ deny: 'msgate:unknown-state:throw' })
+  expect(createService().failed(undefined, 'timeout')).toEqual({ deny: 'msgate:unknown-state:timeout' })
 })
 
 test('every member of the interface is a function, and the body that stands in for the hook says nothing about the model', async () => {
   for (const [name, member] of Object.entries(NOUN)) expect([name, typeof member]).toEqual([name, 'function'])
 
-  await expect(NOUN.complete()).rejects.toThrow('agentcli:unserved')
+  await expect(NOUN.complete()).rejects.toThrow('msgate:unserved')
 })

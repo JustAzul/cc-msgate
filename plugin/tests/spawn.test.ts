@@ -5,12 +5,12 @@ import { BAND_REFRESH_MS } from '../hooks/band.js'
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 
 function eta(over: Record<string, unknown>) {
-  return ok(JSON.stringify({ sdk_status: 'ok', exit_code: 0, scenario: 'code-review', repo: '/work/.git', ...over }))
+  return ok(JSON.stringify({ sdk_status: 'ok', exit_code: 0, purpose: 'code-review', repo: '/work/.git', ...over }))
 }
 
 const REPO_ETA = { basis: 'repo', eta_ms: 156000, samples: 12, repos: 1 }
 
-const HOOK_RUN = { run_id: 'run-h', state: 'running', source: 'hook-post-commit', scenario: 'code-review', background: false }
+const HOOK_RUN = { run_id: 'run-h', state: 'running', source: 'hook-post-commit', purpose: 'code-review', background: false }
 
 const etaRuns = (w: { runs: { argv: string[] }[] }) => w.runs.filter((r) => r.argv[1] === 'eta')
 
@@ -21,14 +21,14 @@ test('a hook run seen running gets one toast and one transcript line with its re
 
   await w.clock.advance(BAND_REFRESH_MS)
 
-  const text = 'agentcli · spawned code-review · trigger hook-post-commit · ETA ~2m 36s (repo average, 12 runs)'
+  const text = 'msgate · spawned code-review · trigger hook-post-commit · ETA ~2m 36s (repo average, 12 runs)'
   expect(w.toasts).toEqual([text])
   expect(w.logs).toEqual([text])
-  expect(etaRuns(w).map((r) => r.argv.slice(1))).toEqual([['eta', '--scenario', 'code-review', '--cwd', '/work', '--json']])
+  expect(etaRuns(w).map((r) => r.argv.slice(1))).toEqual([['eta', '--purpose', 'code-review', '--cwd', '/work', '--json']])
   expect(isShim(etaRuns(w)[0]!.argv[0]!)).toBe(true)
 })
 
-for (const field of ['scenario', 'source', 'state']) {
+for (const field of ['purpose', 'source', 'state']) {
   test(`a listed run with no ${field} is skipped and logged, then announced once the listing has it`, async ($, on) => {
     const w = world(on)
     let runs = [job({ ...HOOK_RUN, [field]: undefined })]
@@ -38,12 +38,12 @@ for (const field of ['scenario', 'source', 'state']) {
     await w.clock.advance(BAND_REFRESH_MS)
 
     expect(w.toasts).toEqual([])
-    expect(w.debugLogs).toEqual(['skipped run run-h in the spawn scan: the listing gives it no scenario, source or state'])
+    expect(w.debugLogs).toEqual(['skipped run run-h in the spawn scan: the listing gives it no purpose, source or state'])
 
     runs = [job(HOOK_RUN)]
     await w.clock.advance(BAND_REFRESH_MS)
 
-    expect(w.toasts).toEqual(['agentcli · spawned code-review · trigger hook-post-commit · ETA ~2m 36s (repo average, 12 runs)'])
+    expect(w.toasts).toEqual(['msgate · spawned code-review · trigger hook-post-commit · ETA ~2m 36s (repo average, 12 runs)'])
   })
 }
 
@@ -62,12 +62,12 @@ for (const [name, reply, tail] of ETA_TEXTS) {
 
     await w.clock.advance(BAND_REFRESH_MS)
 
-    expect(w.toasts).toEqual(['agentcli · spawned code-review · trigger hook-post-commit · ' + tail])
+    expect(w.toasts).toEqual(['msgate · spawned code-review · trigger hook-post-commit · ' + tail])
   })
 }
 
 const ETA_FAILURES: [string, (argv: string[]) => any][] = [
-  ['exits non-zero', () => ({ exitCode: 2, stdout: '', stderr: 'agentcli: usage' })],
+  ['exits non-zero', () => ({ exitCode: 2, stdout: '', stderr: 'msgate: usage' })],
   ['prints something unreadable', () => ok('ETA ~2m')],
   ['prints an object with no known basis', () => ok(JSON.stringify({ sdk_status: 'ok', exit_code: 0 }))],
   ['prints a repo average with no sample count', () => eta({ basis: 'repo', eta_ms: 1000 })],
@@ -86,7 +86,7 @@ for (const [name, answer] of ETA_FAILURES) {
 
     await w.clock.advance(BAND_REFRESH_MS)
 
-    const text = 'agentcli · spawned code-review · trigger hook-post-commit · ETA unavailable'
+    const text = 'msgate · spawned code-review · trigger hook-post-commit · ETA unavailable'
     expect(w.toasts).toEqual([text])
     expect(w.logs.filter((l) => l === text)).toEqual([text])
   })
@@ -95,14 +95,14 @@ for (const [name, answer] of ETA_FAILURES) {
 test('an eta that fails is logged to the debug log once per load, whatever the run', async ($, on) => {
   const w = world(on)
   let runs = [job(HOOK_RUN)]
-  w.respond = (argv) => (argv[1] === 'eta' ? { exitCode: 1, stdout: '', stderr: 'agentcli: no git' } : listing(...runs))
+  w.respond = (argv) => (argv[1] === 'eta' ? { exitCode: 1, stdout: '', stderr: 'msgate: no git' } : listing(...runs))
   await $.session.start(START)
   await w.clock.advance(BAND_REFRESH_MS)
   runs = [job({ ...HOOK_RUN, run_id: 'run-h2' }), ...runs]
   await w.clock.advance(BAND_REFRESH_MS)
 
   expect(w.toasts.length).toBe(2)
-  expect(w.debugLogs).toEqual(['could not read the ETA of code-review: agentcli exited 1: no git'])
+  expect(w.debugLogs).toEqual(['could not read the ETA of code-review: msgate exited 1: no git'])
 
   await $.session.start(START)
   runs = [job({ ...HOOK_RUN, run_id: 'run-h3' }), ...runs]
@@ -111,7 +111,7 @@ test('an eta that fails is logged to the debug log once per load, whatever the r
   expect(w.debugLogs.length).toBe(2)
 })
 
-const ENDED = { run_id: 'run-e', state: 'done', outcome: 'ok', source: 'hook-stop', scenario: 'code-review', background: false }
+const ENDED = { run_id: 'run-e', state: 'done', outcome: 'ok', source: 'hook-stop', purpose: 'code-review', background: false }
 
 test('the first listing announces its running runs and leaves its finished ones silent', async ($, on) => {
   const w = world(on)
@@ -120,7 +120,7 @@ test('the first listing announces its running runs and leaves its finished ones 
 
   await w.clock.advance(BAND_REFRESH_MS)
 
-  expect(w.toasts).toEqual(['agentcli · spawned code-review · trigger hook-post-commit · ETA ~2m 36s (repo average, 12 runs)'])
+  expect(w.toasts).toEqual(['msgate · spawned code-review · trigger hook-post-commit · ETA ~2m 36s (repo average, 12 runs)'])
   expect(etaRuns(w).length).toBe(1)
 })
 
@@ -142,7 +142,7 @@ for (const [name, times, tail] of FINISHED_RUNS) {
 
     await w.clock.advance(BAND_REFRESH_MS)
 
-    const text = 'agentcli · spawned code-review · trigger hook-stop · ' + tail
+    const text = 'msgate · spawned code-review · trigger hook-stop · ' + tail
     expect(w.toasts).toEqual([text])
     expect(w.logs).toEqual([text])
     expect(etaRuns(w)).toEqual([])
@@ -153,7 +153,7 @@ for (const [name, times, tail] of FINISHED_RUNS) {
 // passing on to the session's state.
 function watchNotified(on: any) {
   const writes: string[][] = []
-  on('state.set', { plugin: 'agentcli', key: 'spawnNotified' }, (_$: any, e: any, next: any) => {
+  on('state.set', { plugin: 'msgate', key: 'spawnNotified' }, (_$: any, e: any, next: any) => {
     writes.push(e.value)
     return next(e)
   })
@@ -212,7 +212,7 @@ test('a session start within a load reads a new baseline: a finished run it neve
 test('the notified runs keep the 500 most recent ids, finished ones the first listing marked included', async ($, on) => {
   const w = world(on)
   const notified = watchNotified(on)
-  // The listing is newest first, as agentcli prints it.
+  // The listing is newest first, as msgate prints it.
   const runs = Array.from({ length: 501 }, (_, i) => job({ run_id: `r-${500 - i}`, state: 'done', outcome: 'ok' }))
   w.respond = () => listing(...runs)
   await $.session.start(START)
@@ -260,7 +260,7 @@ test('an agent type turn announces its run right after admission without waiting
         return ok(JSON.stringify({ conversation_id: 'conv-1', run_id: 'run-1' }))
       case 'eta':
         await etaHeld.promise
-        return eta({ ...REPO_ETA, scenario: 'second-opinion' })
+        return eta({ ...REPO_ETA, purpose: 'second-opinion' })
       case 'wait':
         return ok(JSON.stringify(FINISHED_AGENT_RUN))
       case 'progress':
@@ -269,11 +269,11 @@ test('an agent type turn announces its run right after admission without waiting
         return ok('Codex: done.')
       default:
         return argv[2] === '--json'
-          ? listing(job({ run_id: 'run-1', state: 'running', source: 'agent', scenario: 'second-opinion', background: true }))
+          ? listing(job({ run_id: 'run-1', state: 'running', source: 'agent', purpose: 'second-opinion', background: true }))
           : ok(JSON.stringify(FINISHED_AGENT_RUN))
     }
   }
-  w.agents.push({ id: 'ag-1', type: 'agentcli:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
 
@@ -288,12 +288,12 @@ test('an agent type turn announces its run right after admission without waiting
 
   await w.clock.advance(0)
   await until(() => etaRuns(w).length === 1)
-  expect(etaRuns(w).map((r) => r.argv.slice(1))).toEqual([['eta', '--scenario', 'second-opinion', '--cwd', '/work', '--json']])
+  expect(etaRuns(w).map((r) => r.argv.slice(1))).toEqual([['eta', '--purpose', 'second-opinion', '--cwd', '/work', '--json']])
   expect(w.toasts).toEqual([])
 
   etaHeld.release()
   await until(() => w.toasts.length === 1)
-  expect(w.toasts).toEqual(['agentcli · spawned second-opinion · trigger agent · ETA ~2m 36s (repo average, 12 runs)'])
+  expect(w.toasts).toEqual(['msgate · spawned second-opinion · trigger agent · ETA ~2m 36s (repo average, 12 runs)'])
 
   // The listing that now lists the same run says nothing more.
   await w.clock.advance(BAND_REFRESH_MS * 2)
@@ -305,7 +305,7 @@ const LISTING_FAILED = 'could not list the runs of the session for spawn notices
 
 // The reason of a rejection is worded by the engine, so only the line's head is held.
 const LIST_FAILURES: [string, () => any, string][] = [
-  ['exits non-zero', () => ({ exitCode: 1, stdout: '', stderr: 'agentcli: store locked' }), LISTING_FAILED + 'agentcli exited 1: store locked'],
+  ['exits non-zero', () => ({ exitCode: 1, stdout: '', stderr: 'msgate: store locked' }), LISTING_FAILED + 'msgate exited 1: store locked'],
   ['is rejected', () => Promise.reject(new Error('spawn failed')), LISTING_FAILED],
 ]
 
@@ -330,23 +330,23 @@ for (const [name, failing, head] of LIST_FAILURES) {
 }
 
 const ADMITTED = { conversation_id: 'conv-1', run_id: 'run-1', state: 'running' }
-const OWN_RUN = { run_id: 'run-1', state: 'running', source: 'mod', scenario: 'delegation', background: true }
-const OWN_NOTICE = 'agentcli · spawned delegation · trigger mod · '
+const OWN_RUN = { run_id: 'run-1', state: 'running', source: 'mod', purpose: 'delegation', background: true }
+const OWN_NOTICE = 'msgate · spawned delegation · trigger mod · '
 
-const TURN_TOOLS: [string, Record<string, unknown>][] = [
-  ['ask', { prompt: 'review this' }],
-  ['send', { conversation_id: 'conv-1', prompt: 'and now the tests' }],
+const TURN_TOOLS: [string, Record<string, unknown>, boolean][] = [
+  ['run', { prompt: 'review this' }, false],
+  ['run with a conversation', { conversation_id: 'conv-1', prompt: 'and now the tests' }, true],
 ]
 
-for (const [tool, input] of TURN_TOOLS) {
-  test(`${tool} announces its run with the scenario and source the run reports, and its result does not wait`, async ($, on) => {
+for (const [tool, input, continued] of TURN_TOOLS) {
+  test(`${tool} announces its run with the purpose and source the run reports, and its result does not wait`, async ($, on) => {
     const w = world(on)
     const statusHeld = gate()
     const etaHeld = gate()
     w.respond = async (argv) => {
       if (argv[1] === 'eta') {
         await etaHeld.promise
-        return eta({ ...REPO_ETA, scenario: 'delegation' })
+        return eta({ ...REPO_ETA, purpose: 'delegation' })
       }
       if (argv[1] === 'status') {
         await statusHeld.promise
@@ -357,18 +357,18 @@ for (const [tool, input] of TURN_TOOLS) {
     await $.session.start(START)
 
     let out: any
-    void $.tool.call({ tool: TOOL(tool), ...input }).then((result: any) => {
+    void $.tool.call({ tool: TOOL('run'), ...input }).then((result: any) => {
       out = result
     })
     await until(() => out !== undefined)
-    expect(JSON.parse(out.result)).toEqual({ conversation_id: 'conv-1', run_id: 'run-1' })
+    expect(JSON.parse(out.result)).toEqual({ conversation_id: 'conv-1', run_id: 'run-1', continued })
     expect(w.toasts).toEqual([])
 
     await w.clock.advance(0)
     statusHeld.release()
     await until(() => etaRuns(w).length === 1)
     expect(w.runs.filter((r) => r.argv[1] === 'status').map((r) => r.argv.slice(1))).toEqual([['status', 'run-1', '--json']])
-    expect(etaRuns(w).map((r) => r.argv.slice(1))).toEqual([['eta', '--scenario', 'delegation', '--cwd', '/work', '--json']])
+    expect(etaRuns(w).map((r) => r.argv.slice(1))).toEqual([['eta', '--purpose', 'delegation', '--cwd', '/work', '--json']])
 
     etaHeld.release()
     await until(() => w.toasts.length === 1)
@@ -382,7 +382,7 @@ for (const [tool, input] of TURN_TOOLS) {
 }
 
 const STATUS_FAILURES: [string, () => any][] = [
-  ['exits non-zero', () => ({ exitCode: 1, stdout: '', stderr: 'agentcli: no such run' })],
+  ['exits non-zero', () => ({ exitCode: 1, stdout: '', stderr: 'msgate: no such run' })],
   ['is rejected', () => Promise.reject(new Error('spawn failed'))],
 ]
 
@@ -390,17 +390,17 @@ for (const [name, failing] of STATUS_FAILURES) {
   test(`when the status read of an admitted run ${name} the notice waits for the listing`, async ($, on) => {
     const w = world(on)
     w.respond = (argv) => {
-      if (argv[1] === 'eta') return eta({ ...REPO_ETA, scenario: 'delegation' })
+      if (argv[1] === 'eta') return eta({ ...REPO_ETA, purpose: 'delegation' })
       if (argv[1] === 'exec') return ok(JSON.stringify(ADMITTED))
       return argv[2] === 'run-1' ? failing() : listing(job(OWN_RUN))
     }
     await $.session.start(START)
 
-    const out: any = await $.tool.call({ tool: TOOL('ask'), prompt: 'review this' })
+    const out: any = await $.tool.call({ tool: TOOL('run'), prompt: 'review this' })
     await w.clock.advance(0)
     await until(() => w.runs.filter((r) => r.argv[1] === 'status').length === 1)
 
-    expect(JSON.parse(out.result)).toEqual({ conversation_id: 'conv-1', run_id: 'run-1' })
+    expect(JSON.parse(out.result)).toEqual({ conversation_id: 'conv-1', run_id: 'run-1', continued: false })
     expect(w.toasts).toEqual([])
     expect(etaRuns(w)).toEqual([])
 
@@ -461,16 +461,16 @@ test('the first scan claims every run it lists before it announces any', async (
   etaHeld.release()
   await until(() => w.toasts.length === 1)
   await w.clock.advance(BAND_REFRESH_MS)
-  expect(w.toasts).toEqual(['agentcli · spawned code-review · trigger hook-post-commit · ETA ~2m 36s (repo average, 12 runs)'])
+  expect(w.toasts).toEqual(['msgate · spawned code-review · trigger hook-post-commit · ETA ~2m 36s (repo average, 12 runs)'])
 })
 
 const STATUS_READ_FAILED = 'could not read run run-1 to announce it: '
 
 const UNREADABLE_STATUS: [string, () => any][] = [
-  ['exits non-zero', () => ({ exitCode: 1, stdout: '', stderr: 'agentcli: no such run' })],
+  ['exits non-zero', () => ({ exitCode: 1, stdout: '', stderr: 'msgate: no such run' })],
   ['is rejected', () => Promise.reject(new Error('spawn failed'))],
   ['prints something unreadable', () => ok('not json')],
-  ['prints a run with no scenario', () => ok(JSON.stringify({ run_id: 'run-1', source: 'mod' }))],
+  ['prints a run with no purpose', () => ok(JSON.stringify({ run_id: 'run-1', source: 'mod' }))],
 ]
 
 for (const [name, failing] of UNREADABLE_STATUS) {
@@ -479,9 +479,9 @@ for (const [name, failing] of UNREADABLE_STATUS) {
     w.respond = (argv) => (argv[1] === 'exec' ? ok(JSON.stringify(ADMITTED)) : failing())
     await $.session.start(START)
 
-    await $.tool.call({ tool: TOOL('ask'), prompt: 'review this' })
+    await $.tool.call({ tool: TOOL('run'), prompt: 'review this' })
     await w.clock.advance(0)
-    await $.tool.call({ tool: TOOL('ask'), prompt: 'and again' })
+    await $.tool.call({ tool: TOOL('run'), prompt: 'and again' })
     await w.clock.advance(0)
     await until(() => w.runs.filter((r) => r.argv[1] === 'status').length === 2)
 
@@ -490,12 +490,12 @@ for (const [name, failing] of UNREADABLE_STATUS) {
   })
 }
 
-test('the admission notice of ask starts from a timer, after the tool has answered', async ($, on) => {
+test('the admission notice of run starts from a timer, after the tool has answered', async ($, on) => {
   const w = world(on)
   w.respond = (argv) => (argv[1] === 'exec' ? ok(JSON.stringify(ADMITTED)) : argv[1] === 'eta' ? eta(REPO_ETA) : ok(JSON.stringify(OWN_RUN)))
   await $.session.start(START)
 
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'review this' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'review this' })
   expect(w.runs.filter((r) => r.argv[1] === 'status')).toEqual([])
 
   await w.clock.advance(0)
@@ -510,12 +510,12 @@ test('a scan that lists a run while its admission ETA is held announces it once'
     if (argv[1] === 'exec') return ok(JSON.stringify(ADMITTED))
     if (argv[1] === 'eta') {
       await etaHeld.promise
-      return eta({ ...REPO_ETA, scenario: 'delegation' })
+      return eta({ ...REPO_ETA, purpose: 'delegation' })
     }
     return argv[2] === 'run-1' ? ok(JSON.stringify(OWN_RUN)) : listing(job(OWN_RUN))
   }
   await $.session.start(START)
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'review this' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'review this' })
   await w.clock.advance(0)
   await until(() => etaRuns(w).length === 1)
 
@@ -535,7 +535,7 @@ test('two claims made together both reach the notified runs', async ($, on) => {
   const notified = watchNotified(on)
   const reads = gate()
   let pending = 0
-  on('state.get', { plugin: 'agentcli', key: 'spawnNotified' }, async (_$: any, e: any, next: any) => {
+  on('state.get', { plugin: 'msgate', key: 'spawnNotified' }, async (_$: any, e: any, next: any) => {
     pending += 1
     await reads.promise
     return next(e)
@@ -546,7 +546,7 @@ test('two claims made together both reach the notified runs', async ($, on) => {
     return argv[2] === 'run-1' ? ok(JSON.stringify(OWN_RUN)) : listing(job(HOOK_RUN))
   }
   await $.session.start(START)
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'review this' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'review this' })
   await w.clock.advance(0)
   await until(() => pending === 1)
   await w.clock.advance(BAND_REFRESH_MS)
@@ -560,8 +560,8 @@ test('two claims made together both reach the notified runs', async ($, on) => {
 })
 
 const SINCE_LOAD = [
-  ['ended after the load', { started_at: '1970-01-01T00:00:01Z', ended_at: '1970-01-01T00:00:04Z' }, ['agentcli · spawned code-review · trigger hook-stop · finished in 3s']],
-  ['ended at the load', { started_at: '1970-01-01T00:00:00Z', ended_at: '1970-01-01T00:00:00Z' }, ['agentcli · spawned code-review · trigger hook-stop · finished in 0s']],
+  ['ended after the load', { started_at: '1970-01-01T00:00:01Z', ended_at: '1970-01-01T00:00:04Z' }, ['msgate · spawned code-review · trigger hook-stop · finished in 3s']],
+  ['ended at the load', { started_at: '1970-01-01T00:00:00Z', ended_at: '1970-01-01T00:00:00Z' }, ['msgate · spawned code-review · trigger hook-stop · finished in 0s']],
   ['ended before the load', { started_at: '1969-12-31T23:59:50Z', ended_at: '1969-12-31T23:59:59Z' }, []],
   ['has no end time', { started_at: '1970-01-01T00:00:01Z' }, []],
   ['has an unreadable end time', { ended_at: 'yesterday' }, []],
@@ -594,5 +594,43 @@ test('a run that ended in the second the load started in is announced as finishe
 
   await w.clock.advance(BAND_REFRESH_MS)
 
-  expect(w.toasts).toEqual(['agentcli · spawned code-review · trigger hook-stop · finished in 0s'])
+  expect(w.toasts).toEqual(['msgate · spawned code-review · trigger hook-stop · finished in 0s'])
+})
+
+test('a listed run that names its purpose as scenario is announced under that label, and its ETA is asked for it', async ($, on) => {
+  const w = world(on)
+  const { purpose, ...older } = HOOK_RUN
+  w.respond = (argv) => (argv[1] === 'eta' ? eta(REPO_ETA) : listing(job({ ...older, purpose: undefined, scenario: 'code-review' })))
+  await $.session.start(START)
+
+  await w.clock.advance(BAND_REFRESH_MS)
+
+  expect(w.toasts).toEqual(['msgate · spawned code-review · trigger hook-post-commit · ETA ~2m 36s (repo average, 12 runs)'])
+  expect(etaRuns(w).map((r) => r.argv.slice(1))).toEqual([['eta', '--purpose', 'code-review', '--cwd', '/work', '--json']])
+})
+
+test('the purpose of a run wins over its scenario when it reports both', async ($, on) => {
+  const w = world(on)
+  w.respond = (argv) => (argv[1] === 'eta' ? eta(REPO_ETA) : listing(job({ ...HOOK_RUN, purpose: 'code-review', scenario: 'adhoc' })))
+  await $.session.start(START)
+
+  await w.clock.advance(BAND_REFRESH_MS)
+
+  expect(w.toasts[0]).toContain('spawned code-review ')
+})
+
+test('the status read of an admitted run that names its purpose as scenario announces it', async ($, on) => {
+  const w = world(on)
+  w.respond = (argv) => {
+    if (argv[1] === 'eta') return eta(REPO_ETA)
+    if (argv[1] === 'status') return ok(JSON.stringify({ run_id: 'run-1', source: 'mod', scenario: 'delegation' }))
+    return ok(JSON.stringify(ADMITTED))
+  }
+  await $.session.start(START)
+
+  await $.tool.call({ tool: TOOL('run'), prompt: 'review this' })
+  await w.clock.advance(0)
+  await until(() => w.toasts.length === 1)
+
+  expect(w.toasts).toEqual([OWN_NOTICE + 'ETA ~2m 36s (repo average, 12 runs)'])
 })

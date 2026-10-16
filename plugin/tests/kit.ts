@@ -1,11 +1,11 @@
 // Shared stubs for the mod tests: a fake world beneath the mod where the
-// agentcli binary, the store, the clock and the display calls are all in memory.
+// msgate binary, the store, the clock and the display calls are all in memory.
 import { mock } from 'claude-code/testing'
 
 export const SESSION = 'sess-1'
 // The mod runs the plugin's own shim: an absolute path ending in bin/agentcli.
 export const isShim = (p: string) => p.startsWith('/') && p.endsWith('/bin/agentcli')
-export const TOOL = (name: string) => `mcp__agentcli__${name}`
+export const TOOL = (name: string) => `mcp__msgate__${name}`
 
 export type Run = { argv: string[]; stdin?: string; cwd?: string; timeoutMs?: number }
 export type SubmitOutcome = 'accept' | 'drop' | 'throw'
@@ -27,7 +27,7 @@ export function job(over: Record<string, unknown> = {}) {
     conversation_id: 'conv-1',
     state: 'running',
     outcome: null,
-    scenario: 'adhoc',
+    purpose: 'adhoc',
     background: true,
     source: 'mod',
     output_path: '/state/runs/run-1/output.md',
@@ -62,7 +62,7 @@ export function deliveries(runs: Record<string, unknown>, output = 'out'): Respo
     if (argv[1] !== 'status') return listing()
     if (argv[2] === '--json') return listing()
     const run = runs[argv[2]!]
-    return run === undefined ? { exitCode: 4, stdout: '', stderr: 'agentcli: run not found\n' } : ok(JSON.stringify(run))
+    return run === undefined ? { exitCode: 4, stdout: '', stderr: 'msgate: run not found\n' } : ok(JSON.stringify(run))
   }
 }
 
@@ -108,7 +108,7 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
     sessionId: SESSION,
     refuseCommand: false,
     respond: ((argv: string[]) => {
-      throw new Error('unexpected agentcli call: ' + argv.join(' '))
+      throw new Error('unexpected msgate call: ' + argv.join(' '))
     }) as Responder,
     // What `prices refresh` answers; by default a cache that is still fresh.
     respondPrices: (() => ok(JSON.stringify({ sdk_status: 'ok', exit_code: 0, ran: false, changed: false, reason: 'fresh' }))) as Responder,
@@ -133,7 +133,7 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
   on('session.id', () => ({ value: w.sessionId }))
   on('tool.register', (_$: any, e: any) => {
     w.tools.push(e)
-    return { value: { tool: 'mcp__agentcli__' + e.name } }
+    return { value: { tool: 'mcp__msgate__' + e.name } }
   })
   on('command.register', (_$: any, e: any) => {
     if (w.refuseCommand) return { deny: '"/' + e.name + '" refused: it is the built-in /' + e.name }
@@ -254,7 +254,7 @@ async function drain(stream: any) {
 }
 
 // The answer as the caller reads it: streamed text, or else the message of the
-// SubagentHandback call that delivers an agentcli subagent's answer.
+// SubagentHandback call that delivers an msgate subagent's answer.
 function answerText(chunks: any[], result: any): string {
   const streamed = chunks.filter((c) => c.kind === 'text').map((c) => c.text).join('')
   const handback = result?.toolUses?.find((use: any) => use.name === 'SubagentHandback')
@@ -262,6 +262,6 @@ function answerText(chunks: any[], result: any): string {
 }
 
 // The toasts that are not spawn notices.
-export const withoutSpawnNotices = (toasts: string[]) => toasts.filter((text) => !text.startsWith('agentcli · spawned '))
+export const withoutSpawnNotices = (toasts: string[]) => toasts.filter((text) => !text.startsWith('msgate · spawned '))
 
 export const POLL_MS = 15000

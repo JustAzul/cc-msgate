@@ -1,13 +1,13 @@
-// The agentcli.complete service: other plugins ask agentcli for a model
-// completion, and agentcli makes it and records what it cost. Nothing here
+// The msgate.complete service: other plugins ask msgate for a model
+// completion, and msgate makes it and records what it cost. Nothing here
 // touches the mods API: the engine comes in through ports, so the decisions
 // can be read and tested on their own.
 
 import { isBilled } from './summary.js'
 
-const PRE = 'agentcli:pre-model:'
-const AFTER = 'agentcli:after-model:'
-const UNKNOWN = 'agentcli:unknown-state:'
+const PRE = 'msgate:pre-model:'
+const AFTER = 'msgate:after-model:'
+const UNKNOWN = 'msgate:unknown-state:'
 const CONTRACT = 1
 const PROVIDER = 'anthropic'
 const CALL_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,199}$/
@@ -21,13 +21,13 @@ const HAIKU = 'haiku'
 const HAIKU_PRICED = 'claude-haiku-5-5'
 
 // What engine.create adds to `$`. An interface is an object of methods and
-// nothing else; the call itself is answered by the hook on agentcli.complete,
+// nothing else; the call itself is answered by the hook on msgate.complete,
 // which has a `$` to make the completion with. This body only runs when that
 // hook and its .catch both failed, and then nobody knows whether the model was
 // reached.
 export const NOUN = {
   complete: async () => {
-    throw new Error('agentcli:unserved')
+    throw new Error('msgate:unserved')
   },
 }
 

@@ -95,38 +95,38 @@ test('a failing session listing does not keep a queued job from its notice', asy
   expect(w.submits.length).toBe(1)
 })
 
-test('/agentcli-jobs is registered to run mid-turn and prints the recent jobs at once', async ($, on) => {
+test('/msgate-jobs is registered to run mid-turn and prints the recent jobs at once', async ($, on) => {
   const w = world(on)
   w.respond = () =>
     listing(
-      job({ run_id: 'run-2', state: 'running', scenario: 'code-review', conversation_id: 'conv-9' }),
+      job({ run_id: 'run-2', state: 'running', purpose: 'code-review', conversation_id: 'conv-9' }),
       job({ run_id: 'run-1', state: 'done', outcome: 'ok' }),
       job({ run_id: 'fg', state: 'done', background: false }),
     )
   await $.session.start(START)
 
-  const spec = w.commands.find((c) => c.name === 'agentcli-jobs')
+  const spec = w.commands.find((c) => c.name === 'msgate-jobs')
   expect(spec).toBeDefined()
   expect(spec.immediate).toBe(true)
   expect(spec.description.length).toBeGreaterThan(0)
 
-  const out: any = await $.command.run({ command: 'agentcli-jobs', args: '' })
+  const out: any = await $.command.run({ command: 'msgate-jobs', args: '' })
 
   expect(w.runs[0]!.argv.slice(1)).toEqual(['status', '--json', '--session-id', SESSION])
   for (const part of ['run-2', 'running', 'code-review', 'conv-9', 'run-1', 'done']) expect(out.text).toContain(part)
   expect(out.text).not.toContain('fg')
 })
 
-test('/agentcli-jobs says so when the session has no jobs, and reports agentcli failures', async ($, on) => {
+test('/msgate-jobs says so when the session has no jobs, and reports msgate failures', async ($, on) => {
   const w = world(on)
   w.respond = () => listing()
   await $.session.start(START)
 
-  const none: any = await $.command.run({ command: 'agentcli-jobs', args: '' })
+  const none: any = await $.command.run({ command: 'msgate-jobs', args: '' })
   expect(none.text).toContain('No')
 
-  w.respond = () => ({ exitCode: 70, stdout: '', stderr: 'agentcli: cannot resolve the home\n' })
-  const failed: any = await $.command.run({ command: 'agentcli-jobs', args: '' })
+  w.respond = () => ({ exitCode: 70, stdout: '', stderr: 'msgate: cannot resolve the home\n' })
+  const failed: any = await $.command.run({ command: 'msgate-jobs', args: '' })
   expect(failed.text).toContain('cannot resolve the home')
 })
 
@@ -166,4 +166,14 @@ test('the status line joins the jobs and the costs with a dot, and the two costs
   runs = [job({ run_id: 'a', state: 'running' }), job({ run_id: 'b', state: 'done', outcome: 'ok' }), job({ run_id: 'c', state: 'done', outcome: 'ok' })]
   await w.clock.advance(POLL_MS * 2)
   expect(w.statuses.at(-1)).toBe('💸 1 job running · Claude $0.03')
+})
+
+test('/msgate-jobs lists the purpose of a run that reports it as scenario', async ($, on) => {
+  const w = world(on)
+  w.respond = () => listing(job({ run_id: 'run-2', state: 'running', purpose: undefined, scenario: 'delegation' }))
+  await $.session.start(START)
+
+  const out: any = await $.command.run({ command: 'msgate-jobs', args: '' })
+
+  expect(out.text).toContain('delegation')
 })

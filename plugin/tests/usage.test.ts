@@ -46,13 +46,13 @@ function codex(slices: { kind: string; text: string }[][]) {
   }
 }
 
-// row runs the agent of an agentcli type over a run of `slices`, with `usage
+// row runs the agent of an msgate type over a run of `slices`, with `usage
 // add` answered by `recording`, and reads its row.
 async function row($: any, w: ReturnType<typeof world>, slices: { kind: string; text: string }[][], recording: (argv: string[]) => Reply | Promise<Reply> = () => ok('')) {
   const run = codex(slices)
   w.surfaces = ['terminal']
   w.respond = (argv) => (isUsageAdd(argv) ? recording(argv) : run(argv))
-  w.agents.push({ id: 'ag-1', type: 'agentcli:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   return step($, 'ag-1')
@@ -121,7 +121,7 @@ test('the label is shown while the recording is still held', async ($, on) => {
   const out = await row($, w, [[entry('e1')], []], () => held.promise)
 
   expect(usageRuns(w)).toHaveLength(1)
-  expect(out.chunks.filter((c) => c.kind === 'thinking').map((c) => c.text.trim())).toEqual(['agentcli · second-opinion', '» Reading auth.go'])
+  expect(out.chunks.filter((c) => c.kind === 'thinking').map((c) => c.text.trim())).toEqual(['msgate · second-opinion', '» Reading auth.go'])
   expect(out.text).toContain('Codex: done.')
   held.release(ok(''))
 })
@@ -130,7 +130,7 @@ test('a recording that fails is logged once, until one succeeds', async ($, on) 
   const w = world(on)
   w.respondModel = () => answered('Reading auth.go')
   const replies: (Reply | Error)[] = [
-    { exitCode: 70, stdout: '', stderr: 'agentcli: telemetry lock busy\n' },
+    { exitCode: 70, stdout: '', stderr: 'msgate: telemetry lock busy\n' },
     new Error('process timed out'),
     ok(''),
     { exitCode: 2, stdout: '', stderr: 'bad usage\n' },
@@ -163,7 +163,7 @@ function flagged(w: ReturnType<typeof world>, recording: (argv: string[]) => Rep
       const from = Number(argv[4])
       return ok(JSON.stringify({ run_id: 'run-h', state: 'running', next: entries.length, entries: entries.slice(from).map((e, i) => ({ seq: from + i, at: 't', ...e })) }))
     }
-    return listing(job({ run_id: 'run-h', state: 'running', source: 'hook-post-commit', scenario: 'code-review', background: false, agent_feedback: true, started_at: '1970-01-01T00:00:00Z' }))
+    return listing(job({ run_id: 'run-h', state: 'running', source: 'hook-post-commit', purpose: 'code-review', background: false, agent_feedback: true, started_at: '1970-01-01T00:00:00Z' }))
   }
   return entries
 }

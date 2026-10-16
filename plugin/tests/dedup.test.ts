@@ -8,7 +8,7 @@ const done = (id: string) => job({ run_id: id, state: 'done', outcome: 'ok' })
 // The time of the mock clock, read off an admission.
 async function clockNow($: any, w: any) {
   w.respond = () => ok(JSON.stringify({ ...ADMITTED, run_id: 'probe' }))
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'probe' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'probe' })
   const now = (w.store.get(queueKey()) as any[])[0].admitted_at as number
   w.store.delete(queueKey())
   return now
@@ -39,8 +39,8 @@ test('an entry whose delivery was tried before the load is marked as possibly re
 
   await w.clock.advance(POLL_MS)
 
-  expect(w.submits[0]!.split('\n')[0]).toBe('agentcli job run-1 (adhoc, conversation conv-1) finished: ok (possibly repeated)')
-  expect(w.submits[1]!.split('\n')[0]).toBe('agentcli job run-2 (adhoc, conversation conv-1) finished: ok')
+  expect(w.submits[0]!.split('\n')[0]).toBe('msgate job run-1 (adhoc, conversation conv-1) finished: ok (possibly repeated)')
+  expect(w.submits[1]!.split('\n')[0]).toBe('msgate job run-2 (adhoc, conversation conv-1) finished: ok')
   expect(w.store.has(queueKey())).toBe(false)
 })
 
@@ -95,7 +95,7 @@ test('an admission lands in the key of its own session', async ($, on) => {
   w.sessionId = 'sess-9'
   await $.session.start(START)
 
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'p' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'p' })
 
   expect([...w.store.keys()]).toEqual([queueKey('sess-9')])
 })

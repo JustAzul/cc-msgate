@@ -1,18 +1,18 @@
 {
-  "name": "agentcli",
+  "name": "cc-msgate",
   "owner": {
     "name": "JustAzul"
   },
   "metadata": {
-    "description": "Marketplace for agentcli, a provider-agnostic CLI for driving agent CLIs from Claude Code."
+    "description": "Marketplace for msgate, the engine that runs agent CLIs for Claude Code and other plugins."
   },
   "plugins": [
     {
-      "name": "agentcli",
-      "description": "agentcli: drive agent CLIs (Codex today) from Claude Code, hooks and scripts.",
+      "name": "msgate",
+      "description": "msgate: run agent CLIs (Codex today) from Claude Code, hooks, scripts and other plugins.",
       "source": {
         "source": "github",
-        "repo": "JustAzul/agentcli",
+        "repo": "JustAzul/cc-msgate",
         "ref": "dist"
       }
     }

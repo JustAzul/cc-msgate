@@ -51,10 +51,10 @@ function thinkingOf(chunks: any[]) {
   return chunks.filter((c) => c.kind === 'thinking').map((c) => c.text.trim())
 }
 
-// row starts the agent of an agentcli type over a run of `slices` and reads its row.
+// row starts the agent of an msgate type over a run of `slices` and reads its row.
 async function row($: any, w: any, slices: { kind: string; text: string }[][]) {
   w.respond = codex(slices)
-  w.agents.push({ id: 'ag-1', type: 'agentcli:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   return step($, 'ag-1')
@@ -65,7 +65,7 @@ test('a headless session asks for no label and the row shows the raw lines', asy
   const out = await row($, w, [[msg('I will read auth.go'), cmd('rg -n token auth.go')], []])
 
   expect(w.modelRequests).toEqual([])
-  expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion', 'I will read auth.go', '$ rg -n token auth.go'])
+  expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion', 'I will read auth.go', '$ rg -n token auth.go'])
 })
 
 test('with summaries turned off in the config the row shows the raw lines', { options: { summaries: false } }, async ($, on) => {
@@ -74,7 +74,7 @@ test('with summaries turned off in the config the row shows the raw lines', { op
   const out = await row($, w, [[msg('I will read auth.go')], []])
 
   expect(w.modelRequests).toEqual([])
-  expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion', 'I will read auth.go'])
+  expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion', 'I will read auth.go'])
 })
 
 test('the first entry of a run asks for one label with the measured request', async ($, on) => {
@@ -99,7 +99,7 @@ test('the row streams the label as thinking and no raw entry', async ($, on) => 
   w.respondModel = () => answered('Reading auth.go')
   const out = await row($, w, [[msg('I will read auth.go'), cmd('rg -n token auth.go')], []])
 
-  expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion', '» Reading auth.go'])
+  expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion', '» Reading auth.go'])
   expect(out.text).toContain('Codex: done.')
 })
 
@@ -115,7 +115,7 @@ test('the next label is asked for only after three more entries, with the previo
     if (argv[1] === 'progress') requestsBeforeRead.push(w.modelRequests.length)
     return run(argv)
   }
-  w.agents.push({ id: 'ag-1', type: 'agentcli:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   await step($, 'ag-1')
@@ -182,7 +182,7 @@ test('the session has at most two requests in flight', async ($, on) => {
     return argv[1] === 'wait' || argv[1] === 'progress' ? ok(reply.stdout.replace(/run-1/g, id)) : reply
   }
   for (const id of ['ag-1', 'ag-2', 'ag-3']) {
-    w.agents.push({ id, type: 'agentcli:second-opinion' })
+    w.agents.push({ id, type: 'msgate:second-opinion' })
     w.messages[id] = [{ role: 'user', text: 'Is auth.go safe?' }]
   }
   await $.session.start(START)
@@ -206,13 +206,13 @@ function flagged(w: any) {
       return ok(JSON.stringify({ run_id: 'run-h', state: 'running', next: entries.length, entries: entries.slice(from).map((e, i) => ({ seq: from + i, at: 't', ...e })) }))
     }
     if (argv[1] === 'stats') return ok(JSON.stringify({ usage_totals: {} }))
-    return listing(job({ run_id: 'run-h', state: 'running', source: 'hook-post-commit', scenario: 'code-review', background: false, agent_feedback: true, started_at: '1970-01-01T00:00:00Z' }))
+    return listing(job({ run_id: 'run-h', state: 'running', source: 'hook-post-commit', purpose: 'code-review', background: false, agent_feedback: true, started_at: '1970-01-01T00:00:00Z' }))
   }
   return entries
 }
 
 async function bandText($: any) {
-  const band = await $.ui.mount({ plugin: 'agentcli', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  const band = await $.ui.mount({ plugin: 'msgate', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
   return (await band.findAll({ type: 'Text' })).map((t: any) => t.text)
 }
 
@@ -225,11 +225,11 @@ test('the band shows no step until the first label, then the label', async ($, o
   await $.session.start(START)
 
   await w.clock.advance(POLL_MS)
-  expect(await bandText($)).toEqual(['agentcli · code-review · hook-post-commit · 15s'])
+  expect(await bandText($)).toEqual(['msgate · code-review · hook-post-commit · 15s'])
 
   slow.release(answered('Reading auth.go'))
   await w.clock.advance(BAND_REFRESH_MS)
-  expect(await bandText($)).toEqual(['agentcli · code-review · hook-post-commit · 20s · Reading auth.go'])
+  expect(await bandText($)).toEqual(['msgate · code-review · hook-post-commit · 20s · Reading auth.go'])
   expect(w.modelRequests).toHaveLength(1)
 })
 
@@ -250,7 +250,7 @@ test('the band of an unlabelled run ends after its cost, with no step', async ($
   await w.clock.advance(BAND_REFRESH_MS * 16)
 
   expect(w.modelRequests).toHaveLength(1)
-  expect(await bandText($)).toEqual(['agentcli · code-review · hook-post-commit · 1m 35s · $0.12'])
+  expect(await bandText($)).toEqual(['msgate · code-review · hook-post-commit · 1m 35s · $0.12'])
 })
 
 test('a summary that fails after a label settled leaves the band with that label', async ($, on) => {
@@ -264,14 +264,14 @@ test('a summary that fails after a label settled leaves the band with that label
 
   await w.clock.advance(POLL_MS)
   await w.clock.advance(BAND_REFRESH_MS)
-  expect(await bandText($)).toEqual(['agentcli · code-review · hook-post-commit · 20s · Reading auth.go'])
+  expect(await bandText($)).toEqual(['msgate · code-review · hook-post-commit · 20s · Reading auth.go'])
 
   entries.push(msg('e2'), msg('e3'), msg('e4'))
   await w.clock.advance(BAND_REFRESH_MS)
   expect(w.modelRequests).toHaveLength(2)
   await w.clock.advance(BAND_REFRESH_MS)
 
-  expect(await bandText($)).toEqual(['agentcli · code-review · hook-post-commit · 30s · Reading auth.go'])
+  expect(await bandText($)).toEqual(['msgate · code-review · hook-post-commit · 30s · Reading auth.go'])
 })
 
 test('a headless session leaves the band with the raw newest step', async ($, on) => {
@@ -282,7 +282,7 @@ test('a headless session leaves the band with the raw newest step', async ($, on
   await w.clock.advance(POLL_MS + BAND_REFRESH_MS)
 
   expect(w.modelRequests).toEqual([])
-  expect(await bandText($)).toEqual(['agentcli · code-review · hook-post-commit · 20s · I will read auth.go'])
+  expect(await bandText($)).toEqual(['msgate · code-review · hook-post-commit · 20s · I will read auth.go'])
 })
 
 test('a 429 pauses every request for a minute, then they resume', async ($, on) => {
@@ -298,7 +298,7 @@ test('a 429 pauses every request for a minute, then they resume', async ($, on) 
   expect(w.modelRequests).toHaveLength(1)
   // The failed window leaves the band with no step.
   await w.clock.advance(BAND_REFRESH_MS)
-  expect(await bandText($)).toEqual(['agentcli · code-review · hook-post-commit · 20s'])
+  expect(await bandText($)).toEqual(['msgate · code-review · hook-post-commit · 20s'])
 
   entries.push(msg('e2'), msg('e3'), msg('e4'))
   // The pause runs from 15s to 75s.
@@ -329,7 +329,7 @@ for (const [name, reply] of Object.entries(REJECTED)) {
     w.respondModel = () => answered(reply)
     const out = await row($, w, [[msg('first'), cmd('second')], []])
 
-    expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion'])
+    expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion'])
     expect(w.logs.filter((l) => l.includes('could not summarize'))).toHaveLength(1)
   })
 }
@@ -340,7 +340,7 @@ test('control and ANSI characters are stripped from the label', async ($, on) =>
   w.respondModel = () => answered('  \u001b[1mReading\u001b[0m auth.go\u0007  ')
   const out = await row($, w, [[msg('first')], []])
 
-  expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion', '» Reading auth.go'])
+  expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion', '» Reading auth.go'])
 })
 
 test('a request that rejects leaves the row with no raw entry', async ($, on) => {
@@ -351,7 +351,7 @@ test('a request that rejects leaves the row with no raw entry', async ($, on) =>
   }
   const out = await row($, w, [[msg('first'), cmd('second')], []])
 
-  expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion'])
+  expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion'])
   expect(w.logs.filter((l) => l.includes('could not summarize'))).toHaveLength(1)
   expect(out.text).toContain('Codex: done.')
 })
@@ -363,7 +363,7 @@ for (const [name, failure] of [['an api error', apiError(500)], ['an empty reply
     w.respondModel = () => failure
     const out = await row($, w, [[msg('a')], [msg('b'), msg('c'), msg('d')], [msg('e'), msg('f'), msg('g')], []])
 
-    expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion'])
+    expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion'])
     expect(w.logs.filter((l) => l.includes('could not summarize'))).toHaveLength(1)
   })
 }
@@ -375,7 +375,7 @@ test('a label that comes after a failure is streamed as a label', async ($, on) 
   w.respondModel = () => replies.shift()
   const out = await row($, w, [[msg('a')], [msg('b'), msg('c'), msg('d')], []])
 
-  expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion', '» Running store tests'])
+  expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion', '» Running store tests'])
 })
 
 test('the row never waits for a request: the label streams on the first slice after it settles', async ($, on) => {
@@ -390,12 +390,12 @@ test('the row never waits for a request: the label streams on the first slice af
     if (argv[1] === 'wait' && chunksBySlice.length === 3) slow.release(answered('Reading auth.go'))
     return run(argv)
   }
-  w.agents.push({ id: 'ag-1', type: 'agentcli:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   const out = await step($, 'ag-1')
 
-  expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion', '» Reading auth.go'])
+  expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion', '» Reading auth.go'])
   expect(out.text).toContain('Codex: done.')
 })
 
@@ -413,7 +413,7 @@ test('a quiet row still shows the heartbeat while summaries are active', async (
     }
     return run(argv)
   }
-  w.agents.push({ id: 'ag-1', type: 'agentcli:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   const out = await step($, 'ag-1')
@@ -422,7 +422,7 @@ test('a quiet row still shows the heartbeat while summaries are active', async (
   // Nothing is shown in the first slice, the label in the second; a slice that
   // shows nothing 30 seconds after the last line adds a heartbeat.
   expect(thinkingOf(out.chunks)).toEqual([
-    'agentcli · second-opinion',
+    'msgate · second-opinion',
     'still working · 30s',
     '» Reading auth.go',
     'still working · 1m 30s',
@@ -443,7 +443,7 @@ test('a request due while one is in flight is deferred, then made with the windo
     if (argv[1] === 'wait' && ++waits === 3) slow.release(answered('Reading auth.go'))
     return run(argv)
   }
-  w.agents.push({ id: 'ag-1', type: 'agentcli:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   const out = await step($, 'ag-1')
@@ -452,5 +452,5 @@ test('a request due while one is in flight is deferred, then made with the windo
     'Newest activity of the agent, oldest first:\n- e1',
     'Newest activity of the agent, oldest first:\n- e2\n- e3\n- e4\n- e5\n\nPrevious label: Reading auth.go (say something NEW).',
   ])
-  expect(thinkingOf(out.chunks)).toEqual(['agentcli · second-opinion', '» Reading auth.go', '» Running store tests'])
+  expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion', '» Reading auth.go', '» Running store tests'])
 })

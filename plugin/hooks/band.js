@@ -2,7 +2,7 @@
 // another caller started with --agent-feedback (a hook's review, a script's
 // job) while they work. Nothing here touches the mods API.
 
-import { isTerminal } from './lib.js'
+import { isTerminal, withPurpose } from './lib.js'
 import { formatCost } from './prices.js'
 import { AGENT_SOURCE, formatElapsed } from './subagent.js'
 
@@ -17,7 +17,7 @@ export function flaggedRuns(stdout) {
   try {
     const parsed = JSON.parse(stdout)
     const runs = parsed && Array.isArray(parsed.runs) ? parsed.runs : []
-    return runs.filter(isShownInBand)
+    return runs.filter(isShownInBand).map(withPurpose)
   } catch {
     return []
   }
@@ -38,7 +38,7 @@ function newFollowed(run) {
   const startedAt = Date.parse(run.started_at ?? run.admitted_at ?? '')
   return {
     run_id: run.run_id,
-    scenario: String(run.scenario ?? ''),
+    purpose: String(run.purpose ?? ''),
     source: String(run.source ?? ''),
     startedAt: Number.isNaN(startedAt) ? null : startedAt,
     from: 0,
@@ -49,7 +49,7 @@ function newFollowed(run) {
 
 // bandLine is one followed run as the band shows it.
 export function bandLine(run, now) {
-  const parts = ['agentcli', run.scenario, run.source]
+  const parts = ['msgate', run.purpose, run.source]
   if (run.startedAt !== null) parts.push(formatElapsed(now - run.startedAt))
   parts.push(formatCost(run.cost) ?? '')
   if (run.line !== '') parts.push(run.line.replace(/\s+/g, ' ').trim().slice(0, PROGRESS_CHARS))

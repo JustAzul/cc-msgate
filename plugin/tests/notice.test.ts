@@ -6,7 +6,7 @@ const KIB8 = 8192
 const ADMITTED = { conversation_id: 'conv-1', run_id: 'run-1', state: 'running', run_dir: '/s/runs/run-1', output_path: '/s/runs/run-1/output.md' }
 
 function finished(over: Record<string, unknown> = {}) {
-  return job({ state: 'done', outcome: 'ok', scenario: 'code-review', ...over })
+  return job({ state: 'done', outcome: 'ok', purpose: 'code-review', ...over })
 }
 
 // A world whose store holds a queue with the given runs, each answering its status.
@@ -16,15 +16,15 @@ function queuedWorld(on: any, runs: Record<string, unknown>, output = 'out') {
   return w
 }
 
-test('ask enqueues the admitted job with its purpose and the admission time', async ($, on) => {
+test('run enqueues the admitted job with its purpose and the admission time', async ($, on) => {
   const w = world(on)
   let n = 0
   w.respond = () => ok(JSON.stringify({ ...ADMITTED, run_id: 'run-' + ++n }))
   await $.session.start(START)
 
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'review', scenario: 'code-review' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'review', purpose: 'code-review' })
   await w.clock.advance(2_000)
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'again' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'again' })
 
   const [first, second] = w.store.get(queueKey()) as any[]
   expect(first).toEqual({ run_id: 'run-1', conversation_id: 'conv-1', purpose: 'code-review', admitted_at: first.admitted_at, attempted_at: null })
@@ -32,12 +32,12 @@ test('ask enqueues the admitted job with its purpose and the admission time', as
   expect(second.admitted_at - first.admitted_at).toBe(2_000)
 })
 
-test('send enqueues the admitted job, with a null purpose when it names no scenario', async ($, on) => {
+test('run with a conversation enqueues the admitted job, with a null purpose when it names no purpose', async ($, on) => {
   const w = world(on)
   w.respond = () => ok(JSON.stringify({ ...ADMITTED, run_id: 'run-2' }))
   await $.session.start(START)
 
-  await $.tool.call({ tool: TOOL('send'), conversation_id: 'conv-1', prompt: 'next' })
+  await $.tool.call({ tool: TOOL('run'), conversation_id: 'conv-1', prompt: 'next' })
 
   const queue = w.store.get(queueKey()) as any[]
   expect(queue.map((entry) => [entry.run_id, entry.purpose, entry.attempted_at])).toEqual([['run-2', null, null]])
@@ -45,10 +45,10 @@ test('send enqueues the admitted job, with a null purpose when it names no scena
 
 test('a refused admission enqueues nothing', async ($, on) => {
   const w = world(on)
-  w.respond = () => ({ exitCode: 2, stdout: '', stderr: 'agentcli: unknown provider\n' })
+  w.respond = () => ({ exitCode: 2, stdout: '', stderr: 'msgate: unknown provider\n' })
   await $.session.start(START)
 
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'hi', provider: 'x' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'hi', provider: 'x' })
 
   expect(w.store.has(queueKey())).toBe(false)
 })
@@ -58,7 +58,7 @@ test('25 jobs that end before the next tick get 25 notices, none of them read fr
   let n = 0
   w.respond = () => ok(JSON.stringify({ ...ADMITTED, run_id: 'run-' + String(++n).padStart(2, '0') }))
   await $.session.start(START)
-  for (let i = 0; i < 25; i++) await $.tool.call({ tool: TOOL('ask'), prompt: 'p' + i })
+  for (let i = 0; i < 25; i++) await $.tool.call({ tool: TOOL('run'), prompt: 'p' + i })
   const runs = Object.fromEntries(Array.from({ length: 25 }, (_, i) => ['run-' + String(i + 1).padStart(2, '0'), finished({ run_id: 'run-' + String(i + 1).padStart(2, '0') })]))
   w.respond = deliveries(runs)
 
@@ -78,7 +78,7 @@ test('a finished job shows a toast and submits a notice with its output inline',
   expect(w.toasts.length).toBe(1)
   expect(w.toasts[0]).toContain('run-1')
   expect(w.submits.length).toBe(1)
-  expect(w.submits[0]!.startsWith('agentcli job run-1 (code-review, conversation conv-1) finished: ok\n')).toBe(true)
+  expect(w.submits[0]!.startsWith('msgate job run-1 (code-review, conversation conv-1) finished: ok\n')).toBe(true)
   expect(w.submits[0]).toContain('Two findings.')
   const read = w.runs.find((r) => r.argv[1] === 'result')!
   expect(read.argv.slice(1)).toEqual(['result', 'run-1'])
@@ -92,7 +92,7 @@ test('the notice of a failed job names its state when there is no outcome', asyn
 
   await w.clock.advance(POLL_MS)
 
-  expect(w.submits[0]!.startsWith('agentcli job run-1 (code-review, conversation conv-1) finished: failed')).toBe(true)
+  expect(w.submits[0]!.startsWith('msgate job run-1 (code-review, conversation conv-1) finished: failed')).toBe(true)
 })
 
 test('a running job raises no notice and stays queued', async ($, on) => {
@@ -240,7 +240,7 @@ test('an attempt in flight is written to the stored entry before the notice is s
   expect(typeof stored.attempted_at).toBe('number')
 })
 
-test('a run agentcli no longer knows leaves the queue with one debug line', async ($, on) => {
+test('a run msgate no longer knows leaves the queue with one debug line', async ($, on) => {
   const w = world(on, { store: seeded([queued('gone')]) })
   w.respond = deliveries({})
   await $.session.start(START)
@@ -255,7 +255,7 @@ test('a run agentcli no longer knows leaves the queue with one debug line', asyn
 test('a status read that fails keeps the entry and is logged once per load', async ($, on) => {
   const w = world(on, { store: seeded([queued('run-1')]) })
   w.respond = (argv) => {
-    if (argv[1] === 'status' && argv[2] === 'run-1') return { exitCode: 70, stdout: '', stderr: 'agentcli: boom\n' }
+    if (argv[1] === 'status' && argv[2] === 'run-1') return { exitCode: 70, stdout: '', stderr: 'msgate: boom\n' }
     return listing()
   }
   await $.session.start(START)
@@ -364,7 +364,7 @@ test('a queue write that fails at admission is retried on the next tick, with on
   await $.session.start(START)
   w.storeSetFailures = 1
 
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'p' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'p' })
 
   expect(w.store.has(queueKey())).toBe(false)
   expect(w.toasts.filter((text) => text.includes(NOT_QUEUED) && text.includes('run-1')).length).toBe(1)
@@ -390,12 +390,12 @@ test('an entry the store never accepts is delivered from memory once, and not ag
   await $.session.start(START)
   w.storeSetFailures = Infinity
 
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'p' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'p' })
   w.respond = deliveries({ 'run-1': finished({ run_id: 'run-1' }) })
   await w.clock.advance(POLL_MS * 3)
 
   expect(w.submits.length).toBe(1)
-  expect(w.submits[0]).toContain('agentcli job run-1')
+  expect(w.submits[0]).toContain('msgate job run-1')
   expect(w.toasts.filter((text) => text.includes(NOT_QUEUED)).length).toBe(1)
   expect(w.toasts.filter((text) => text.startsWith('job run-1 finished')).length).toBe(1)
 })
@@ -407,8 +407,8 @@ test('several entries the store refuses raise one toast between them, and each i
   await $.session.start(START)
   w.storeSetFailures = Infinity
 
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'a' })
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'b' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'a' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'b' })
 
   expect(w.toasts.filter((text) => text.includes(NOT_QUEUED)).length).toBe(1)
   expect(w.debugLogs.filter((line) => line.includes(NOT_QUEUED)).length).toBe(2)
@@ -419,7 +419,7 @@ test('a submit that settles while its held entry is being written leaves no copy
   w.respond = () => ok(JSON.stringify(ADMITTED))
   await $.session.start(START)
   w.storeSetFailures = 1
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'p' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'p' })
   w.respond = deliveries({ 'run-1': finished({ run_id: 'run-1' }) })
 
   // The store refuses while the run ends: the notice is delivered from memory,
@@ -454,7 +454,7 @@ test('a held entry is delivered and toasted while the store refuses writes next 
   w.respond = () => ok(JSON.stringify(ADMITTED))
   await $.session.start(START)
   w.storeSetFailures = Infinity
-  await $.tool.call({ tool: TOOL('ask'), prompt: 'p' })
+  await $.tool.call({ tool: TOOL('run'), prompt: 'p' })
   w.respond = deliveries({ 'run-1': finished({ run_id: 'run-1' }), other: job({ run_id: 'other', state: 'running' }) })
 
   await w.clock.advance(POLL_MS * 2)
@@ -462,4 +462,14 @@ test('a held entry is delivered and toasted while the store refuses writes next 
   expect(w.submits.length).toBe(1)
   expect(w.toasts.filter((text) => text.startsWith('job run-1 finished')).length).toBe(1)
   expect((w.store.get(queueKey()) as any[]).map((entry) => entry.run_id)).toEqual(['other'])
+})
+
+test('the notice names the run by its scenario when the binary reports no purpose', async ($, on) => {
+  const { purpose, ...older } = finished()
+  const w = queuedWorld(on, { 'run-1': { ...older, scenario: 'code-review' } })
+  await $.session.start(START)
+
+  await w.clock.advance(POLL_MS)
+
+  expect(w.submits[0]!.startsWith('msgate job run-1 (code-review, conversation conv-1) finished: ok')).toBe(true)
 })

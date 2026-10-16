@@ -1,5 +1,5 @@
 // Pure helpers for the agent types the mod answers. Each type is a subagent
-// whose every model request is answered by an agentcli job, never by a Claude
+// whose every model request is answered by a msgate job, never by a Claude
 // model. Nothing here touches the mods API, so these functions can be read and
 // tested on their own.
 
@@ -13,7 +13,7 @@ export const CONVERSATIONS_LIMIT = 500
 
 // The first line every failed hand-off answers with, so an answer that did not
 // come from the agent can never pass for one.
-export const HANDOFF_FAILED = 'agentcli: the hand-off to the agent failed, so this is not its answer.'
+export const HANDOFF_FAILED = 'msgate: the hand-off to the agent failed, so this is not its answer.'
 
 const DELIVERED_OUTCOMES = ['ok', 'clean']
 const REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g
@@ -121,7 +121,7 @@ function outcomeOf(run) {
 }
 
 function trailer(run) {
-  return '[agentcli run ' + run.run_id + ' · conversation ' + run.conversation_id + ' · ' + outcomeOf(run) + ']'
+  return '[msgate run ' + run.run_id + ' · conversation ' + run.conversation_id + ' · ' + outcomeOf(run) + ']'
 }
 
 function body(output, outputPath) {
@@ -131,7 +131,7 @@ function body(output, outputPath) {
 
 function endedLine(run) {
   const hasExcerpt = typeof run.error_excerpt === 'string' && run.error_excerpt !== ''
-  return 'agentcli run ' + run.run_id + ' ended ' + outcomeOf(run) + (hasExcerpt ? ': ' + run.error_excerpt : '')
+  return 'msgate run ' + run.run_id + ' ended ' + outcomeOf(run) + (hasExcerpt ? ': ' + run.error_excerpt : '')
 }
 
 // answerText is what the subagent answers once its run has finished: the
@@ -153,8 +153,8 @@ export function handoffFailure(detail) {
 // What a later turn answers when its conversation is no longer recorded: it
 // is never started afresh, which would drop the context the follow-up needs.
 export const LOST_CONVERSATION =
-  "this agent's agentcli conversation is no longer recorded, so its context cannot be resumed here. " +
-  "Continue it with the agentcli send tool and the conversation id from an earlier answer's trailer."
+  "this agent's msgate conversation is no longer recorded, so its context cannot be resumed here. " +
+  "Continue it with the msgate run tool and the conversation id from an earlier answer's trailer."
 
 // readConversations returns the persisted agentId → conversation records, or
 // an empty list when the stored value is missing or damaged.

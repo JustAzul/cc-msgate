@@ -70,7 +70,7 @@ test('a refresh report that is not the expected object counts as a failure', () 
   expect(refreshOutcome({ exitCode: 0, stdout: '{"ran":false,"changed":false,"reason":"fresh"}', stderr: '' })).toEqual({ failure: null, hasChanged: false })
 })
 
-// The refresh tests below use the world's fake agentcli (kit.ts).
+// The refresh tests below use the world's fake msgate (kit.ts).
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 const SHIM = (argv: string[]) => argv[0]!.endsWith('/bin/agentcli')
@@ -365,7 +365,7 @@ test('a cost read that throws keeps the price change for the next poll', async (
   w.respond = (argv) => {
     if (argv[1] === 'stats') {
       statsCalls += 1
-      if (statsCalls === 1) throw new Error('agentcli vanished')
+      if (statsCalls === 1) throw new Error('msgate vanished')
       return ok(stats('2.000000'))
     }
     return listing()

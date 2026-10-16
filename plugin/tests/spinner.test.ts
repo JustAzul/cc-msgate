@@ -53,7 +53,7 @@ function startTurn($: any, w: any) {
         return ok('Codex: done.')
     }
   }
-  w.agents.push({ id: 'ag-1', type: 'agentcli:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
   w.agents.push({ id: 'ag-2', type: 'Explore' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   return {
@@ -66,24 +66,24 @@ function startTurn($: any, w: any) {
 }
 
 async function spinnerText($: any, requestId: string, props: any = SPINNER_PROPS) {
-  const ui = await $.ui.mount({ plugin: 'agentcli', surface: 'terminal', component: 'Spinner', props, requestId })
+  const ui = await $.ui.mount({ plugin: 'msgate', surface: 'terminal', component: 'Spinner', props, requestId })
   const texts = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text)
   await ui.unmount()
   return texts
 }
 
-test('the spinner of an agentcli agent says its type until a label settles', async ($, on) => {
+test('the spinner of an msgate agent says its type until a label settles', async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
   w.respondModel = () => new Promise(() => {})
   const run = startTurn($, w)
   await run.atFirstWait
 
-  expect(await spinnerText($, 'ag-1')).toEqual(['agentcli · second-opinion'])
+  expect(await spinnerText($, 'ag-1')).toEqual(['msgate · second-opinion'])
 
   run.leaveFirstWait()
   await run.atSecondWait
-  expect(await spinnerText($, 'ag-1')).toEqual(['agentcli · second-opinion'])
+  expect(await spinnerText($, 'ag-1')).toEqual(['msgate · second-opinion'])
   run.leaveSecondWait()
   await run.turn
 })
@@ -101,7 +101,7 @@ async function settleLabel(w: any, run: ReturnType<typeof startTurn>, label: str
   await until(() => w.invalidations.length > 0)
 }
 
-test('the spinner of an agentcli agent shows the label once one settles', async ($, on) => {
+test('the spinner of an msgate agent shows the label once one settles', async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
   const run = startTurn($, w)
@@ -176,7 +176,7 @@ test('without summaries the spinner of the agent says its type, whatever the run
   run.leaveFirstWait()
   await run.atSecondWait
 
-  expect(await spinnerText($, 'ag-1')).toEqual(['agentcli · second-opinion'])
+  expect(await spinnerText($, 'ag-1')).toEqual(['msgate · second-opinion'])
   expect(w.modelRequests).toEqual([])
   run.leaveSecondWait()
   await run.turn

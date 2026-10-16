@@ -13,6 +13,8 @@ import {
   withEntry,
   withoutRun,
   admittedJob,
+  purposeOf,
+  withPurpose,
   failureText,
   jobsCommand,
   jobsListing,
@@ -79,24 +81,24 @@ import { summaryRecording } from './summary.js'
 import { modelCallCommand } from './modelcall.js'
 import { ETA_TIMEOUT_MS, ETA_UNAVAILABLE, etaCommand, etaText, endedSince, finishedTail, isAnnounceable, listedRuns, spawnNotice } from './spawn.js'
 
-const COMMAND = 'agentcli-jobs'
-const NO_TOOLS = 'agentcli agents run no tools: an agentcli job answers for them.'
+const COMMAND = 'msgate-jobs'
+const NO_TOOLS = 'msgate agents run no tools: a msgate job answers for them.'
 // The band's lines: one for each run another caller flagged with
 // --agent-feedback that is still going. Session state, so the band redraws on
 // each write and a reload keeps what it shows.
-const HOOK_RUNS = { plugin: 'agentcli', key: 'hookRuns' }
+const HOOK_RUNS = { plugin: 'msgate', key: 'hookRuns' }
 // The runs already announced as spawned, newest last, kept across reloads.
-const SPAWN_NOTIFIED = { plugin: 'agentcli', key: 'spawnNotified' }
+const SPAWN_NOTIFIED = { plugin: 'msgate', key: 'spawnNotified' }
 // A step's response: what the run is doing as thinking, then the answer.
 const THINKING_BLOCK = 0
 const ANSWER_BLOCK = 1
 
 const TURN_PROPERTIES = {
   provider: { type: 'string', description: 'Provider to run (default: codex).' },
-  scenario: { type: 'string', description: 'Label for the purpose of the run, such as code-review or delegation; it selects default model, effort and sandbox.' },
-  model: { type: 'string', description: 'Model, overriding the scenario default.' },
-  effort: { type: 'string', description: 'Reasoning effort, overriding the scenario default.' },
-  sandbox: { type: 'string', description: 'Sandbox mode, such as read-only or workspace-write.' },
+  purpose: { type: 'string', description: 'Label for the purpose of the run, such as code-review or delegation; it is recorded with the run and groups its statistics and ETA. It sets no model, effort or sandbox.' },
+  model: { type: 'string', description: 'Model (default: the provider\'s own).' },
+  effort: { type: 'string', description: 'Reasoning effort (default: the provider\'s own).' },
+  sandbox: { type: 'string', description: 'Sandbox mode, read-only or workspace-write (default: read-only).' },
   cwd: { type: 'string', description: 'Working directory for the run (default: the session directory).' },
 }
 
@@ -177,7 +179,7 @@ let isSkippedRunLogged = false
 let spawnWrites = Promise.resolve()
 // The progress summaries of this load, which the config of the load decides.
 let summaries = createSummarizer({})
-// The agentcli.complete calls this load is serving.
+// The msgate.complete calls this load is serving.
 let service = createService()
 // Conversation records are read, changed and written back; one write at a time
 // keeps two agents admitted together from dropping each other's record.
@@ -191,9 +193,9 @@ export function register(on, options) {
   isLossToastShown = false
   service = createService()
   // Only the spread and the noun: a step that fails unloads the whole plugin.
-  on('engine.create', async (_$, e, next) => ({ ...(await next(e)), agentcli: NOUN }))
+  on('engine.create', async (_$, e, next) => ({ ...(await next(e)), msgate: NOUN }))
   // The caller reads the denial's prefix to know whether the model was called.
-  on('agentcli.complete', ($, e, next) => service.serve(servicePorts($), e, { signal: next.signal, caller: next.origin.plugin })).catch((_$, e, next) =>
+  on('msgate.complete', ($, e, next) => service.serve(servicePorts($), e, { signal: next.signal, caller: next.origin.plugin })).catch((_$, e, next) =>
     service.failed(e, next.error.kind),
   )
   on('session.start', async ($, e, next) => {
@@ -225,7 +227,7 @@ export function register(on, options) {
     try {
       await $.command.register({
         name: COMMAND,
-        description: 'List the agentcli jobs of this session',
+        description: 'List the msgate jobs of this session',
         immediate: true,
       })
     } catch (error) {
@@ -243,15 +245,14 @@ export function register(on, options) {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  on('tool.call', { tool: 'mcp__agentcli__ask' }, async ($, e) => startTurn($, e, 'ask'))
-  on('tool.call', { tool: 'mcp__agentcli__send' }, async ($, e) => startTurn($, e, 'send'))
-  on('tool.call', { tool: 'mcp__agentcli__jobs' }, async ($, e) => runJobsAction($, e))
+  on('tool.call', { tool: 'mcp__msgate__run' }, async ($, e) => startTurn($, e))
+  on('tool.call', { tool: 'mcp__msgate__jobs' }, async ($, e) => runJobsAction($, e))
 
-  on('command.run', { command: 'agentcli-jobs' }, async ($) => listJobs($))
+  on('command.run', { command: 'msgate-jobs' }, async ($) => listJobs($))
 
   // Every way the hooks below can fail ends in an answer that says the
   // hand-off failed, never in a Claude model's answer.
-  // The text an agentcli subagent's turn started with: its prompt when a
+  // The text a msgate subagent's turn started with: its prompt when a
   // session that saves no transcript has no rows to read it from.
   on('turn.start', async ($, e, next) => {
     if ((await subagentTypeOf($, e.agentId)) !== null) startTexts.set(e.agentId, { turnId: e.turnId, text: e.text })
@@ -265,7 +266,7 @@ export function register(on, options) {
     // default permission mode, or the request repeats) needs no new run.
     const answered = answeredText(e)
     if (answered !== null) return yield* answer(e, answered)
-    yield thinking('agentcli · ' + type)
+    yield thinking('msgate · ' + type)
     return yield* deliver(e, yield* followTurn($, { agentId: e.agentId, turnId: e.turnId, type }, next.signal))
   }).catch(async function* ($, e, next) {
     if (next.called || !isKnownSubagent(e.agentId)) return yield* next(e)
@@ -279,7 +280,7 @@ export function register(on, options) {
     return { deny: NO_TOOLS }
   }).catch(($, e, next) => (next.called || e.tool === HANDBACK_TOOL || !isKnownSubagent(e.agentId) ? next(e) : { deny: NO_TOOLS }))
 
-  // The spinner of an agentcli agent's turn says what its run is doing.
+  // The spinner of a msgate agent's turn says what its run is doing.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (!loggedSpinners.has(e.requestId)) {
       loggedSpinners.add(e.requestId)
@@ -288,7 +289,7 @@ export function register(on, options) {
     const agent = turnAgents.get(e.requestId)
     // A message the engine set is not the run's to replace.
     if (agent === undefined || e.props.message != null) return next(e)
-    const message = summaries.shown(agent.runId) ?? 'agentcli · ' + agent.type
+    const message = summaries.shown(agent.runId) ?? 'msgate · ' + agent.type
     return next({ ...e, props: { ...e.props, message } })
   }).catch(($, e, next) => next(e))
 
@@ -310,35 +311,25 @@ export function register(on, options) {
 async function registerTools($) {
   const tools = [
     {
-      name: 'ask',
+      name: 'run',
       description:
-        'Start a new agentcli conversation as a background job and return at once with {conversation_id, run_id}. ' +
+        'Run a prompt on an agent CLI as a background job and return at once with {conversation_id, run_id, continued}. ' +
+        'Without conversation_id it starts a new conversation; with one it sends the next turn of that conversation. ' +
         'A notice arrives in this session when the job finishes, so do not poll for it.',
       inputSchema: {
         type: 'object',
-        properties: { prompt: { type: 'string', description: 'The prompt for the agent.' }, ...TURN_PROPERTIES },
-        required: ['prompt'],
-      },
-    },
-    {
-      name: 'send',
-      description:
-        'Send the next turn of an existing agentcli conversation as a background job and return at once with {conversation_id, run_id}. ' +
-        'A notice arrives in this session when the job finishes.',
-      inputSchema: {
-        type: 'object',
         properties: {
-          conversation_id: { type: 'string', description: 'The conversation to continue (a run id of that conversation also works).' },
-          prompt: { type: 'string', description: 'The prompt for the next turn.' },
+          prompt: { type: 'string', description: 'The prompt for the agent.' },
+          conversation_id: { type: 'string', description: 'The conversation to continue (a run id of that conversation also works); leave out to start a new one.' },
           ...TURN_PROPERTIES,
         },
-        required: ['conversation_id', 'prompt'],
+        required: ['prompt'],
       },
     },
     {
       name: 'jobs',
       description:
-        'Inspect agentcli jobs: list this session\'s recent runs, read the state of one run, read the output of a finished run, or cancel a run.',
+        'Inspect msgate jobs: list this session\'s recent runs, read the state of one run, read the output of a finished run, or cancel a run.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -358,24 +349,24 @@ async function registerTools($) {
   }
 }
 
-// startTurn serves the ask and send tools.
-async function startTurn($, e, kind) {
+// startTurn serves the run tool.
+async function startTurn($, e) {
   const sessionId = await $.session.id()
   const bin = shimPath($.plugin.root)
-  const built = turnCommand(kind, bin, sessionId, e)
+  const built = turnCommand(bin, sessionId, e)
   if (built.error) return { deny: built.error }
   let reply
   try {
     reply = await $.process.run(built.argv, { stdin: built.stdin })
   } catch (error) {
-    return { deny: 'agentcli could not run: ' + String(error && error.message ? error.message : error) }
+    return { deny: 'msgate could not run: ' + String(error && error.message ? error.message : error) }
   }
   if (reply.exitCode !== 0) return { deny: failureText(reply) }
   const ids = admittedJob(reply.stdout)
-  if (ids === null) return { deny: 'agentcli printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500) }
-  await enqueueDelivery($, sessionId, queueEntry(ids, e.scenario, await $.clock.now()))
+  if (ids === null) return { deny: 'msgate printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500) }
+  await enqueueDelivery($, sessionId, queueEntry(ids, e.purpose, await $.clock.now()))
   startNotice($, () => notifyTurn($, bin, ids.run_id))
-  return { result: JSON.stringify(ids) }
+  return { result: JSON.stringify({ ...ids, continued: built.isContinuation }) }
 }
 
 // The delivery queues are read, changed and written back one write at a time,
@@ -487,7 +478,7 @@ function startNotice($, work) {
   })
 }
 
-// notifyTurn announces the run of an ask or send with the scenario and source
+// notifyTurn announces the run of the run tool with the purpose and source
 // the run itself reports. A run whose status cannot be read is left to the scan.
 // It never throws.
 async function notifyTurn($, bin, runId) {
@@ -496,8 +487,9 @@ async function notifyTurn($, bin, runId) {
     const reply = await $.process.run([bin, 'status', runId, '--json'])
     if (reply.exitCode === 0) {
       const run = JSON.parse(reply.stdout)
-      if (typeof run.scenario === 'string' && typeof run.source === 'string') return notifyAdmitted($, bin, runId, run.scenario, run.source)
-      failure = 'the run reports no scenario or source'
+      const purpose = purposeOf(run)
+      if (purpose !== undefined && typeof run.source === 'string') return notifyAdmitted($, bin, runId, purpose, run.source)
+      failure = 'the run reports no purpose or source'
     } else {
       failure = failureText(reply)
     }
@@ -525,7 +517,7 @@ async function scanSpawns($) {
     const claimed = await claimListed($, listed)
     hasSpawnBaseline = true
     for (const run of claimed) {
-      if (!isTerminal(run.state)) await showSpawn($, run, () => lookupEta($, bin, run.scenario))
+      if (!isTerminal(run.state)) await showSpawn($, run, () => lookupEta($, bin, run.purpose))
       else if (!isBaseline || endedSince(run, loadedAt)) await showSpawn($, run, () => finishedTail(run))
     }
   } catch (error) {
@@ -556,7 +548,7 @@ async function claimListed($, listed) {
 function logSkippedRun($, runId) {
   if (isSkippedRunLogged) return
   isSkippedRunLogged = true
-  $.ui.log('skipped run ' + runId + ' in the spawn scan: the listing gives it no scenario, source or state', { to: 'debug' })
+  $.ui.log('skipped run ' + runId + ' in the spawn scan: the listing gives it no purpose, source or state', { to: 'debug' })
 }
 
 // logScanFailure logs a failed scan once until a scan succeeds; the next period
@@ -571,17 +563,17 @@ function logScanFailure($, failure) {
 // logged and does not stop the scan.
 async function showSpawn($, run, tail) {
   try {
-    await announceSpawn($, run.scenario, run.source, await tail())
+    await announceSpawn($, run.purpose, run.source, await tail())
   } catch (error) {
-    logNoticeFailure($, run.scenario, error)
+    logNoticeFailure($, run.purpose, error)
   }
 }
 
 // logNoticeFailure logs the first notice of the load that could not be shown.
-function logNoticeFailure($, scenario, error) {
+function logNoticeFailure($, purpose, error) {
   if (isNoticeFailureLogged) return
   isNoticeFailureLogged = true
-  $.ui.log('could not show the spawn notice of ' + scenario + ': ' + messageOf(error), { to: 'debug' })
+  $.ui.log('could not show the spawn notice of ' + purpose + ': ' + messageOf(error), { to: 'debug' })
 }
 
 // claimSpawn records a run as announced and tells whether this call is the one
@@ -610,27 +602,27 @@ async function claimSpawn($, runId) {
 
 // notifyAdmitted announces a run this mod admitted itself, unless the scan has
 // already. It never throws.
-async function notifyAdmitted($, bin, runId, scenario, source) {
+async function notifyAdmitted($, bin, runId, purpose, source) {
   try {
     if (!(await claimSpawn($, runId))) return
-    await announceSpawn($, scenario, source, await lookupEta($, bin, scenario))
+    await announceSpawn($, purpose, source, await lookupEta($, bin, purpose))
   } catch (error) {
-    logNoticeFailure($, scenario, error)
+    logNoticeFailure($, purpose, error)
   }
 }
 
-async function announceSpawn($, scenario, source, tail) {
-  const text = spawnNotice(scenario, source, tail)
+async function announceSpawn($, purpose, source, tail) {
+  const text = spawnNotice(purpose, source, tail)
   await $.ui.toast(text)
   await $.ui.log(text)
 }
 
 // lookupEta is the ETA part of a notice, or the unavailable text when it could
 // not be read (logged once per load).
-async function lookupEta($, bin, scenario) {
+async function lookupEta($, bin, purpose) {
   let failure
   try {
-    const reply = await $.process.run(etaCommand(bin, scenario, sessionCwd), { timeoutMs: ETA_TIMEOUT_MS })
+    const reply = await $.process.run(etaCommand(bin, purpose, sessionCwd), { timeoutMs: ETA_TIMEOUT_MS })
     const text = reply.exitCode === 0 ? etaText(reply.stdout) : null
     if (text !== null) return text
     failure = reply.exitCode === 0 ? 'unreadable output' : failureText(reply)
@@ -639,7 +631,7 @@ async function lookupEta($, bin, scenario) {
   }
   if (!isEtaFailureLogged) {
     isEtaFailureLogged = true
-    $.ui.log('could not read the ETA of ' + scenario + ': ' + failure, { to: 'debug' })
+    $.ui.log('could not read the ETA of ' + purpose + ': ' + failure, { to: 'debug' })
   }
   return ETA_UNAVAILABLE
 }
@@ -653,7 +645,7 @@ async function runJobsAction($, e) {
   try {
     reply = await $.process.run(built.argv)
   } catch (error) {
-    return { deny: 'agentcli could not run: ' + messageOf(error) }
+    return { deny: 'msgate could not run: ' + messageOf(error) }
   }
   if (reply.exitCode !== 0) return { deny: failureText(reply) }
   return jobsAnswer($, e, reply)
@@ -669,7 +661,7 @@ async function jobsAnswer($, e, reply) {
   return { result: cut.text + '\n' + resultNote(await outputPathOf($, shimPath($.plugin.root), e.run_id)) }
 }
 
-// listJobs serves /agentcli-jobs.
+// listJobs serves /msgate-jobs.
 async function listJobs($) {
   try {
     const sessionId = await $.session.id()
@@ -779,7 +771,7 @@ async function deliverEntry($, bin, sessionId, entry) {
     const reply = await $.process.run([bin, 'status', entry.run_id, '--json'])
     if (reply.exitCode === EXIT_RUN_NOT_FOUND) return await dropPruned($, sessionId, entry.run_id)
     if (reply.exitCode !== 0) return logDeliveryFailure($, failureText(reply))
-    const run = JSON.parse(reply.stdout)
+    const run = withPurpose(JSON.parse(reply.stdout))
     if (isTerminal(run.state)) await deliverRun($, bin, sessionId, run)
   } catch (error) {
     logDeliveryFailure($, messageOf(error))
@@ -831,12 +823,12 @@ async function isSubmitted($, text) {
   }
 }
 
-// dropPruned removes the entry of a run agentcli no longer has, and logs it once.
+// dropPruned removes the entry of a run msgate no longer has, and logs it once.
 async function dropPruned($, sessionId, runId) {
   await changeEntry($, sessionId, runId, (queue) => withoutRun(queue, runId))
   if (loggedPruned.has(runId)) return
   loggedPruned.add(runId)
-  $.ui.log('run ' + runId + ' is no longer known to agentcli; its notice is dropped', { to: 'debug' })
+  $.ui.log('run ' + runId + ' is no longer known to msgate; its notice is dropped', { to: 'debug' })
 }
 
 // logDeliveryFailure logs the first failed read of the load.
@@ -874,7 +866,7 @@ async function showStatus($, bin, sessionId, running, terminal) {
 
 // sessionCost is the status line's cost text, undefined when no run could be
 // priced, or null when the cost could not be read (logged once), the run of
-// agentcli itself failing included.
+// msgate itself failing included.
 async function sessionCost($, bin, sessionId) {
   let failure
   try {
@@ -1069,7 +1061,7 @@ function summaryPorts($) {
   }
 }
 
-// servicePorts is what the agentcli.complete service uses of the engine.
+// servicePorts is what the msgate.complete service uses of the engine.
 function servicePorts($) {
   return {
     sessionId: () => $.session.id(),
@@ -1185,7 +1177,7 @@ function answeredText(e) {
   return earlier !== undefined && earlier.turnId === e.turnId && e.index > earlier.index ? earlier.text : null
 }
 
-// The prompt each agentcli agent's latest turn started with, by agent id, as
+// The prompt each msgate agent's latest turn started with, by agent id, as
 // the turn.start event carried it. A new turn replaces the entry.
 const startTexts = new Map()
 
@@ -1199,7 +1191,7 @@ function startTextOf(agentId, turnId) {
 // handback ends the step with a call to the hand-back tool carrying the answer.
 async function* handback(e, text) {
   const input = { message: text }
-  yield { kind: 'tool', index: ANSWER_BLOCK, id: 'agentcli-handback-' + e.turnId + '-' + e.index, name: HANDBACK_TOOL }
+  yield { kind: 'tool', index: ANSWER_BLOCK, id: 'msgate-handback-' + e.turnId + '-' + e.index, name: HANDBACK_TOOL }
   yield { kind: 'input', index: ANSWER_BLOCK, json: JSON.stringify(input) }
   yield { kind: 'stop', stopReason: 'tool_use', usage: null }
   return { turnId: e.turnId, index: e.index, answer: '', toolUses: [{ name: HANDBACK_TOOL, input }], stopReason: 'tool_use', usage: null }
@@ -1235,7 +1227,7 @@ async function* runSubagentTurn($, turn, signal) {
   const reply = await $.process.run(built.argv, { stdin: built.stdin, timeoutMs: ADMIT_TIMEOUT_MS })
   if (reply.exitCode !== 0) return handoffFailure(failureText(reply))
   const ids = admittedJob(reply.stdout)
-  if (ids === null) return handoffFailure('agentcli printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500))
+  if (ids === null) return handoffFailure('msgate printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500))
 
   startNotice($, () => notifyAdmitted($, bin, ids.run_id, turn.type, AGENT_SOURCE))
   turnAgents.set(turn.agentId, { runId: ids.run_id, type: turn.type })
@@ -1343,7 +1335,7 @@ async function finalAnswer($, bin, runId) {
   const status = await $.process.run([bin, 'status', runId, '--json'])
   const run = status.exitCode === 0 ? finishedRun(status.stdout) : null
   if (run === null) return handoffFailure('could not read run ' + runId + '. ' + failureText(status))
-  if (!isTerminal(run.state)) return handoffFailure('run ' + runId + ' is still ' + run.state + '; read it later with the agentcli jobs tool.')
+  if (!isTerminal(run.state)) return handoffFailure('run ' + runId + ' is still ' + run.state + '; read it later with the msgate jobs tool.')
 
   const output = await $.process.run([bin, 'result', runId])
   if (output.exitCode !== 0) return handoffFailure('could not read the output of run ' + runId + '. ' + failureText(output))

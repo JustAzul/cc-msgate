@@ -1,4 +1,4 @@
-// Pure helpers for the agentcli mod. Nothing here touches the mods API: every
+// Pure helpers for the msgate mod. Nothing here touches the mods API: every
 // call that reaches Claude Code lives in register.js, so these functions can be
 // read and tested on their own.
 
@@ -12,14 +12,14 @@ export const DELIVERY_PREFIX = 'delivery:'
 // untouched before another session's load removes it.
 export const DELIVERY_BATCH = 50
 export const ABANDONED_MS = 30 * 24 * 60 * 60 * 1000
-// `agentcli status` exits with this code for a run it has no record of.
+// `msgate status` exits with this code for a run it has no record of.
 export const EXIT_RUN_NOT_FOUND = 4
 
 const TERMINAL_STATES = ['done', 'failed', 'cancelled', 'timeout', 'lost']
 const JOBS_ACTIONS = ['list', 'status', 'result', 'cancel']
 // Ids start with a letter, digit or underscore so they can never read as a flag.
 const ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/
-const OPTIONAL_FLAGS = ['provider', 'scenario', 'model', 'effort', 'sandbox', 'cwd']
+const OPTIONAL_FLAGS = ['provider', 'purpose', 'model', 'effort', 'sandbox', 'cwd']
 
 export function isTerminal(state) {
   return TERMINAL_STATES.includes(state)
@@ -38,23 +38,25 @@ function fail(error) {
 }
 
 // turnCommand builds the argv and standard input of a command that starts a
-// background turn: `ask` opens a conversation, `send` continues one. The prompt
-// goes on standard input so no prompt text ever becomes part of an argument.
-export function turnCommand(kind, bin, sessionId, input) {
+// background turn: `exec` opens a conversation, `send` continues the one the
+// input names. The prompt goes on standard input so no prompt text ever becomes
+// part of an argument.
+export function turnCommand(bin, sessionId, input) {
   const args = input ?? {}
   if (typeof args.prompt !== 'string' || args.prompt.trim() === '') {
     return fail('prompt is required and must be a non-empty string')
   }
   const argv = [bin]
-  if (kind === 'send') {
+  const isContinuation = ![undefined, null, ''].includes(args.conversation_id)
+  if (isContinuation) {
     if (!isId(args.conversation_id)) {
-      return fail('conversation_id is required and must be an id: letters, digits, ".", "_" or "-", not starting with "-" or "."')
+      return fail('conversation_id must be an id: letters, digits, ".", "_" or "-", not starting with "-" or "."')
     }
     argv.push('send', args.conversation_id)
   } else {
     argv.push('exec')
   }
-  argv.push('--background', '--json', '--source', 'mod', '--session-id', sessionId)
+  argv.push('--background', '--json', '--source', JOB_SOURCE, '--session-id', sessionId)
   for (const name of OPTIONAL_FLAGS) {
     const value = args[name]
     if (value === undefined || value === null || value === '') continue
@@ -62,10 +64,10 @@ export function turnCommand(kind, bin, sessionId, input) {
     argv.push('--' + name, value)
   }
   argv.push('-')
-  return { argv, stdin: args.prompt }
+  return { argv, stdin: args.prompt, isContinuation }
 }
 
-// jobsCommand maps one `jobs` tool call to the agentcli command that answers it.
+// jobsCommand maps one `jobs` tool call to the msgate command that answers it.
 export function jobsCommand(bin, sessionId, input) {
   const args = input ?? {}
   if (!JOBS_ACTIONS.includes(args.action)) {
@@ -81,7 +83,7 @@ export function jobsCommand(bin, sessionId, input) {
   return { argv: [bin, args.action, args.run_id] }
 }
 
-// failureText turns a non-zero agentcli exit into one line the model can act
+// failureText turns a non-zero msgate exit into one line the model can act
 // on: the JSON error object when --json produced one, else what it wrote to
 // standard error.
 export function failureText(reply) {
@@ -95,9 +97,9 @@ export function failureText(reply) {
     // Not JSON: fall back to the plain text below.
   }
   if (detail === '') {
-    detail = String(reply.stderr || reply.stdout || '').trim().replace(/^agentcli: /, '')
+    detail = String(reply.stderr || reply.stdout || '').trim().replace(/^msgate: /, '')
   }
-  const head = 'agentcli exited ' + reply.exitCode + (status ? ' (' + status + ')' : '')
+  const head = 'msgate exited ' + reply.exitCode + (status ? ' (' + status + ')' : '')
   return detail === '' ? head + ' with no message' : head + ': ' + detail
 }
 
@@ -114,13 +116,28 @@ export function admittedJob(stdout) {
   return null
 }
 
+// purposeOf is the label a run reports for its purpose: `purpose`, else the
+// `scenario` an older binary still printed, else none.
+export function purposeOf(run) {
+  for (const label of [run?.purpose, run?.scenario]) {
+    if (typeof label === 'string' && label !== '') return label
+  }
+  return undefined
+}
+
+// withPurpose is a run as every reader below sees it: the label it reports for
+// its purpose in `purpose`, whichever field carried it.
+export function withPurpose(run) {
+  return { ...run, purpose: purposeOf(run) }
+}
+
 // sessionJobs keeps the background jobs of a `status --json` listing. Runs the
 // session made in the foreground share its session id but are not jobs.
 export function sessionJobs(stdout) {
   try {
     const parsed = JSON.parse(stdout)
     const runs = parsed && Array.isArray(parsed.runs) ? parsed.runs : []
-    return runs.filter((run) => run && run.background === true && typeof run.run_id === 'string')
+    return runs.filter((run) => run && run.background === true && typeof run.run_id === 'string').map(withPurpose)
   } catch {
     return []
   }
@@ -141,7 +158,7 @@ export function statusText(count) {
   return count + (count === 1 ? ' job running' : ' jobs running')
 }
 
-// oldestFirst orders a listing, which agentcli prints newest first, so that
+// oldestFirst orders a listing, which msgate prints newest first, so that
 // notices and the notified set follow the order the jobs were admitted in.
 export function oldestFirst(jobs) {
   return [...jobs].reverse().sort((a, b) => {
@@ -257,7 +274,7 @@ export function repeatedNoticeText(job, output) {
 
 function noticeWith(job, output, mark) {
   const outcome = job.outcome ?? job.state
-  const head = 'agentcli job ' + job.run_id + ' (' + job.scenario + ', conversation ' + job.conversation_id + ') finished: ' + outcome + mark
+  const head = 'msgate job ' + job.run_id + ' (' + purposeOf(job) + ', conversation ' + job.conversation_id + ') finished: ' + outcome + mark
   if (output === null) {
     return head + '\n\nThe output could not be read; it is at ' + job.output_path
   }
@@ -276,9 +293,9 @@ export function resultNote(outputPath) {
   return outputPath ? '[output cut at 64 KiB; full output at ' + outputPath + ']' : '[output cut at 64 KiB]'
 }
 
-// jobsListing is what /agentcli-jobs prints.
+// jobsListing is what /msgate-jobs prints.
 export function jobsListing(jobs) {
   if (jobs.length === 0) return 'No jobs in this session.'
-  const lines = jobs.map((job) => [job.run_id, job.state, job.scenario, 'conversation ' + job.conversation_id].join('  '))
+  const lines = jobs.map((job) => [job.run_id, job.state, purposeOf(job), 'conversation ' + job.conversation_id].join('  '))
   return 'Jobs in this session (' + jobs.length + '):\n' + lines.join('\n')
 }

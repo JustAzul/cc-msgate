@@ -43,7 +43,7 @@ test('jobs status, result and cancel map to the matching commands', async ($, on
   expect(cancel.result).toContain('cancellation requested')
 })
 
-test('jobs status returns what agentcli printed, unchanged', async ($, on) => {
+test('jobs status returns what msgate printed, unchanged', async ($, on) => {
   const w = world(on)
   const printed = JSON.stringify(job({ state: 'done', outcome: 'ok' })) + '\n'
   w.respond = () => ok(printed)
@@ -54,7 +54,7 @@ test('jobs status returns what agentcli printed, unchanged', async ($, on) => {
   expect(status.result).toBe(printed)
 })
 
-test('jobs cancel says the cancellation was requested when agentcli prints nothing', async ($, on) => {
+test('jobs cancel says the cancellation was requested when msgate prints nothing', async ($, on) => {
   const w = world(on)
   w.respond = () => ok('')
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
@@ -76,7 +76,7 @@ test('jobs maps a missing run to an error the model can read', async ($, on) => 
 
 test('jobs reads the plain stderr of commands that print no JSON', async ($, on) => {
   const w = world(on)
-  w.respond = () => ({ exitCode: 3, stdout: '', stderr: 'agentcli: run run-1 is still running; wait for it with: agentcli wait run-1\n' })
+  w.respond = () => ({ exitCode: 3, stdout: '', stderr: 'msgate: run run-1 is still running; wait for it with: msgate wait run-1\n' })
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
   const out: any = await call($, { action: 'result', run_id: 'run-1' })
@@ -84,7 +84,7 @@ test('jobs reads the plain stderr of commands that print no JSON', async ($, on)
   expect(out.deny).toContain('still running')
 })
 
-test('jobs rejects bad input without running agentcli', async ($, on) => {
+test('jobs rejects bad input without running msgate', async ($, on) => {
   const w = world(on)
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 

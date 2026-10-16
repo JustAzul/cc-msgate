@@ -89,7 +89,7 @@ export function refreshOutcome(reply) {
   } catch {
     // Reported below as unexpected output.
   }
-  return { failure: 'agentcli printed an unexpected refresh report: ' + String(reply.stdout).trim().slice(0, 200), hasChanged: false }
+  return { failure: 'msgate printed an unexpected refresh report: ' + String(reply.stdout).trim().slice(0, 200), hasChanged: false }
 }
 
 // isRefreshReport tells the report `prices refresh --json` prints from anything
