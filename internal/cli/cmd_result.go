@@ -14,6 +14,9 @@ func init() {
 }
 
 func runResultCmd(ctx *Context, args []string) int {
+	if rest, asked := withoutFlag(args, reportFlag); asked {
+		return runResultReport(ctx, rest)
+	}
 	if len(args) != 1 {
 		return ctx.Fail(ExitUsage, "usage: msgate result <run_id>")
 	}
