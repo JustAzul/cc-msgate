@@ -36,17 +36,18 @@ export type MsgateCompleteMeta = {
 
 /** What a plugin backs one of its agent types with; see `backType`. */
 export type MsgateBackedType = {
-  command: 'exec' | 'review'
-  promptMode: 'free' | 'review-target'
+  command: 'exec' | 'review' | 'follow'
+  promptMode: 'free' | 'review-target' | 'run-id'
   model?: string
   effort?: string
   sandbox?: 'read-only' | 'workspace-write'
 }
 
 /**
- * The arguments of `backType`. `type` matches ^[a-z0-9][a-z0-9-]{0,63}$; `review`
- * needs the `review-target` prompt mode and the reverse; `model`, `effort` and
- * `sandbox` are the settings the engine runs the type's agents with.
+ * The arguments of `backType`. `type` matches ^[a-z0-9][a-z0-9-]{0,63}$; `exec`
+ * needs the `free` prompt mode, `review` the `review-target` one and `follow` the
+ * `run-id` one; `model`, `effort` and `sandbox` are the settings the engine runs
+ * the type's agents with, and a `follow` type needs none.
  */
 export type MsgateBackTypeArgs = MsgateBackedType & { type: string }
 

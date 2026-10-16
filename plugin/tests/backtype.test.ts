@@ -37,17 +37,31 @@ test('a review type is backed with the review-target prompt mode', async ($, on)
   expect((registry(w))['p2:code-review']).toEqual({ command: 'review', promptMode: 'review-target', sandbox: 'workspace-write' })
 })
 
+test('a follow type is backed with the run-id prompt mode and needs no model, effort or sandbox', async ($, on) => {
+  const w = world(on, { backed: {} })
+  await $.session.start(START)
+
+  const out = await msgateAs(w, 'msgate-agents').backType({ type: 'run', command: 'follow', promptMode: 'run-id' })
+
+  expect(out).toEqual({ value: { type: 'msgate-agents:run' } })
+  expect(registry(w)).toEqual({ 'msgate-agents:run': { command: 'follow', promptMode: 'run-id' } })
+})
+
 const REFUSALS: [string, Record<string, unknown>, string][] = [
   ['a type with a space and capitals', { ...SECOND_OPINION, type: 'Bad Type' }, 'type'],
   ['an empty type', { ...SECOND_OPINION, type: '' }, 'type'],
   ['a type starting with a dash', { ...SECOND_OPINION, type: '-x' }, 'type'],
   ['a type of 65 characters', { ...SECOND_OPINION, type: 'a'.repeat(65) }, 'type'],
   ['a type that is not text', { ...SECOND_OPINION, type: 7 }, 'type'],
-  ['a command that is neither exec nor review', { ...SECOND_OPINION, command: 'follow' }, 'command'],
+  ['a command that is none of exec, review and follow', { ...SECOND_OPINION, command: 'watch' }, 'command'],
+  ['a follow command with the free prompt mode', { type: 'run', command: 'follow', promptMode: 'free' }, 'promptMode'],
+  ['a follow command with the review-target prompt mode', { type: 'run', command: 'follow', promptMode: 'review-target' }, 'promptMode'],
+  ['an exec command with the run-id prompt mode', { ...SECOND_OPINION, promptMode: 'run-id' }, 'promptMode'],
+  ['a review command with the run-id prompt mode', { ...SECOND_OPINION, command: 'review', promptMode: 'run-id' }, 'promptMode'],
   ['a missing command', { ...SECOND_OPINION, command: undefined }, 'command'],
   ['a review command with the free prompt mode', { ...SECOND_OPINION, command: 'review', promptMode: 'free' }, 'promptMode'],
   ['an exec command with the review-target prompt mode', { ...SECOND_OPINION, promptMode: 'review-target' }, 'promptMode'],
-  ['an unknown prompt mode', { ...SECOND_OPINION, promptMode: 'run-id' }, 'promptMode'],
+  ['an unknown prompt mode', { ...SECOND_OPINION, promptMode: 'by-name' }, 'promptMode'],
   ['a model that is not text', { ...SECOND_OPINION, model: 5 }, 'model'],
   ['an empty model', { ...SECOND_OPINION, model: '' }, 'model'],
   ['an effort that is not text', { ...SECOND_OPINION, effort: ['high'] }, 'effort'],

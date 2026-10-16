@@ -633,9 +633,11 @@ its rows (see [Rows the engine answers](#rows-the-engine-answers)). It resolves
 `{ type: "<caller>:<type>" }`. A plugin can back only its own types, since the
 full type takes the caller's name.
 - `type` matches `^[a-z0-9][a-z0-9-]{0,63}$`.
-- `command` is `exec` or `review`.
-- `promptMode` is `free` or `review-target`; `review` requires `review-target`
-  and `exec` requires `free`.
+- `command` is `exec`, `review` or `follow`.
+- `promptMode` is `free`, `review-target` or `run-id`; `exec` requires `free`,
+  `review` requires `review-target` and `follow` requires `run-id`. A `follow`
+  type names a run in its prompt and the engine follows it without starting
+  one; it needs no `model`, `effort` or `sandbox`.
 - `model`, `effort` and `sandbox` are optional strings, and `sandbox` is
   `read-only` or `workspace-write`. These are the type's profile, handed over as
   data: the engine passes them to the run as flags with the settings source

@@ -8,8 +8,9 @@
 // spelled at each call, which is how the engine lists the state a module touches.
 
 const TYPE_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
-const COMMANDS = ['exec', 'review']
-const PROMPT_MODES = ['free', 'review-target']
+// The prompt mode each command reads its prompt in: a review reads a target, a
+// follow reads the id of a run, and only those do.
+const PROMPT_MODE_OF = { exec: 'free', review: 'review-target', follow: 'run-id' }
 const SANDBOXES = ['read-only', 'workspace-write']
 // A write that another one beat is made again on the new value; this many tries.
 const WRITE_ATTEMPTS = 20
@@ -21,9 +22,8 @@ const isOptionalText = (value) => value === undefined || isText(value)
 function invalidField(args) {
   const call = typeof args === 'object' && args !== null ? args : {}
   if (typeof call.type !== 'string' || !TYPE_PATTERN.test(call.type)) return 'type'
-  if (!COMMANDS.includes(call.command)) return 'command'
-  // A review reads its prompt as a target, and only a review does.
-  if (!PROMPT_MODES.includes(call.promptMode) || (call.command === 'review') !== (call.promptMode === 'review-target')) return 'promptMode'
+  if (!Object.hasOwn(PROMPT_MODE_OF, call.command)) return 'command'
+  if (call.promptMode !== PROMPT_MODE_OF[call.command]) return 'promptMode'
   if (!isOptionalText(call.model)) return 'model'
   if (!isOptionalText(call.effort)) return 'effort'
   if (call.sandbox !== undefined && !SANDBOXES.includes(call.sandbox)) return 'sandbox'
