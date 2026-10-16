@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	register(Command{Name: "stats", Summary: "summarize telemetry (reliability, outcomes, findings, usage)", Run: runStats})
+	register(Command{Name: "stats", Summary: "summarize telemetry (runs by purpose and origin, usage, cost)", Run: runStats})
 }
 
 func runStats(ctx *Context, args []string) int {
@@ -58,14 +58,11 @@ func printStatsSummary(ctx *Context, stats *telemetry.Obj, skipped telemetry.Ski
 		}
 		fmt.Fprintf(ctx.Stdout, "by source: %s\n", countsLine(stats.Get("by_source")))
 		fmt.Fprintf(ctx.Stdout, "by provider: %s\n", countsLine(stats.Get("by_provider")))
-		fmt.Fprintf(ctx.Stdout, "hook outcomes: %s\n", countsLine(stats.Get("outcomes")))
 		if d, ok := stats.Get("duration_ms").(*telemetry.Obj); ok && d.Get("count") != int64(0) {
 			fmt.Fprintf(ctx.Stdout, "duration_ms: median %v (min %v, max %v)\n", d.Get("median"), d.Get("min"), d.Get("max"))
 		}
-		if f, ok := stats.Get("findings").(*telemetry.Obj); ok && f.Get("instrumented_reviews") != int64(0) {
-			fmt.Fprintf(ctx.Stdout, "reviews with structured findings: %v (%v with findings)\n", f.Get("instrumented_reviews"), f.Get("reviews_with_findings"))
-		}
 	}
+	printByPurpose(ctx, stats)
 	tokenCounts := func(u *telemetry.Obj) string {
 		return countsLine(withoutKey(u, "runs_with_usage", "cost_usd", "cost_complete"))
 	}
@@ -85,6 +82,26 @@ func printStatsSummary(ctx *Context, stats *telemetry.Obj, skipped telemetry.Ski
 	if n := skipped.Total(); n > 0 {
 		fmt.Fprintf(ctx.Stdout, "skipped lines: %d (unknown_kind=%d unknown_version=%d unparseable=%d)\n",
 			n, skipped.UnknownKind, skipped.UnknownVersion, skipped.Unparseable)
+	}
+}
+
+// printByPurpose writes one line per purpose and origin: its runs, the count of
+// each outcome and, when any run carries them, the findings sums.
+func printByPurpose(ctx *Context, stats *telemetry.Obj) {
+	byPurpose, _ := stats.Get("by_purpose").(*telemetry.Obj)
+	if byPurpose == nil || len(byPurpose.Pairs()) == 0 {
+		return
+	}
+	fmt.Fprintln(ctx.Stdout, "by purpose:")
+	for _, purpose := range byPurpose.Pairs() {
+		for _, origin := range purpose.Value.(*telemetry.Obj).Pairs() {
+			bucket := origin.Value.(*telemetry.Obj)
+			line := fmt.Sprintf("  %s %s: %s; outcomes %s", purpose.Key, origin.Key, plural(int(bucket.Get("runs").(int64)), "run"), countsLine(bucket.Get("outcomes")))
+			if f, ok := bucket.Get("findings").(*telemetry.Obj); ok && f.Get("annotated") != int64(0) {
+				line += "; findings " + countsLine(f)
+			}
+			fmt.Fprintln(ctx.Stdout, line)
+		}
 	}
 }
 
