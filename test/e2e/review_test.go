@@ -22,7 +22,7 @@ func TestReviewPlanPerTarget(t *testing.T) {
 			repo := gitRepo(t)
 			r := s.run(append([]string{"review", "--dry-run", "--run-id", "rp1", "--cwd", repo}, c.flags...)...)
 			out := filepath.Join(s.home, "runs", "rp1", "output.md")
-			want := append([]any{"codex", "exec", "-C", repo, "--json", "-o", out}, c.tail...)
+			want := append([]any{"codex", "exec", "-C", repo, "-s", "read-only", "--json", "-o", out}, c.tail...)
 			plan := r.json(t)
 			if r.code != 0 || !reflect.DeepEqual(plan["argv"], want) {
 				t.Fatalf("exit %d argv\n got %v\nwant %v", r.code, plan["argv"], want)
@@ -41,7 +41,7 @@ func TestReviewRunsWithEmptyStdin(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("review-ok"))
 	rec := s.recordTo()
 	repo := gitRepo(t)
-	r := s.run("review", "--uncommitted", "--cwd", repo, "--run-id", "rv1", "--scenario", "code-review")
+	r := s.run("review", "--uncommitted", "--cwd", repo, "--run-id", "rv1", "--purpose", "code-review")
 	if r.code != 0 {
 		t.Fatalf("exit %d %s", r.code, r.stderr)
 	}

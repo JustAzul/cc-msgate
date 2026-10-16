@@ -76,7 +76,7 @@ func TestAllowedPassthroughKeptAfterSDKFlags(t *testing.T) {
 		t.Fatalf("exit %d %s", r.code, r.stderr)
 	}
 	out := filepath.Join(s.home, "runs", "ap1", "output.md")
-	want := []string{"exec", "-C", cwd, "--json", "-o", out, "-c", "features.web_search=true", "--add-dir", "/tmp/x", "-"}
+	want := []string{"exec", "-C", cwd, "-s", "read-only", "--json", "-o", out, "-c", "features.web_search=true", "--add-dir", "/tmp/x", "-"}
 	if got := readRecord(t, rec).Argv[1:]; !reflect.DeepEqual(got, want) {
 		t.Errorf("argv\n got %v\nwant %v", got, want)
 	}

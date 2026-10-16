@@ -11,13 +11,13 @@ import (
 
 func TestJobCarriesItsRequestIntoTelemetry(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok"))
-	admitJob(t, s, "jp1", "--scenario", "cross-check", "--source", "mod",
+	admitJob(t, s, "jp1", "--purpose", "cross-check", "--source", "mod",
 		"--session-id", "S", "--attr", "k=v", "--attr-json", "big=12345678901234567890",
 		"--timeout", "30", "--clean-sentinel", "PONG", "q")
 	waitOK(t, s, "jp1")
 	rec := oneRecord(t, s.home)
 	checkFields(t, "record", rec, map[string]any{
-		"outcome": "clean", "scenario": "cross-check", "source": "mod", "session_id": "S",
+		"outcome": "clean", "purpose": "cross-check", "source": "mod", "session_id": "S",
 		"timeout_s": float64(30), "background": true, "turn": float64(1),
 	})
 	if attrs, _ := rec["attrs"].(map[string]any); attrs["k"] != "v" {

@@ -13,9 +13,12 @@ import (
 )
 
 var analyzerKeys = []string{
-	"total", "empty", "span", "by_source", "by_source_status", "instrumentation", "reliability",
-	"outcomes", "duration_ms", "findings", "review_findings_proxy", "window_days",
+	"total", "empty", "span", "by_source", "by_source_status", "instrumentation", "duration_ms", "window_days",
 }
+
+// removedStatsKeys are the sections that selected hook runs and code-review
+// runs; by_purpose replaces them.
+var removedStatsKeys = []string{"reliability", "outcomes", "findings", "review_findings_proxy"}
 
 func TestStatsParityWithTheRetiredAnalyzer(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
@@ -31,6 +34,12 @@ func TestStatsParityWithTheRetiredAnalyzer(t *testing.T) {
 	actual := got.json(t)
 	expected := readJSONFile(t, filepath.Join(repoRoot, "testdata", "legacy", "expected-stats.json"))
 
+	for _, k := range removedStatsKeys {
+		delete(expected, k)
+		if _, present := actual[k]; present {
+			t.Errorf("stats still has %s", k)
+		}
+	}
 	for _, k := range keysOf(expected) {
 		if !reflect.DeepEqual(actual[k], expected[k]) {
 			t.Errorf("stats.%s\n got %#v\nwant %#v", k, actual[k], expected[k])
@@ -38,7 +47,7 @@ func TestStatsParityWithTheRetiredAnalyzer(t *testing.T) {
 	}
 	// Only keys the analyzer never had may be extra.
 	wantKeys := append(append([]string(nil), keysOf(expected)...), "by_provider", "usage_totals", "usage_by_model", "usage_by_provider", "skipped",
-		"unpriced_models", "missing_prices", "prices_checked_at", "model_calls_by_source")
+		"unpriced_models", "missing_prices", "prices_checked_at", "model_calls_by_source", "by_purpose")
 	if g := keysOf(actual); !reflect.DeepEqual(g, sortedCopy(wantKeys)) {
 		t.Errorf("stats keys = %v, want %v", g, sortedCopy(wantKeys))
 	}
@@ -46,6 +55,9 @@ func TestStatsParityWithTheRetiredAnalyzer(t *testing.T) {
 		if _, ok := actual[k]; !ok {
 			t.Errorf("stats lacks %s", k)
 		}
+	}
+	if runs := byPurposeRuns(t, actual["by_purpose"]); runs != 22 {
+		t.Errorf("by_purpose counts %d runs, want 22", runs)
 	}
 	if !reflect.DeepEqual(actual["by_provider"], map[string]any{"codex": float64(22)}) {
 		t.Errorf("by_provider = %v", actual["by_provider"])
@@ -77,12 +89,12 @@ func sortedCopy(in []string) []string {
 
 func TestStatsFromLiveRuns(t *testing.T) {
 	s := newSandbox(t)
-	seedRun(t, s, "st-ok", "--source", "hook-post-commit", "--scenario", "code-review")
+	seedRun(t, s, "st-ok", "--source", "hook-post-commit", "--purpose", "code-review")
 	if r := s.run("annotate", "st-ok", "--attr-json", `review.findings={"total":2,"high":1,"medium":1}`); r.code != 0 {
 		t.Fatalf("annotate: %d %s", r.code, r.stderr)
 	}
 	s.set("FAKECODEX_FIXTURE", fixture("error-400")).set("FAKECODEX_EXIT", "1")
-	s.run("exec", "--run-id", "st-err", "--source", "hook-post-commit", "--scenario", "code-review", "q")
+	s.run("exec", "--run-id", "st-err", "--source", "hook-post-commit", "--purpose", "code-review", "q")
 	s.set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("FAKECODEX_EXIT", "0").set("FAKECODEX_OUTPUT", "")
 	s.run("exec", "--run-id", "st-empty", "--source", "skill", "q")
 
@@ -101,12 +113,18 @@ func TestStatsFromLiveRuns(t *testing.T) {
 			"skill":            map[string]any{"empty-output": float64(1)},
 		},
 		"instrumentation": map[string]any{"with_status": float64(3), "missing_status": float64(0)},
-		"reliability":     map[string]any{"with_status": float64(2), "ok": float64(1), "error": float64(1), "empty_output": float64(0)},
-		"outcomes":        map[string]any{"ok": float64(1), "error": float64(1)},
 		"by_provider":     map[string]any{"codex": float64(3)},
-		"findings": map[string]any{
-			"instrumented_reviews": float64(1), "reviews_with_findings": float64(1), "reviews_clean": float64(0),
-			"severity_totals": map[string]any{"total": float64(2), "critical": float64(0), "high": float64(1), "medium": float64(1), "low": float64(0), "violations": float64(0)},
+		"by_purpose": map[string]any{
+			"adhoc": map[string]any{"cli": map[string]any{
+				"runs": float64(1), "outcomes": map[string]any{"empty": float64(1)}, "findings": map[string]any{"annotated": float64(0)},
+			}},
+			"code-review": map[string]any{"cli": map[string]any{
+				"runs": float64(2), "outcomes": map[string]any{"ok": float64(1), "error": float64(1)},
+				"findings": map[string]any{
+					"total": float64(2), "critical": float64(0), "high": float64(1), "medium": float64(1), "low": float64(0), "violations": float64(0),
+					"annotated": float64(1), "with_findings": float64(1), "clean": float64(0),
+				},
+			}},
 		},
 	}
 	for k, want := range checks {
@@ -118,9 +136,10 @@ func TestStatsFromLiveRuns(t *testing.T) {
 	if usage["input_tokens"] != float64(2*18573) || usage["output_tokens"] != float64(2*5) || usage["runs_with_usage"] != float64(2) {
 		t.Errorf("usage_totals = %v", usage)
 	}
-	proxy := j["review_findings_proxy"].(map[string]any)
-	if proxy["total"] != float64(2) || proxy["succeeded"] != float64(1) || proxy["failed_or_empty"] != float64(1) {
-		t.Errorf("review_findings_proxy = %v", proxy)
+	for _, k := range removedStatsKeys {
+		if _, present := j[k]; present {
+			t.Errorf("stats still has %s", k)
+		}
 	}
 }
 
@@ -161,6 +180,9 @@ func TestStatsSkippedCounts(t *testing.T) {
 	if j["total"] != float64(0) || j["empty"] != true || j["window_days"] != float64(7) {
 		t.Errorf("empty window shape: %v", j)
 	}
+	if !reflect.DeepEqual(j["by_purpose"], map[string]any{}) {
+		t.Errorf("empty window by_purpose = %#v, want {}", j["by_purpose"])
+	}
 	for _, k := range []string{"by_provider", "usage_totals"} {
 		if _, ok := j[k]; !ok {
 			t.Errorf("empty stats lacks %s", k)
@@ -170,7 +192,7 @@ func TestStatsSkippedCounts(t *testing.T) {
 
 func TestStatsHumanSummary(t *testing.T) {
 	s := newSandbox(t)
-	seedRun(t, s, "hs1", "--source", "hook-post-commit", "--scenario", "code-review")
+	seedRun(t, s, "hs1", "--source", "hook-post-commit", "--purpose", "code-review")
 	r := s.run("stats")
 	if r.code != 0 {
 		t.Fatalf("exit %d: %s", r.code, r.stderr)

@@ -31,7 +31,7 @@ func conversationRecord(t *testing.T, home, id string) map[string]any {
 func TestSendResumesTheProviderSession(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
 	cwd := gitRepo(t)
-	conv := startConversation(t, s, "t1", "--cwd", cwd, "--scenario", "second-opinion")
+	conv := startConversation(t, s, "t1", secondOpinionFlags("--cwd", cwd)...)
 
 	s.set("FAKECODEX_FIXTURE", fixture("resume-turn2"))
 	rec := s.recordTo()
@@ -208,7 +208,7 @@ func TestSendWithMissingCwdIsRefusedUnlessCwdIsGiven(t *testing.T) {
 func TestSendPerTurnFlagsDoNotChangeTheDefaults(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
 	cwd := gitRepo(t)
-	conv := startConversation(t, s, "t1", "--cwd", cwd, "--scenario", "second-opinion")
+	conv := startConversation(t, s, "t1", secondOpinionFlags("--cwd", cwd)...)
 	before := conversationRecord(t, s.home, conv)["defaults"]
 	rec := s.recordTo()
 
@@ -229,11 +229,11 @@ func TestSendPerTurnFlagsDoNotChangeTheDefaults(t *testing.T) {
 		t.Errorf("defaults changed: %v -> %v", before, after)
 	}
 	recs := telemetryRecords(t, s.home)
-	for i, want := range []struct{ effort, source, scenario string }{
+	for i, want := range []struct{ effort, source, purpose string }{
 		{"high", "profile", "second-opinion"}, {"low", "flag", "second-opinion"}, {"high", "profile", "second-opinion"},
 	} {
-		if recs[i]["effort"] != want.effort || recs[i]["effort_source"] != want.source || recs[i]["scenario"] != want.scenario {
-			t.Errorf("turn %d record: effort=%v source=%v scenario=%v", i+1, recs[i]["effort"], recs[i]["effort_source"], recs[i]["scenario"])
+		if recs[i]["effort"] != want.effort || recs[i]["effort_source"] != want.source || recs[i]["purpose"] != want.purpose {
+			t.Errorf("turn %d record: effort=%v source=%v purpose=%v", i+1, recs[i]["effort"], recs[i]["effort_source"], recs[i]["purpose"])
 		}
 	}
 }

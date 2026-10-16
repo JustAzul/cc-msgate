@@ -154,7 +154,7 @@ func TestLegacyImportMapsFieldsByName(t *testing.T) {
 		"scenario": "code-review", "source": "hook-post-commit", "effort": "high", "exit_code": float64(0),
 		"outcome": "findings", "duration_ms": float64(98000), "output_bytes": float64(1840),
 		"output_file": "/work/repo-b/review-1.md", "error_excerpt": nil, "status": "ok",
-		"provider_version": nil, "command": nil, "model": nil, "model_source": nil, "effort_source": nil,
+		"purpose": nil, "provider_version": nil, "command": nil, "model": nil, "model_source": nil, "effort_source": nil,
 		"sandbox": nil, "session_id": nil, "conversation_id": nil, "turn": nil, "cwd": nil, "background": nil,
 		"timeout_s": nil, "usage": nil, "provider_session_id": nil,
 		"attrs": map[string]any{"legacy": true, "review.findings": map[string]any{

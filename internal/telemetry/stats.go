@@ -13,16 +13,8 @@ import (
 	"github.com/JustAzul/cc-msgate/internal/provider"
 )
 
-// cleanOutputMaxBytes is the output size at or below which a successful hook
-// review counts as a proxy for "no findings".
-const cleanOutputMaxBytes = 40
-
 // unknownModel names the model of a run that recorded none.
 const unknownModel = "unknown"
-
-const proxyNote = "output_bytes is a PROXY for findings volume over SUCCESSFUL runs; " +
-	"falls back to this when the structured findings field is absent " +
-	"(records predating schema enrichment)"
 
 // Pair is one key of an Obj.
 type Pair struct {
@@ -113,14 +105,11 @@ func (c *counter) obj(mostCommon bool) *Obj {
 // entry is the part of a folded run the statistics read.
 type entry struct {
 	source   string
-	hook     bool
 	status   string
 	outcome  string
-	scenario string
+	purpose  string
 	provider string
 	ts       string
-	exitCode *int64
-	outBytes *int64
 	duration *int64
 	findings map[string]any
 	usage    map[string]any
@@ -133,15 +122,12 @@ func newEntry(run map[string]any) entry {
 	if s, ok := run["source"].(string); ok {
 		e.source = s
 	}
-	e.hook = strings.HasPrefix(e.source, "hook")
 	e.outcome, _ = run["outcome"].(string)
-	e.scenario, _ = run["scenario"].(string)
+	e.purpose, _ = run["purpose"].(string)
 	if p, ok := run["provider"].(string); ok && p != "" {
 		e.provider = p
 	}
 	e.ts, _ = run["ts"].(string)
-	e.exitCode = intPtr(run["exit_code"])
-	e.outBytes = intPtr(run["output_bytes"])
 	e.duration = intPtr(run["duration_ms"])
 	e.usage, e.hasUsage = run["usage"].(map[string]any)
 	e.model = modelOf(run)
@@ -234,7 +220,6 @@ func ComputeStatsWithModelCalls(runs, modelCalls []map[string]any, skipped Skipp
 		bySourceStatus := map[string]*counter{}
 		var sourceOrder []string
 		withStatus := 0
-		var hooks []entry
 		var durations []int64
 		for _, e := range entries {
 			bySource.add(e.source)
@@ -249,9 +234,6 @@ func ComputeStatsWithModelCalls(runs, modelCalls []map[string]any, skipped Skipp
 				withStatus++
 			}
 			bySourceStatus[e.source].add(st)
-			if e.hook {
-				hooks = append(hooks, e)
-			}
 			if e.duration != nil {
 				durations = append(durations, *e.duration)
 			}
@@ -263,17 +245,14 @@ func ComputeStatsWithModelCalls(runs, modelCalls []map[string]any, skipped Skipp
 		}
 		out.Set("by_source_status", statusObj)
 		out.Set("instrumentation", obj("with_status", int64(withStatus), "missing_status", int64(len(entries)-withStatus)))
-		out.Set("reliability", reliability(hooks))
-		out.Set("outcomes", outcomes(hooks))
 		out.Set("duration_ms", percentiles(durations))
-		out.Set("findings", findingsSummary(entries))
-		out.Set("review_findings_proxy", findingsProxy(entries))
 	}
 	if windowDays == nil {
 		out.Set("window_days", nil)
 	} else {
 		out.Set("window_days", int64(*windowDays))
 	}
+	out.Set("by_purpose", byPurpose(entries))
 	out.Set("by_provider", providers.obj(true))
 	runUnpriced, _ := priceGaps(entries, cache)
 	totals := usageTotals(entries, cache)
@@ -323,106 +302,6 @@ func percentiles(values []int64) *Obj {
 	}
 	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
 	return obj("count", int64(len(values)), "min", values[0], "median", values[len(values)/2], "max", values[len(values)-1])
-}
-
-func reliability(hooks []entry) *Obj {
-	var with, ok, bad, empty int64
-	for _, e := range hooks {
-		if e.status == "" {
-			continue
-		}
-		with++
-		switch e.status {
-		case "ok":
-			ok++
-		case "error":
-			bad++
-		case "empty-output":
-			empty++
-		}
-	}
-	return obj("with_status", with, "ok", ok, "error", bad, "empty_output", empty)
-}
-
-func outcomes(hooks []entry) *Obj {
-	c := newCounter()
-	for _, e := range hooks {
-		o := e.outcome
-		if o == "" {
-			o = "no-outcome"
-		}
-		c.add(o)
-	}
-	return c.obj(true)
-}
-
-func isHookReview(e entry) bool { return e.scenario == "code-review" && e.hook }
-
-func findingsSummary(entries []entry) *Obj {
-	var reviews []entry
-	for _, e := range entries {
-		if isHookReview(e) && e.findings != nil {
-			reviews = append(reviews, e)
-		}
-	}
-	if len(reviews) == 0 {
-		return obj("instrumented_reviews", int64(0))
-	}
-	totals := &Obj{}
-	for _, key := range []string{"total", "critical", "high", "medium", "low", "violations"} {
-		var sum int64
-		for _, e := range reviews {
-			n, _ := asInt(e.findings[key])
-			sum += n
-		}
-		totals.Set(key, sum)
-	}
-	var withFindings int64
-	for _, e := range reviews {
-		if n, _ := asInt(e.findings["total"]); n > 0 {
-			withFindings++
-		}
-	}
-	return obj("instrumented_reviews", int64(len(reviews)), "reviews_with_findings", withFindings,
-		"reviews_clean", int64(len(reviews))-withFindings, "severity_totals", totals)
-}
-
-func findingsProxy(entries []entry) *Obj {
-	type review struct {
-		bytes int64
-		ok    bool
-	}
-	var reviews []review
-	for _, e := range entries {
-		if !isHookReview(e) || e.outBytes == nil {
-			continue
-		}
-		succeeded := (e.exitCode == nil || *e.exitCode == 0) && e.status != "error" && e.status != "empty-output"
-		reviews = append(reviews, review{*e.outBytes, succeeded})
-	}
-	if len(reviews) == 0 {
-		return obj("total", int64(0))
-	}
-	var sizes []int64
-	var clean, withOutput int64
-	for _, r := range reviews {
-		if !r.ok {
-			continue
-		}
-		sizes = append(sizes, r.bytes)
-		if r.bytes <= cleanOutputMaxBytes {
-			clean++
-		} else {
-			withOutput++
-		}
-	}
-	failed := int64(len(reviews) - len(sizes))
-	if len(sizes) == 0 {
-		return obj("total", int64(len(reviews)), "succeeded", int64(0), "failed_or_empty", failed)
-	}
-	sort.Slice(sizes, func(i, j int) bool { return sizes[i] < sizes[j] })
-	return obj("total", int64(len(reviews)), "succeeded", int64(len(sizes)), "failed_or_empty", failed,
-		"clean_proxy", clean, "with_output_proxy", withOutput, "median_output_bytes", sizes[len(sizes)/2], "note", proxyNote)
 }
 
 // modelOf names a run's model for the per-model totals: the model the

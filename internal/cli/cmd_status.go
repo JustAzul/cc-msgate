@@ -75,7 +75,7 @@ func printRun(ctx *Context, st *store.Store, state store.State, asJSON bool) int
 	}
 	rows := [][2]string{
 		{"run_id", v.RunID}, {"conversation_id", v.ConversationID}, {"turn", fmt.Sprint(v.Turn)},
-		{"state", v.State}, {"kind", v.kind()}, {"scenario", v.Scenario}, {"admitted_at", v.AdmittedAt},
+		{"state", v.State}, {"kind", v.kind()}, {"purpose", v.Purpose}, {"admitted_at", v.AdmittedAt},
 		{"output_path", v.OutputPath},
 	}
 	for _, r := range rows {
@@ -98,9 +98,9 @@ func listRuns(ctx *Context, st *store.Store, sessionID string, asJSON bool) int 
 		return ExitOK
 	}
 	tw := tabwriter.NewWriter(ctx.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "RUN\tSTATE\tKIND\tSCENARIO\tCONVERSATION\tTURN\tADMITTED")
+	fmt.Fprintln(tw, "RUN\tSTATE\tKIND\tPURPOSE\tCONVERSATION\tTURN\tADMITTED")
 	for _, v := range views {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%s\n", v.RunID, v.State, v.kind(), v.Scenario, v.ConversationID, v.Turn, v.AdmittedAt)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%s\n", v.RunID, v.State, v.kind(), v.Purpose, v.ConversationID, v.Turn, v.AdmittedAt)
 	}
 	tw.Flush()
 	return ExitOK

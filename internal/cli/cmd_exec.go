@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/JustAzul/cc-msgate/internal/profile"
 	"github.com/JustAzul/cc-msgate/internal/provider"
 	"github.com/JustAzul/cc-msgate/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/settings"
 	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
@@ -29,7 +29,7 @@ func runExec(ctx *Context, args []string) int {
 	if !ok {
 		return ctx.Fail(ExitUsage, "unknown provider %q (known: %v)", p.provider, provider.Names())
 	}
-	eff := profile.Resolve(p.provider, p.scenario, profile.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox})
+	eff := settings.Resolve(settings.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox}, p.settingsSource)
 	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "exec", Sandbox: eff.Sandbox}); err != nil {
 		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
 	}

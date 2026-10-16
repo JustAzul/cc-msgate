@@ -31,7 +31,7 @@ func buildJob(ctx *Context, st *store.Store, prov provider.Provider, req request
 // telemetryRecord holds the run-record fields known once a run is admitted.
 func telemetryRecord(req requestRecord, background bool) telemetry.Record {
 	return telemetry.Record{
-		Provider: req.Provider, Command: req.Command, Scenario: req.Scenario,
+		Provider: req.Provider, Command: req.Command, Purpose: req.Purpose,
 		Model: req.Model, ModelSource: req.ModelSource,
 		Effort: req.Effort, EffortSource: req.EffortSource,
 		Sandbox: req.Sandbox, Source: req.Source, SessionID: nullable(req.SessionID),

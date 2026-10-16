@@ -9,9 +9,9 @@ import (
 )
 
 // etaRun is a folded run as telemetry.Fold yields it: numbers are json.Number.
-func etaRun(scenario, cwd string, durationMS int, outcome string) map[string]any {
+func etaRun(purpose, cwd string, durationMS int, outcome string) map[string]any {
 	return map[string]any{
-		"kind": "run", "scenario": scenario, "cwd": cwd, "outcome": outcome,
+		"kind": "run", "purpose": purpose, "cwd": cwd, "outcome": outcome,
 		"duration_ms": json.Number(strconv.Itoa(durationMS)),
 	}
 }

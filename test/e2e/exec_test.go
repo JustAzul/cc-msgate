@@ -14,7 +14,7 @@ func TestExecForeground(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok"))
 	rec := s.recordTo()
 	cwd := symlinkedGitRepo(t)
-	r := s.run("exec", "--scenario", "second-opinion", "--cwd", cwd, "--run-id", "fg1", "q")
+	r := s.run(append([]string{"exec"}, secondOpinionFlags("--cwd", cwd, "--run-id", "fg1", "q")...)...)
 	if r.code != 0 {
 		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
 	}
@@ -55,12 +55,12 @@ func TestExecForeground(t *testing.T) {
 		t.Errorf("turns/active = %v / %v", conv["turns"], conv["active_run_id"])
 	}
 	defaults := conv["defaults"].(map[string]any)
-	if defaults["scenario"] != "second-opinion" {
+	if defaults["purpose"] != "second-opinion" {
 		t.Errorf("defaults = %v", defaults)
 	}
 
 	req := readJSONFile(t, filepath.Join(runDir, "request.json"))
-	if req["scenario"] != "second-opinion" || req["source"] != "cli" || req["provider"] != "codex" {
+	if req["purpose"] != "second-opinion" || req["source"] != "cli" || req["provider"] != "codex" {
 		t.Errorf("request.json = %v", req)
 	}
 	if req["model"] != "gpt-6.1-sol" || req["model_source"] != "profile" {
@@ -85,7 +85,7 @@ func TestExecForeground(t *testing.T) {
 	if fake.Stdin != "q" || !samePath(t, fake.Cwd, cwd) {
 		t.Errorf("fake saw stdin=%q cwd=%q", fake.Stdin, fake.Cwd)
 	}
-	// second-opinion carries its built-in profile.
+	// The settings come from the flags the caller passed.
 	wantArgv := []string{"codex", "exec", "-C", cwd, "-s", "read-only", "-m", "gpt-6.1-sol",
 		"-c", "model_reasoning_effort=high", "--json", "-o", out, "-"}
 	if !reflect.DeepEqual(fake.Argv[1:], wantArgv[1:]) {

@@ -3,8 +3,8 @@ package cli
 import (
 	"flag"
 
-	"github.com/JustAzul/cc-msgate/internal/profile"
 	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/settings"
 	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
@@ -40,7 +40,7 @@ func runReview(ctx *Context, args []string) int {
 	if len(p.positional) > 0 || p.promptFile != "" {
 		return ctx.Fail(ExitUsage, "review targets take no prompt: pass a target flag and no prompt source")
 	}
-	eff := profile.Resolve(p.provider, p.scenario, profile.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox})
+	eff := settings.Resolve(settings.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox}, p.settingsSource)
 	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "review", Sandbox: eff.Sandbox, ReviewTarget: target}); err != nil {
 		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
 	}

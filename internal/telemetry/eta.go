@@ -2,7 +2,7 @@ package telemetry
 
 import "math"
 
-// ETA is the estimated duration of a run of one scenario.
+// ETA is the estimated duration of a run of one purpose.
 type ETA struct {
 	Repo    string
 	Basis   string
@@ -19,8 +19,8 @@ type durations struct {
 
 func (d durations) mean() float64 { return d.sum / float64(d.n) }
 
-// EstimateETA estimates how long a run of scenario started in cwd takes.
-func EstimateETA(runs []map[string]any, scenario, cwd string, repoKey func(dir string) string) ETA {
+// EstimateETA estimates how long a run of purpose started in cwd takes.
+func EstimateETA(runs []map[string]any, purpose, cwd string, repoKey func(dir string) string) ETA {
 	resolved := map[string]string{}
 	keyOf := func(dir string) string {
 		key, ok := resolved[dir]
@@ -34,7 +34,7 @@ func EstimateETA(runs []map[string]any, scenario, cwd string, repoKey func(dir s
 	byRepo := map[string]*durations{}
 	samples := 0
 	for _, run := range runs {
-		if name, _ := run["scenario"].(string); name != scenario {
+		if name, _ := run["purpose"].(string); name != purpose {
 			continue
 		}
 		dir, _ := run["cwd"].(string)

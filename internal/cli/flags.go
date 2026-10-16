@@ -8,28 +8,31 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/JustAzul/cc-msgate/internal/settings"
 )
 
 // turnFlags are the flags shared by commands that run a provider turn.
 type turnFlags struct {
-	provider      string
-	scenario      string
-	model         string
-	effort        string
-	sandbox       string
-	cwd           string
-	source        string
-	sessionID     string
-	runID         string
-	promptFile    string
-	cleanSentinel string
-	materialLabel string
-	timeoutS      int // 0: no timeout
-	json          bool
-	dryRun        bool
-	background    bool
-	agentFeedback bool
-	attrs         attrList
+	provider       string
+	purpose        string
+	settingsSource string
+	model          string
+	effort         string
+	sandbox        string
+	cwd            string
+	source         string
+	sessionID      string
+	runID          string
+	promptFile     string
+	cleanSentinel  string
+	materialLabel  string
+	timeoutS       int // 0: no timeout
+	json           bool
+	dryRun         bool
+	background     bool
+	agentFeedback  bool
+	attrs          attrList
 }
 
 // timeoutFlag parses --timeout: a positive whole number of seconds.
@@ -137,7 +140,8 @@ func parseTurnArgs(ctx *Context, spec turnSpec, args []string) (p parsedTurn, ex
 	fs.Usage = func() { fmt.Fprintf(ctx.Stderr, "usage: msgate %s %s\n", spec.name, spec.usage) }
 	f := &p.turnFlags
 	fs.StringVar(&f.provider, "provider", "codex", "provider to run")
-	fs.StringVar(&f.scenario, "scenario", "adhoc", "caller's label for the run's purpose")
+	fs.StringVar(&f.purpose, "purpose", "adhoc", "caller's label for the run's purpose")
+	fs.StringVar(&f.settingsSource, "settings-source", settings.SourceFlag, "source recorded for the model, effort and sandbox passed: flag or profile")
 	fs.StringVar(&f.model, "model", "", "model")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort")
 	fs.StringVar(&f.sandbox, "sandbox", "", "read-only or workspace-write")
@@ -172,6 +176,9 @@ func parseTurnArgs(ctx *Context, spec turnSpec, args []string) (p parsedTurn, ex
 			return p, ExitUsage, true
 		}
 		ctx.JSON = p.json
+		if !settings.ValidSource(f.settingsSource) {
+			return p, ctx.Fail(ExitUsage, "--settings-source needs %q or %q, got %q", settings.SourceFlag, settings.SourceProfile, f.settingsSource), true
+		}
 		if fs.NArg() == 0 {
 			p.given = map[string]bool{}
 			fs.Visit(func(f *flag.Flag) { p.given[f.Name] = true })

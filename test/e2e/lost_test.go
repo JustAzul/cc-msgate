@@ -42,7 +42,7 @@ func seedConversation(t *testing.T, s *sandbox, id, activeRun string) {
 	}
 	conv := map[string]any{
 		"conversation_id": id, "provider": "codex", "provider_session_id": nil, "cwd": t.TempDir(),
-		"defaults": map[string]any{"scenario": "adhoc", "model": "", "effort": "", "sandbox": ""},
+		"defaults": map[string]any{"purpose": "adhoc", "model": "", "effort": "", "sandbox": ""},
 		"turns":    []string{activeRun}, "active_run_id": activeRun,
 		"created_at": "2026-10-04T12:00:00Z", "updated_at": "2026-10-04T12:00:00Z",
 	}
@@ -232,7 +232,7 @@ func TestRacingReadersFinalizeALostRunOnce(t *testing.T) {
 		procs = append(procs, s.start("", "status", "--json", "race"))
 	}
 	time.Sleep(500 * time.Millisecond) // every reader that can has reached the FIFO
-	feedFIFO(t, request, `{"command":"exec","provider":"codex","scenario":"adhoc","source":"cli","session_id":""}`, procs, 15*time.Second)
+	feedFIFO(t, request, `{"command":"exec","provider":"codex","purpose":"adhoc","source":"cli","session_id":""}`, procs, 15*time.Second)
 
 	if recs := telemetryRecords(t, s.home); len(recs) != 1 {
 		t.Errorf("telemetry has %d records for the raced run, want exactly 1: %v", len(recs), recs)
