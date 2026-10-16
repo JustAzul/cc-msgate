@@ -13,7 +13,7 @@ import (
 
 // fr31Fields is the exact key set of a run record.
 var fr31Fields = []string{
-	"v", "kind", "run_id", "ts", "provider", "provider_version", "command", "scenario",
+	"v", "kind", "run_id", "ts", "provider", "provider_version", "command", "purpose",
 	"model", "model_source", "effort", "effort_source", "model_used", "effort_used", "sandbox", "source", "session_id",
 	"conversation_id", "turn", "cwd", "background", "exit_code", "outcome", "duration_ms",
 	"timeout_s", "output_file", "output_bytes", "error_excerpt", "usage", "provider_session_id", "attrs",
@@ -56,7 +56,7 @@ func TestTelemetryRecordForForegroundRun(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok")).
 		set("FAKECODEX_VERSION", "codex-cli 9.9.9").set("CLAUDE_CODE_SESSION_ID", "sess-1")
 	cwd := gitRepo(t)
-	r := s.run("exec", "--scenario", "second-opinion", "--cwd", cwd, "--run-id", "tr1", "--source", "hook-x", "q")
+	r := s.run(append([]string{"exec"}, secondOpinionFlags("--cwd", cwd, "--run-id", "tr1", "--source", "hook-x", "q")...)...)
 	if r.code != 0 {
 		t.Fatalf("exit %d %s", r.code, r.stderr)
 	}
@@ -78,7 +78,7 @@ func TestTelemetryRecordForForegroundRun(t *testing.T) {
 	out := filepath.Join(s.home, "runs", "tr1", "output.md")
 	for k, w := range map[string]any{
 		"v": float64(1), "kind": "run", "run_id": "tr1", "provider": "codex",
-		"provider_version": "codex-cli 9.9.9", "command": "exec", "scenario": "second-opinion",
+		"provider_version": "codex-cli 9.9.9", "command": "exec", "purpose": "second-opinion",
 		"model": "gpt-6.1-sol", "model_source": "profile", "effort": "high", "effort_source": "profile",
 		"sandbox": "read-only", "source": "hook-x", "session_id": "sess-1",
 		"conversation_id": state["conversation_id"], "turn": float64(1), "cwd": cwd, "background": false,

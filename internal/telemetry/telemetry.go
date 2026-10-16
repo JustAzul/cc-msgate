@@ -36,7 +36,7 @@ type Record struct {
 	Provider          string          `json:"provider"`
 	ProviderVersion   *string         `json:"provider_version"`
 	Command           string          `json:"command"`
-	Scenario          string          `json:"scenario"`
+	Purpose           string          `json:"purpose"`
 	Model             *string         `json:"model"`
 	ModelSource       string          `json:"model_source"`
 	Effort            *string         `json:"effort"`

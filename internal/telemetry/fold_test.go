@@ -293,3 +293,26 @@ func TestInSessionKeepsOnlyTheSessionsRecords(t *testing.T) {
 		t.Errorf("no match = %#v, want an empty non-nil slice", got)
 	}
 }
+
+func TestFoldReadsAnOldRecordsScenarioAsItsPurpose(t *testing.T) {
+	home := t.TempDir()
+	writeMonth(t, home, "2026-10",
+		`{"v":1,"kind":"run","run_id":"old","ts":"2026-10-01T00:00:00Z","provider":"codex","scenario":"code-review","attrs":{}}`,
+		`{"v":1,"kind":"run","run_id":"new","ts":"2026-10-01T00:00:01Z","provider":"codex","purpose":"second-opinion","attrs":{}}`,
+		`{"v":1,"kind":"run","run_id":"both","ts":"2026-10-01T00:00:02Z","provider":"codex","scenario":"code-review","purpose":"kept","attrs":{}}`,
+		`{"v":1,"kind":"run","run_id":"imported","ts":"2026-10-01T00:00:03Z","provider":"codex","purpose":null,"scenario":"cross-check","attrs":{}}`)
+
+	f, err := telemetry.Fold(home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i, want := range []string{"code-review", "second-opinion", "kept", "cross-check"} {
+		if got := f.Runs[i]["purpose"]; got != want {
+			t.Errorf("run %d purpose = %v, want %s", i, got, want)
+		}
+		if _, ok := f.Runs[i]["scenario"]; ok {
+			t.Errorf("run %d still has a scenario key", i)
+		}
+	}
+}

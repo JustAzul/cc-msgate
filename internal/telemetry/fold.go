@@ -215,6 +215,7 @@ func (f *folder) foldLine(line []byte) {
 		if _, dup := f.index[runID]; dup {
 			return
 		}
+		readScenarioAsPurpose(rec)
 		attrs, isObj := rec["attrs"].(map[string]any)
 		if !isObj {
 			attrs = map[string]any{}
@@ -255,6 +256,21 @@ func (f *folder) foldLine(line []byte) {
 	}
 }
 
+// readScenarioAsPurpose gives a record written before the purpose had its name
+// the purpose it recorded as a scenario, so every reader sees the purpose only.
+// A record that holds both keeps its purpose; a purpose that is null, as an
+// import of the legacy format leaves it, counts as absent.
+func readScenarioAsPurpose(rec map[string]any) {
+	scenario, hasScenario := rec["scenario"]
+	if !hasScenario {
+		return
+	}
+	if purpose, _ := rec["purpose"].(string); purpose == "" {
+		rec["purpose"] = scenario
+	}
+	delete(rec, "scenario")
+}
+
 func mergeAttrs(dst, src map[string]any) {
 	for k, v := range src {
 		dst[k] = v
@@ -290,7 +306,7 @@ func ParseTS(s string) (time.Time, bool) {
 // fieldOrder is the on-disk order of a run record's fields; MarshalRun puts
 // these first and any other field after them, sorted.
 var fieldOrder = []string{
-	"v", "kind", "run_id", "ts", "provider", "provider_version", "command", "scenario",
+	"v", "kind", "run_id", "ts", "provider", "provider_version", "command", "purpose",
 	"model", "model_source", "effort", "effort_source", "sandbox", "source", "session_id",
 	"conversation_id", "turn", "cwd", "background", "exit_code", "outcome", "duration_ms",
 	"timeout_s", "output_file", "output_bytes", "error_excerpt", "usage", "provider_session_id", "attrs",

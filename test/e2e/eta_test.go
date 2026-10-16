@@ -11,14 +11,14 @@ import (
 	"time"
 )
 
-// etaRecord is a run record of the code-review scenario that ran in cwd.
+// etaRecord is a run record of the code-review purpose that ran in cwd.
 func etaRecord(t *testing.T, id, ts, cwd string, durationMS int) string {
 	t.Helper()
 	dir, err := json.Marshal(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return recLine(id, ts, fmt.Sprintf(`"scenario":"code-review","cwd":%s,"duration_ms":%d,"outcome":"ok"`, dir, durationMS))
+	return recLine(id, ts, fmt.Sprintf(`"purpose":"code-review","cwd":%s,"duration_ms":%d,"outcome":"ok"`, dir, durationMS))
 }
 
 // seedETA writes the records into the current month file of the sandbox home.
@@ -67,7 +67,7 @@ func TestETARepoKeyIsSharedByWorktreesAndSubdirectories(t *testing.T) {
 	wantKey := filepath.Join(realPath(t, repo), ".git")
 
 	for name, from := range map[string]string{"main work tree": repo, "worktree": worktree, "subdirectory": sub} {
-		j := s.run("eta", "--scenario", "code-review", "--cwd", from, "--json").json(t)
+		j := s.run("eta", "--purpose", "code-review", "--cwd", from, "--json").json(t)
 		if j["repo"] != wantKey || j["basis"] != "repo" || j["eta_ms"] != float64(150000) || j["samples"] != float64(2) || j["repos"] != float64(1) {
 			t.Errorf("from the %s: got %v, want repo %s, basis repo, eta_ms 150000, samples 2, repos 1", name, j, wantKey)
 		}
@@ -84,7 +84,7 @@ func TestETARepoKeyFallsBackToTheDirectoryItself(t *testing.T) {
 		dir, key string
 		ms       float64
 	}{"not a repository": {plain, realPath(t, plain), 1000}, "directory gone": {gone, gone, 3000}} {
-		j := s.run("eta", "--scenario", "code-review", "--cwd", c.dir, "--json").json(t)
+		j := s.run("eta", "--purpose", "code-review", "--cwd", c.dir, "--json").json(t)
 		if j["repo"] != c.key || j["basis"] != "repo" || j["eta_ms"] != c.ms || j["samples"] != float64(1) || j["repos"] != float64(1) {
 			t.Errorf("%s: got %v, want repo %s, basis repo, eta_ms %v, samples 1, repos 1", name, j, c.key, c.ms)
 		}
@@ -101,7 +101,7 @@ func TestETARepoKeyResolvesSymbolicLinks(t *testing.T) {
 	seedETA(t, s, etaRun(t, "e1", dir, 20000), etaRun(t, "e2", link, 40000))
 
 	for name, from := range map[string]string{"the directory": dir, "a link to it": link} {
-		j := s.run("eta", "--scenario", "code-review", "--cwd", from, "--json").json(t)
+		j := s.run("eta", "--purpose", "code-review", "--cwd", from, "--json").json(t)
 		if j["repo"] != dir || j["basis"] != "repo" || j["eta_ms"] != float64(30000) || j["samples"] != float64(2) || j["repos"] != float64(1) {
 			t.Errorf("from %s: got %v, want repo %s, basis repo, eta_ms 30000, samples 2, repos 1", name, j, dir)
 		}
@@ -117,7 +117,7 @@ func etaRuns(t *testing.T, prefix, cwd string, durationsMS ...int) []func(ts str
 	return runs
 }
 
-func TestETAWithoutScenarioIsAUsageError(t *testing.T) {
+func TestETAWithoutPurposeIsAUsageError(t *testing.T) {
 	s := newSandbox(t)
 
 	r := s.run("eta", "--json")
@@ -140,9 +140,9 @@ func TestETAJSONHasTheDocumentedKeysAndValues(t *testing.T) {
 	seedETA(t, s, append(etaRuns(t, "a", dir, 150000, 150000, 150000, 150000, 150000, 150000),
 		etaRuns(t, "b", dir, 162000, 162000, 162000, 162000, 162000, 162000)...)...)
 
-	r := s.run("eta", "--scenario", "code-review", "--cwd", dir, "--json")
+	r := s.run("eta", "--purpose", "code-review", "--cwd", dir, "--json")
 
-	want := fmt.Sprintf(`{"sdk_status":"ok","exit_code":0,"scenario":"code-review","repo":%q,"basis":"repo","eta_ms":156000,"samples":12,"repos":1}`+"\n", realPath(t, dir))
+	want := fmt.Sprintf(`{"sdk_status":"ok","exit_code":0,"purpose":"code-review","repo":%q,"basis":"repo","eta_ms":156000,"samples":12,"repos":1}`+"\n", realPath(t, dir))
 	if r.code != 0 || r.stdout != want {
 		t.Errorf("exit %d, stdout %q\nwant      %q", r.code, r.stdout, want)
 	}
@@ -152,9 +152,9 @@ func TestETAJSONWithoutHistoryHasANullEstimate(t *testing.T) {
 	s := newSandbox(t)
 	dir := t.TempDir()
 
-	r := s.run("eta", "--scenario", "code-review", "--cwd", dir, "--json")
+	r := s.run("eta", "--purpose", "code-review", "--cwd", dir, "--json")
 
-	want := fmt.Sprintf(`{"sdk_status":"ok","exit_code":0,"scenario":"code-review","repo":%q,"basis":"none","eta_ms":null,"samples":0,"repos":0}`+"\n", realPath(t, dir))
+	want := fmt.Sprintf(`{"sdk_status":"ok","exit_code":0,"purpose":"code-review","repo":%q,"basis":"none","eta_ms":null,"samples":0,"repos":0}`+"\n", realPath(t, dir))
 	if r.code != 0 || r.stdout != want {
 		t.Errorf("exit %d, stdout %q\nwant      %q", r.code, r.stdout, want)
 	}
@@ -187,7 +187,7 @@ func TestETATextLines(t *testing.T) {
 			if c.seed != nil {
 				seedETA(t, s, c.seed...)
 			}
-			r := s.run("eta", "--scenario", "code-review", "--cwd", asked)
+			r := s.run("eta", "--purpose", "code-review", "--cwd", asked)
 			if r.code != 0 || r.stdout != c.want+"\n" {
 				t.Errorf("exit %d, stdout %q, want %q", r.code, r.stdout, c.want+"\n")
 			}
@@ -199,7 +199,7 @@ func TestETACwdDefaultsToTheWorkingDirectory(t *testing.T) {
 	s := newSandbox(t)
 	here, other := t.TempDir(), t.TempDir()
 	seedETA(t, s, etaRun(t, "e1", here, 30000), etaRun(t, "e2", other, 90000))
-	cmd := exec.Command(msgateBin, "eta", "--scenario", "code-review", "--json")
+	cmd := exec.Command(msgateBin, "eta", "--purpose", "code-review", "--json")
 	cmd.Dir = here
 	cmd.Env = []string{"PATH=" + s.path, "HOME=" + t.TempDir(), "MSGATE_HOME=" + s.home}
 	var out bytes.Buffer
@@ -225,7 +225,7 @@ func TestETARelativeCwdIsResolvedAgainstTheWorkingDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedETA(t, s, etaRun(t, "e1", project, 20000), etaRun(t, "e2", project, 40000))
-	cmd := exec.Command(msgateBin, "eta", "--scenario", "code-review", "--cwd", "project", "--json")
+	cmd := exec.Command(msgateBin, "eta", "--purpose", "code-review", "--cwd", "project", "--json")
 	cmd.Dir = parent
 	cmd.Env = []string{"PATH=" + s.path, "HOME=" + t.TempDir(), "MSGATE_HOME=" + s.home}
 	var out bytes.Buffer
@@ -250,7 +250,7 @@ func TestETAReadsTheWholeHistory(t *testing.T) {
 	writeMonthFile(t, s.home, monthOf(old), etaRecord(t, "old", old, dir, 40000))
 	writeMonthFile(t, s.home, monthOf(recent), etaRecord(t, "recent", recent, dir, 20000))
 
-	j := s.run("eta", "--scenario", "code-review", "--cwd", dir, "--json").json(t)
+	j := s.run("eta", "--purpose", "code-review", "--cwd", dir, "--json").json(t)
 
 	if j["basis"] != "repo" || j["eta_ms"] != float64(30000) || j["samples"] != float64(2) {
 		t.Errorf("got %v, want basis repo, eta_ms 30000, samples 2 (the four-month-old run counts)", j)
@@ -266,7 +266,7 @@ func TestETARepoKeyFallsBackToTheDirectoryWhenGitCannotRun(t *testing.T) {
 	}
 	seedETA(t, s, etaRun(t, "e1", sub, 50000))
 
-	j := s.run("eta", "--scenario", "code-review", "--cwd", repo, "--json").json(t)
+	j := s.run("eta", "--purpose", "code-review", "--cwd", repo, "--json").json(t)
 
 	// With git on PATH both directories share one key; without it each is its own.
 	if want := realPath(t, repo); j["repo"] != want || j["basis"] != "global" || j["eta_ms"] != float64(50000) || j["samples"] != float64(1) || j["repos"] != float64(1) {

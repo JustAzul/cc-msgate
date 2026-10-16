@@ -218,7 +218,7 @@ func TestReaderWhoseRunVanishesMidReadExits4(t *testing.T) {
 
 func TestSendByConversationWorksAfterItsFirstTurnWasPruned(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
-	conv := startConversation(t, s, "sp1", "--scenario", "second-opinion", "--model", "m1")
+	conv := startConversation(t, s, "sp1", "--purpose", "second-opinion", "--model", "m1")
 	ageRun(t, s, "sp1", 40)
 	if r := s.run("prune", "--json"); r.code != 0 || r.json(t)["removed"] != float64(1) {
 		t.Fatalf("prune exit %d stdout %q", r.code, r.stdout)
@@ -228,7 +228,7 @@ func TestSendByConversationWorksAfterItsFirstTurnWasPruned(t *testing.T) {
 		t.Fatalf("send exit %d, stderr %s", r.code, r.stderr)
 	}
 	checkFields(t, "turn 2 record", lastRunRecord(t, s.home), map[string]any{
-		"turn": float64(2), "model": "m1", "model_source": "flag", "effort_source": "profile",
+		"turn": float64(2), "model": "m1", "model_source": "flag", "effort_source": "provider-default",
 	})
 	if r := s.run("send", "sp1", "again"); r.code != 4 {
 		t.Errorf("send by the pruned run id: exit %d, want 4", r.code)

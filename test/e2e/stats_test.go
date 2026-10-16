@@ -77,12 +77,12 @@ func sortedCopy(in []string) []string {
 
 func TestStatsFromLiveRuns(t *testing.T) {
 	s := newSandbox(t)
-	seedRun(t, s, "st-ok", "--source", "hook-post-commit", "--scenario", "code-review")
+	seedRun(t, s, "st-ok", "--source", "hook-post-commit", "--purpose", "code-review")
 	if r := s.run("annotate", "st-ok", "--attr-json", `review.findings={"total":2,"high":1,"medium":1}`); r.code != 0 {
 		t.Fatalf("annotate: %d %s", r.code, r.stderr)
 	}
 	s.set("FAKECODEX_FIXTURE", fixture("error-400")).set("FAKECODEX_EXIT", "1")
-	s.run("exec", "--run-id", "st-err", "--source", "hook-post-commit", "--scenario", "code-review", "q")
+	s.run("exec", "--run-id", "st-err", "--source", "hook-post-commit", "--purpose", "code-review", "q")
 	s.set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("FAKECODEX_EXIT", "0").set("FAKECODEX_OUTPUT", "")
 	s.run("exec", "--run-id", "st-empty", "--source", "skill", "q")
 
@@ -170,7 +170,7 @@ func TestStatsSkippedCounts(t *testing.T) {
 
 func TestStatsHumanSummary(t *testing.T) {
 	s := newSandbox(t)
-	seedRun(t, s, "hs1", "--source", "hook-post-commit", "--scenario", "code-review")
+	seedRun(t, s, "hs1", "--source", "hook-post-commit", "--purpose", "code-review")
 	r := s.run("stats")
 	if r.code != 0 {
 		t.Fatalf("exit %d: %s", r.code, r.stderr)

@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"time"
 
-	"github.com/JustAzul/cc-msgate/internal/profile"
 	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/settings"
 	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
@@ -15,7 +17,7 @@ type admission struct {
 	conversationID string
 	existing       *store.Conversation // nil: this turn starts a new conversation
 	flags          turnFlags
-	effective      profile.Resolved // profile and flags merged
+	effective      settings.Resolved
 	cwd            string
 	prompt         []byte
 	passthrough    []string
@@ -28,7 +30,7 @@ type admission struct {
 type requestRecord struct {
 	Command       string         `json:"command"`
 	Provider      string         `json:"provider"`
-	Scenario      string         `json:"scenario"`
+	Purpose       string         `json:"purpose"`
 	Model         *string        `json:"model"`
 	ModelSource   string         `json:"model_source"`
 	Effort        *string        `json:"effort"`
@@ -45,6 +47,25 @@ type requestRecord struct {
 	Attrs         map[string]any `json:"attrs"`
 	Passthrough   []string       `json:"passthrough"`
 	Plan          provider.Plan  `json:"plan"`
+}
+
+// UnmarshalJSON reads a request written before the purpose had its name: its
+// scenario is the purpose when no purpose is recorded.
+func (r *requestRecord) UnmarshalJSON(data []byte) error {
+	type plain requestRecord
+	aux := struct {
+		*plain
+		LegacyScenario string `json:"scenario"`
+	}{plain: (*plain)(r)}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber() // attrs keep integers beyond float precision
+	if err := dec.Decode(&aux); err != nil {
+		return err
+	}
+	if r.Purpose == "" {
+		r.Purpose = aux.LegacyScenario
+	}
+	return nil
 }
 
 // admit reserves the turn on its conversation (creating the conversation for
@@ -74,7 +95,7 @@ func reserve(st *store.Store, a admission) (int, error) {
 	err := st.ReserveNew(store.Conversation{
 		ConversationID: a.conversationID, Provider: f.provider, Cwd: a.cwd,
 		Defaults: store.Defaults{
-			Scenario: f.scenario, Model: e.Model, Effort: e.Effort, Sandbox: e.Sandbox,
+			Purpose: f.purpose, Model: e.Model, Effort: e.Effort, Sandbox: e.Sandbox,
 			ModelSource: e.ModelSource, EffortSource: e.EffortSource, SandboxSource: e.SandboxSource,
 		},
 		CreatedAt: ts, UpdatedAt: ts,
@@ -90,7 +111,7 @@ func (a admission) request() requestRecord {
 		passthrough = []string{}
 	}
 	return requestRecord{
-		Command: a.command, Provider: f.provider, Scenario: f.scenario,
+		Command: a.command, Provider: f.provider, Purpose: f.purpose,
 		Model: nullable(e.Model), ModelSource: e.ModelSource,
 		Effort: nullable(e.Effort), EffortSource: e.EffortSource,
 		Sandbox: nullable(e.Sandbox), SandboxSource: e.SandboxSource,

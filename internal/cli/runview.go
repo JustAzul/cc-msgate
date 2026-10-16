@@ -107,7 +107,7 @@ type runView struct {
 	Turn       int     `json:"turn"`
 	Background bool    `json:"background"`
 	Command    string  `json:"command"`
-	Scenario   string  `json:"scenario"`
+	Purpose    string  `json:"purpose"`
 	Source     string  `json:"source"`
 	SessionID  *string `json:"session_id"`
 	// AgentFeedback asks the run's Claude Code session to show it while it
@@ -122,7 +122,7 @@ type runView struct {
 func viewOf(s store.State, req requestRecord) runView {
 	return runView{
 		runResult: resultOf(s), Turn: s.Turn, Background: s.Background,
-		Command: req.Command, Scenario: req.Scenario, Source: req.Source, SessionID: nullable(req.SessionID),
+		Command: req.Command, Purpose: req.Purpose, Source: req.Source, SessionID: nullable(req.SessionID),
 		AgentFeedback: req.AgentFeedback, AdmittedAt: s.AdmittedAt, StartedAt: s.StartedAt, EndedAt: s.EndedAt, ErrorExcerpt: s.ErrorExcerpt,
 	}
 }

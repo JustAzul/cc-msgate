@@ -4,8 +4,8 @@ import (
 	"errors"
 	"os"
 
-	"github.com/JustAzul/cc-msgate/internal/profile"
 	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/settings"
 	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
@@ -53,8 +53,8 @@ func runSend(ctx *Context, args []string) int {
 		return ctx.Fail(ExitUsage, "unknown provider %q (known: %v)", p.provider, provider.Names())
 	}
 
-	if !p.given["scenario"] {
-		p.scenario = conv.Defaults.Scenario
+	if !p.given["purpose"] {
+		p.purpose = conv.Defaults.Purpose
 	}
 	eff := turnSettings(st, conv, p)
 	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "resume", Sandbox: eff.Sandbox}); err != nil {
@@ -116,21 +116,21 @@ func findConversation(st *store.Store, id string) (store.Conversation, error) {
 
 // turnSettings merges this turn's explicit flags over the conversation's
 // stored defaults. A stored value keeps the source its first turn recorded.
-func turnSettings(st *store.Store, conv store.Conversation, p parsedTurn) profile.Resolved {
+func turnSettings(st *store.Store, conv store.Conversation, p parsedTurn) settings.Resolved {
 	first := firstTurnSources(st, conv)
-	pick := func(name, flagValue, stored, storedSource string) (string, string) {
+	pick := func(name, flagValue, stored, storedSource, unset, unsetSource string) (string, string) {
 		switch {
 		case p.given[name] && flagValue != "":
-			return flagValue, profile.SourceFlag
+			return flagValue, p.settingsSource
 		case stored == "":
-			return "", profile.SourceProviderDefault
+			return unset, unsetSource
 		}
 		return stored, storedSource
 	}
-	var r profile.Resolved
-	r.Model, r.ModelSource = pick("model", p.model, conv.Defaults.Model, first.model)
-	r.Effort, r.EffortSource = pick("effort", p.effort, conv.Defaults.Effort, first.effort)
-	r.Sandbox, r.SandboxSource = pick("sandbox", p.sandbox, conv.Defaults.Sandbox, first.sandbox)
+	var r settings.Resolved
+	r.Model, r.ModelSource = pick("model", p.model, conv.Defaults.Model, first.model, "", settings.SourceProviderDefault)
+	r.Effort, r.EffortSource = pick("effort", p.effort, conv.Defaults.Effort, first.effort, "", settings.SourceProviderDefault)
+	r.Sandbox, r.SandboxSource = pick("sandbox", p.sandbox, conv.Defaults.Sandbox, first.sandbox, settings.DefaultSandbox, settings.SourceDefault)
 	return r
 }
 
@@ -154,9 +154,9 @@ func firstTurnSources(st *store.Store, conv store.Conversation) settingSources {
 	if len(conv.Turns) > 0 {
 		_ = st.ReadRequest(conv.Turns[0], &req) // a missing record leaves the profile
 	}
-	out.model = firstNonEmpty(out.model, req.ModelSource, profile.SourceProfile)
-	out.effort = firstNonEmpty(out.effort, req.EffortSource, profile.SourceProfile)
-	out.sandbox = firstNonEmpty(out.sandbox, req.SandboxSource, profile.SourceProfile)
+	out.model = firstNonEmpty(out.model, req.ModelSource, settings.SourceProfile)
+	out.effort = firstNonEmpty(out.effort, req.EffortSource, settings.SourceProfile)
+	out.sandbox = firstNonEmpty(out.sandbox, req.SandboxSource, settings.SourceProfile)
 	return out
 }
 

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"io"
 
-	"github.com/JustAzul/cc-msgate/internal/profile"
 	"github.com/JustAzul/cc-msgate/internal/provider"
 	"github.com/JustAzul/cc-msgate/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/settings"
 	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
@@ -15,7 +15,7 @@ type turn struct {
 	command  string // exec, review or send: the telemetry command
 	flags    parsedTurn
 	prov     provider.Provider
-	eff      profile.Resolved
+	eff      settings.Resolved
 	cwd      string
 	prompt   []byte
 	req      provider.Request // everything but the output path

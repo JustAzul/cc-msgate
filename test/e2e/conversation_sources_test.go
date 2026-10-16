@@ -36,18 +36,18 @@ func lastRunRecord(t *testing.T, home string) map[string]any {
 
 func TestConversationKeepsTheSourcesOfItsDefaults(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
-	conv := startConversation(t, s, "cs1", "--scenario", "second-opinion", "--model", "m1")
+	conv := startConversation(t, s, "cs1", "--purpose", "second-opinion", "--model", "m1", "--effort", "high", "--settings-source", "profile")
 	defaults, _ := conversationRecord(t, s.home, conv)["defaults"].(map[string]any)
 	checkFields(t, "defaults", defaults, map[string]any{
-		"model": "m1", "model_source": "flag",
+		"model": "m1", "model_source": "profile",
 		"effort": "high", "effort_source": "profile",
-		"sandbox": "read-only", "sandbox_source": "profile",
+		"sandbox": "read-only", "sandbox_source": "default",
 	})
 }
 
 func TestSendKeepsTheSourcesWhenTheFirstTurnIsGone(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
-	conv := startConversation(t, s, "cs2", "--scenario", "second-opinion", "--model", "m1")
+	conv := startConversation(t, s, "cs2", "--purpose", "second-opinion", "--model", "m1", "--effort", "high", "--settings-source", "profile")
 	if err := os.RemoveAll(filepath.Join(s.home, "runs", "cs2")); err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +56,11 @@ func TestSendKeepsTheSourcesWhenTheFirstTurnIsGone(t *testing.T) {
 		t.Fatalf("send exit %d, stderr %s", r.code, r.stderr)
 	}
 	checkFields(t, "turn 2 record", lastRunRecord(t, s.home), map[string]any{
-		"model": "m1", "model_source": "flag", "effort": "high", "effort_source": "profile",
+		"model": "m1", "model_source": "profile", "effort": "high", "effort_source": "profile",
 		"sandbox": "read-only",
+	})
+	checkFields(t, "turn 2 request", readJSONFile(t, filepath.Join(s.home, "runs", "cs2b", "request.json")), map[string]any{
+		"sandbox": "read-only", "sandbox_source": "default",
 	})
 }
 
@@ -67,7 +70,7 @@ func TestSendOnALegacyConversationFallsBack(t *testing.T) {
 	cases := []struct {
 		name        string
 		dropRequest bool
-		wantModel   string
+		wantSource  string
 	}{
 		{"first turn request still present", false, "flag"},
 		{"first turn request gone", true, "profile"},
@@ -75,7 +78,7 @@ func TestSendOnALegacyConversationFallsBack(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
-			conv := startConversation(t, s, "lg1", "--scenario", "second-opinion", "--model", "m1")
+			conv := startConversation(t, s, "lg1", "--purpose", "second-opinion", "--model", "m1", "--effort", "high")
 			rewriteConversation(t, s.home, conv, func(rec map[string]any) {
 				d := rec["defaults"].(map[string]any)
 				delete(d, "model_source")
@@ -92,7 +95,7 @@ func TestSendOnALegacyConversationFallsBack(t *testing.T) {
 				t.Fatalf("send exit %d, stderr %s", r.code, r.stderr)
 			}
 			checkFields(t, "turn 2 record", lastRunRecord(t, s.home), map[string]any{
-				"model": "m1", "model_source": c.wantModel, "effort_source": "profile",
+				"model": "m1", "model_source": c.wantSource, "effort_source": c.wantSource,
 			})
 		})
 	}

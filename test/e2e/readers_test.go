@@ -64,7 +64,7 @@ func seedRunFilesUnindexed(t *testing.T, s *sandbox, id string, state, request m
 	for k, v := range state {
 		st[k] = v
 	}
-	req := map[string]any{"command": "exec", "provider": "codex", "scenario": "adhoc", "source": "cli", "session_id": ""}
+	req := map[string]any{"command": "exec", "provider": "codex", "purpose": "adhoc", "source": "cli", "session_id": ""}
 	for k, v := range request {
 		req[k] = v
 	}
@@ -165,7 +165,7 @@ func TestWaitTimeoutLeavesTheRunRunning(t *testing.T) {
 func TestStatusListsTheSessionsRunsNewestFirst(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok"))
 	for _, c := range []struct{ id, session string }{{"st-a", "S"}, {"st-b", "S2"}, {"st-c", "S"}} {
-		if r := s.run("exec", "--run-id", c.id, "--session-id", c.session, "--scenario", "cross-check", "q"); r.code != 0 {
+		if r := s.run("exec", "--run-id", c.id, "--session-id", c.session, "--purpose", "cross-check", "q"); r.code != 0 {
 			t.Fatalf("exec %s exit %d", c.id, r.code)
 		}
 		time.Sleep(1100 * time.Millisecond) // admitted_at has one-second resolution
@@ -184,7 +184,7 @@ func TestStatusListsTheSessionsRunsNewestFirst(t *testing.T) {
 	}
 	first := runs[0].(map[string]any)
 	checkFields(t, "runs[0]", first, map[string]any{
-		"state": "done", "scenario": "cross-check", "command": "exec", "session_id": "S", "background": false,
+		"state": "done", "purpose": "cross-check", "command": "exec", "session_id": "S", "background": false,
 		"outcome": "ok", "sdk_status": "ok", "exit_code": float64(0),
 	})
 }
@@ -272,7 +272,7 @@ func TestResultOfARunWithoutAnOutputFilePrintsNothing(t *testing.T) {
 
 func TestConversationsListsProviderTurnsAndStatus(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
-	conv := startConversation(t, s, "cv1", "--scenario", "second-opinion")
+	conv := startConversation(t, s, "cv1", "--purpose", "second-opinion")
 	s.set("FAKECODEX_FIXTURE", fixture("resume-turn2"))
 	if r := s.run("send", conv, "--run-id", "cv2", "again"); r.code != 0 {
 		t.Fatalf("send exit %d, stderr %s", r.code, r.stderr)

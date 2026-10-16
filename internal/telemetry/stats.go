@@ -116,7 +116,7 @@ type entry struct {
 	hook     bool
 	status   string
 	outcome  string
-	scenario string
+	purpose  string
 	provider string
 	ts       string
 	exitCode *int64
@@ -135,7 +135,7 @@ func newEntry(run map[string]any) entry {
 	}
 	e.hook = strings.HasPrefix(e.source, "hook")
 	e.outcome, _ = run["outcome"].(string)
-	e.scenario, _ = run["scenario"].(string)
+	e.purpose, _ = run["purpose"].(string)
 	if p, ok := run["provider"].(string); ok && p != "" {
 		e.provider = p
 	}
@@ -356,7 +356,7 @@ func outcomes(hooks []entry) *Obj {
 	return c.obj(true)
 }
 
-func isHookReview(e entry) bool { return e.scenario == "code-review" && e.hook }
+func isHookReview(e entry) bool { return e.purpose == "code-review" && e.hook }
 
 func findingsSummary(entries []entry) *Obj {
 	var reviews []entry
