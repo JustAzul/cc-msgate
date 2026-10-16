@@ -1,5 +1,7 @@
 # Product Requirements Document
 
+> This document describes agentcli up to 0.6.3. [`split-PRD.md`](split-PRD.md) amends and supersedes it for msgate, as its Appendix A maps.
+
 **Project / Feature**: agentcli (`agentcli`)
 **Date**: 2026-10-04 (updated 2026-10-08: session cost, group Q; progress summaries and Claude spend, group R; release tags, FR93; spawn notice, ETA and spinner, group S)
 

@@ -1,5 +1,7 @@
 # Verification Checklist: agentcli (`agentcli`)
 
+> These test cases describe agentcli up to 0.6.3. [`split-PRD.md`](split-PRD.md) amends and supersedes the requirements they check for msgate, as its Appendix A maps; the cases for the changes are in [`split-test-cases.md`](split-test-cases.md).
+
 **Date**: 2026-10-04 (updated 2026-10-08: session cost; progress summaries and Claude spend, group R; spawn notice, ETA and spinner, group S)
 **Status**: Draft
 

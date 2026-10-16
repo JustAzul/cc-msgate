@@ -1,4 +1,4 @@
-# Working on agentcli
+# Working on msgate
 
 ## Versions
 
@@ -14,7 +14,7 @@ and appears in no release.
 Every change to the plugin or the binary therefore bumps `VERSION` in the same
 push, as Semantic Versioning defines it, with the public API being the
 documented contract (commands, flags, exit codes, JSON outputs, persisted
-formats, the mod's tools):
+formats, the mod's tools, the `msgate` interface):
 
 - an incompatible change to that contract bumps the major (`1.4.2` → `2.0.0`),
   or the minor while the major is `0` (`0.4.1` → `0.5.0`), since Semantic
@@ -41,12 +41,13 @@ Anything under `plugin/`, `cmd/` or `internal/`, `go.mod`, `go.sum` or
 
 A change under `plugin/` can leave the mod unable to load, and then every hook
 of the plugin is gone for the whole session and for every plugin that calls the
-`agentcli` interface. The plugin tests cannot see it: a test's `$` carries only
-the engine's own interfaces, so the plugin's interface is never mounted there.
+`msgate` interface. The plugin tests cannot see it: a test's `$` carries only
+Claude Code's own interfaces, so the plugin's interface is never mounted there.
 
 Run `make verify-plugin` before every push that touches `plugin/`. It starts
 `claude -p` with this plugin, in a temporary directory with no session kept and
 a main model that does not exist, so nothing is spent on a model; it reads the
-debug log and fails unless the `agentcli` interface is mounted and the module
+debug log and fails unless the `msgate` interface is mounted with its five
+methods (`complete`, `backType`, `version`, `run`, `jobs`) and the module
 loaded. The interface is an object of methods and nothing else: a member that is
 not a function unloads the plugin.

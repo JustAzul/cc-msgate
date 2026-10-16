@@ -1,5 +1,7 @@
 # Implementation frame
 
+> This frame describes agentcli up to 0.6.3. [`split-PRD.md`](split-PRD.md) amends and supersedes the requirements it builds against for msgate, as its Appendix A maps.
+
 Shared decisions every contributor builds against. The requirements live in
 `docs/PRD.md` (FR ids) and `docs/test-cases.md`. This file fixes what crosses
 package boundaries so no slice invents its own version.
