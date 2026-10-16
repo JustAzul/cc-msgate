@@ -371,3 +371,41 @@ func TestACommandWaitsOnTheMigrationLockThenUsesTheNewHome(t *testing.T) {
 	}
 	assertMovedWithRuns(t, w, ids)
 }
+
+// A migrated run is read from where it now lives: the paths its state file
+// recorded name the old home.
+func TestMigratedRunIsReadFromTheNewHome(t *testing.T) {
+	w := newDefaultTierWorld(t)
+	w.seedOldRuns(1)
+	output := filepath.Join(w.new, "runs", "m1", "output.md")
+	runDir := filepath.Join(w.new, "runs", "m1")
+
+	status := w.run("status", "--json", "m1") // the first command migrates
+	if status.code != 0 {
+		t.Fatalf("status exit %d, stderr %s", status.code, status.stderr)
+	}
+	checkFields(t, "status json", status.json(t), map[string]any{"output_path": output, "run_dir": runDir})
+	if text := w.run("status", "m1"); !strings.Contains(text.stdout, "output_path: "+output+"\n") {
+		t.Errorf("status text = %q, want output_path %s", text.stdout, output)
+	}
+
+	waitJSON := w.run("wait", "--json", "m1")
+	if waitJSON.code != 0 {
+		t.Fatalf("wait --json exit %d, stderr %s", waitJSON.code, waitJSON.stderr)
+	}
+	checkFields(t, "wait json", waitJSON.json(t), map[string]any{"output_path": output, "run_dir": runDir})
+	if text := w.run("wait", "m1"); strings.TrimSpace(text.stdout) != output {
+		t.Errorf("wait text = %q, want %s", text.stdout, output)
+	}
+
+	want := readFile(t, output)
+	if got := w.run("result", "m1"); got.code != 0 || got.stdout != want || want == "" {
+		t.Errorf("result: exit %d, stdout %q, stderr %q, want the output %q", got.code, got.stdout, got.stderr, want)
+	}
+
+	ann := w.run("annotate", output, "--attr", "acted=yes", "--json")
+	if ann.code != 0 {
+		t.Fatalf("annotate by output path: exit %d, stderr %s", ann.code, ann.stderr)
+	}
+	checkFields(t, "annotate json", ann.json(t), map[string]any{"run_id": "m1"})
+}

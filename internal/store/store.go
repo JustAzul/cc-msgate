@@ -141,11 +141,17 @@ func (s *Store) WriteState(runID string, st State) error {
 	return s.writeJSON(filepath.Join(s.RunDir(runID), "state.json"), st)
 }
 
-// ReadState loads the run's state file.
+// ReadState loads the run's state file. The run's own directory and output
+// file are located from the home and the run id, never from the absolute
+// paths the file recorded: those name the home the run was admitted in, which
+// a migration may have renamed since.
 func (s *Store) ReadState(runID string) (State, error) {
 	var st State
-	err := readJSON(filepath.Join(s.RunDir(runID), "state.json"), &st)
-	return st, err
+	if err := readJSON(filepath.Join(s.RunDir(runID), "state.json"), &st); err != nil {
+		return st, err
+	}
+	st.RunDir, st.OutputPath = s.RunDir(runID), s.OutputPath(runID)
+	return st, nil
 }
 
 func (s *Store) conversationsDir() string { return filepath.Join(s.Home, "conversations") }

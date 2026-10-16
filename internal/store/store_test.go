@@ -116,10 +116,19 @@ func TestStateRoundTripAndNulls(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := s.ReadState("r1")
-	if err != nil || !reflect.DeepEqual(got, st) {
+	// The recorded paths name the home the run was admitted in; a read locates
+	// the run in the home it is opened from.
+	located := st
+	located.OutputPath, located.RunDir = s.OutputPath("r1"), s.RunDir("r1")
+	if err != nil || !reflect.DeepEqual(got, located) {
 		t.Fatalf("got %+v err %v", got, err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(s.RunDir("r1"), "state.json"))
+	for _, recorded := range []string{`"output_path": "/o"`, `"run_dir": "/d"`} {
+		if !strings.Contains(string(raw), recorded) {
+			t.Errorf("state.json lacks %s:\n%s", recorded, raw)
+		}
+	}
 	for _, want := range []string{`"started_at": null`, `"exit_code": null`, `"outcome": null`, `"error_excerpt": null`, `"unparsed_events": 0`, `"background": false`} {
 		if !regexp.MustCompile(regexp.QuoteMeta(want)).Match(raw) {
 			t.Errorf("state.json lacks %s:\n%s", want, raw)
