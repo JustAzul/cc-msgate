@@ -63,7 +63,7 @@ func TestMarketplaceManifest(t *testing.T) {
 
 // sessionStartCommand is the SessionStart hook: link the launcher, then prune
 // automatically.
-const sessionStartCommand = `"${CLAUDE_PLUGIN_ROOT}"/bin/agentcli link --quiet; "${CLAUDE_PLUGIN_ROOT}"/bin/agentcli prune --auto`
+const sessionStartCommand = `"${CLAUDE_PLUGIN_ROOT}"/bin/msgate link --quiet; "${CLAUDE_PLUGIN_ROOT}"/bin/msgate prune --auto`
 
 func TestHooksRunLinkThenPruneOnSessionStart(t *testing.T) {
 	m := repoJSON(t, "plugin/hooks/hooks.json")

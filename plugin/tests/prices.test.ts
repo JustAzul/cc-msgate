@@ -73,7 +73,7 @@ test('a refresh report that is not the expected object counts as a failure', () 
 // The refresh tests below use the world's fake msgate (kit.ts).
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
-const SHIM = (argv: string[]) => argv[0]!.endsWith('/bin/agentcli')
+const SHIM = (argv: string[]) => argv[0]!.endsWith('/bin/msgate')
 
 function report(over: Record<string, unknown> = {}) {
   return ok(JSON.stringify({ sdk_status: 'ok', exit_code: 0, ran: true, changed: false, reason: 'refreshed', ...over }))

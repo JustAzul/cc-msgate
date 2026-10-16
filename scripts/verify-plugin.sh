@@ -30,7 +30,6 @@ log=$work/claude.debug
 (
   cd "$work/cwd" || exit 2
   MSGATE_HOME=$work/home MSGATE_NO_LINK=1 MSGATE_PRICES_URL=off \
-  AGENTCLI_HOME=$work/home AGENTCLI_NO_LINK=1 AGENTCLI_PRICES_URL=off \
     CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 \
     claude -p "ok" --plugin-dir "$plugin" --setting-sources project --no-session-persistence \
     --strict-mcp-config --settings '{"advisorModel": ""}' --tools "" \

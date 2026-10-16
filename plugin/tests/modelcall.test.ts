@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { modelCallCommand } from '../hooks/modelcall.js'
 import { summaryRecording } from '../hooks/summary.js'
 
-const BIN = '/plugin/bin/agentcli'
+const BIN = '/plugin/bin/msgate'
 const USAGE = { input_tokens: 458, output_tokens: 18 }
 
 test('a summary call is recorded for its run, with no call id, attrs or time of its own', () => {

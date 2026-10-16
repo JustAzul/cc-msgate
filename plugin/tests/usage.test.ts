@@ -67,7 +67,7 @@ test('an answered reply is recorded with its usage on standard input', async ($,
 
   expect(usageRuns(w)).toHaveLength(1)
   const [recorded] = usageRuns(w)
-  expect(recorded!.argv[0]!.endsWith('/bin/agentcli')).toBe(true)
+  expect(recorded!.argv[0]!.endsWith('/bin/msgate')).toBe(true)
   expect(recorded!.argv.slice(1)).toEqual([
     'usage', 'add', '--session-id', SESSION, '--provider', 'anthropic', '--model', 'claude-haiku-5-5',
     '--source', 'mod-summary', '--run-id', 'run-1', '--json',

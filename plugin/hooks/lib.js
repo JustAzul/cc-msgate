@@ -28,7 +28,7 @@ export function isTerminal(state) {
 }
 
 export function shimPath(pluginRoot) {
-  return pluginRoot + '/bin/agentcli'
+  return pluginRoot + '/bin/msgate'
 }
 
 export function messageOf(error) {

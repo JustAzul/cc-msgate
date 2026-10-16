@@ -4,8 +4,8 @@ import { mock } from 'claude-code/testing'
 import { createVersionCache, serveBackType, serveJobs, serveRun, serveVersion } from '../hooks/iface.js'
 
 export const SESSION = 'sess-1'
-// The mod runs the plugin's own shim: an absolute path ending in bin/agentcli.
-export const isShim = (p: string) => p.startsWith('/') && p.endsWith('/bin/agentcli')
+// The mod runs the plugin's own shim: an absolute path ending in bin/msgate.
+export const isShim = (p: string) => p.startsWith('/') && p.endsWith('/bin/msgate')
 export const TOOL = (name: string) => `mcp__msgate__${name}`
 
 export type Run = { argv: string[]; stdin?: string; cwd?: string; timeoutMs?: number }
