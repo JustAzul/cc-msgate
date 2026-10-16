@@ -31,6 +31,8 @@ type etaReport struct {
 	Repos     int    `json:"repos"`
 }
 
+const etaUsage = "usage: msgate eta --purpose <label> [--cwd <dir>] [--json]"
+
 func runETA(ctx *Context, args []string) int {
 	var purpose, cwd string
 	var asJSON bool
@@ -42,11 +44,11 @@ func runETA(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: msgate eta --purpose <label> [--cwd <dir>] [--json]")
+		fmt.Fprintln(ctx.Stderr, etaUsage)
 		return ExitOK
 	}
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, etaUsage, err)
 	}
 	ctx.JSON = asJSON
 	switch {

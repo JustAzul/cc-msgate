@@ -39,6 +39,8 @@ func viewOfConversation(c store.Conversation) conversationView {
 	}
 }
 
+const conversationsUsage = "usage: msgate conversations [--json]"
+
 func runConversations(ctx *Context, args []string) int {
 	var asJSON bool
 	fset := flag.NewFlagSet("conversations", flag.ContinueOnError)
@@ -47,10 +49,10 @@ func runConversations(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	if err := fset.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintln(ctx.Stderr, "usage: msgate conversations [--json]")
+			fmt.Fprintln(ctx.Stderr, conversationsUsage)
 			return ExitOK
 		}
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, conversationsUsage, err)
 	}
 	ctx.JSON = asJSON
 	if fset.NArg() != 0 {

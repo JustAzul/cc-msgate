@@ -19,6 +19,8 @@ func init() {
 // statusLimit is how many runs a listing shows.
 const statusLimit = 20
 
+const statusUsage = "usage: msgate status [run_id] [--session-id <id>] [--json]"
+
 func runStatus(ctx *Context, args []string) int {
 	var asJSON bool
 	var sessionID string
@@ -29,11 +31,11 @@ func runStatus(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: msgate status [run_id] [--session-id <id>] [--json]")
+		fmt.Fprintln(ctx.Stderr, statusUsage)
 		return ExitOK
 	}
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, statusUsage, err)
 	}
 	ctx.JSON = asJSON
 	if len(positional) > 1 {

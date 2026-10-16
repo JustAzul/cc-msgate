@@ -38,6 +38,11 @@ func runPrices(ctx *Context, args []string) int {
 // runPricesShow prints the price cache: its fields plus cached: true with
 // --json, else the source, the times, each provider's models with their four
 // prices and the unpriced models.
+const (
+	pricesRefreshUsage = "usage: msgate prices refresh [--max-age <duration>] [--json]"
+	pricesUsage        = "usage: msgate prices [--json]\n       msgate prices refresh [--max-age <duration>] [--json]"
+)
+
 func runPricesShow(ctx *Context, args []string) int {
 	var asJSON bool
 	fset := flag.NewFlagSet("prices", flag.ContinueOnError)
@@ -46,11 +51,11 @@ func runPricesShow(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: msgate prices [--json]\n       msgate prices refresh [--max-age <duration>] [--json]")
+		fmt.Fprintln(ctx.Stderr, pricesUsage)
 		return ExitOK
 	}
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, pricesUsage, err)
 	}
 	ctx.JSON = asJSON
 	if len(positional) != 0 {
@@ -164,11 +169,11 @@ func runPricesRefresh(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: msgate prices refresh [--max-age <duration>] [--json]")
+		fmt.Fprintln(ctx.Stderr, pricesRefreshUsage)
 		return ExitOK
 	}
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, pricesRefreshUsage, err)
 	}
 	ctx.JSON = asJSON
 	if len(positional) != 0 {

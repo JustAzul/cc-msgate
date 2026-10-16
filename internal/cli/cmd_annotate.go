@@ -29,6 +29,8 @@ type annotation struct {
 	Attrs map[string]any `json:"attrs"`
 }
 
+const annotateUsage = "usage: msgate annotate <run_id | output path> [--attr key=value]... [--attr-json key=<json>]... [--json]"
+
 func runAnnotate(ctx *Context, args []string) int {
 	var attrs attrList
 	var asJSON bool
@@ -40,11 +42,11 @@ func runAnnotate(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: msgate annotate <run_id | output path> [--attr key=value]... [--attr-json key=<json>]... [--json]")
+		fmt.Fprintln(ctx.Stderr, annotateUsage)
 		return ExitOK
 	}
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, annotateUsage, err)
 	}
 	ctx.JSON = asJSON
 	if len(positional) != 1 {

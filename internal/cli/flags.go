@@ -105,6 +105,33 @@ func (f attrFlag) Set(raw string) error {
 	return nil
 }
 
+// settingsSourceFlag parses --settings-source: the source recorded for the
+// settings the caller passes.
+type settingsSourceFlag struct{ target *string }
+
+func (f settingsSourceFlag) String() string {
+	if f.target == nil {
+		return ""
+	}
+	return *f.target
+}
+
+func (f settingsSourceFlag) Set(raw string) error {
+	if !settings.ValidSource(raw) {
+		return fmt.Errorf("--settings-source needs %q or %q, got %q", settings.SourceFlag, settings.SourceProfile, raw)
+	}
+	*f.target = raw
+	return nil
+}
+
+// failFlagParse reports a refused flag parse: the command's usage on stderr
+// first, then one last line carrying the error, so the line a caller keeps is
+// the error. It returns the usage exit.
+func failFlagParse(ctx *Context, usage string, err error) int {
+	fmt.Fprintln(ctx.Stderr, usage)
+	return ctx.Fail(ExitUsage, "%v", err)
+}
+
 // parsedTurn is the result of parsing a turn command's arguments.
 type parsedTurn struct {
 	turnFlags
@@ -136,12 +163,13 @@ func parseTurnArgs(ctx *Context, spec turnSpec, args []string) (p parsedTurn, ex
 	}
 
 	fs := flag.NewFlagSet(spec.name, flag.ContinueOnError)
-	fs.SetOutput(ctx.Stderr)
+	fs.SetOutput(io.Discard) // the error is reported once, by failFlagParse's last line
 	fs.Usage = func() { fmt.Fprintf(ctx.Stderr, "usage: msgate %s %s\n", spec.name, spec.usage) }
 	f := &p.turnFlags
 	fs.StringVar(&f.provider, "provider", "codex", "provider to run")
 	fs.StringVar(&f.purpose, "purpose", "adhoc", "caller's label for the run's purpose")
-	fs.StringVar(&f.settingsSource, "settings-source", settings.SourceFlag, "source recorded for the model, effort and sandbox passed: flag or profile")
+	f.settingsSource = settings.SourceFlag
+	fs.Var(settingsSourceFlag{&f.settingsSource}, "settings-source", "source recorded for the model, effort and sandbox passed: flag or profile (default flag)")
 	fs.StringVar(&f.model, "model", "", "model")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort")
 	fs.StringVar(&f.sandbox, "sandbox", "", "read-only or workspace-write")
@@ -172,13 +200,9 @@ func parseTurnArgs(ctx *Context, spec turnSpec, args []string) (p parsedTurn, ex
 				ctx.emitErrorJSON(ExitOK, "help requested")
 				return p, ExitOK, true
 			}
-			ctx.emitErrorJSON(ExitUsage, err.Error())
-			return p, ExitUsage, true
+			return p, ctx.Fail(ExitUsage, "%v", err), true
 		}
 		ctx.JSON = p.json
-		if !settings.ValidSource(f.settingsSource) {
-			return p, ctx.Fail(ExitUsage, "--settings-source needs %q or %q, got %q", settings.SourceFlag, settings.SourceProfile, f.settingsSource), true
-		}
 		if fs.NArg() == 0 {
 			p.given = map[string]bool{}
 			fs.Visit(func(f *flag.Flag) { p.given[f.Name] = true })

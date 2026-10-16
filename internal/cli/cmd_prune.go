@@ -61,6 +61,8 @@ type pruneReport struct {
 	StoppedEarly  bool   `json:"stopped_early"`
 }
 
+const pruneUsage = "usage: msgate prune [--older-than <days>] [--dry-run] [--auto] [--json]"
+
 func runPrune(ctx *Context, args []string) int {
 	var asJSON, dryRun, auto bool
 	var days int
@@ -74,11 +76,11 @@ func runPrune(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: msgate prune [--older-than <days>] [--dry-run] [--auto] [--json]")
+		fmt.Fprintln(ctx.Stderr, pruneUsage)
 		return ExitOK
 	}
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, pruneUsage, err)
 	}
 	ctx.JSON = asJSON
 	if len(positional) != 0 {

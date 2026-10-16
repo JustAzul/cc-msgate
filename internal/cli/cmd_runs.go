@@ -48,12 +48,13 @@ func windowFlags(ctx *Context, name string, args []string) (w window, asJSON boo
 	fset.StringVar(&sessionID, "session-id", "", "only the runs of this Claude Code session")
 	fset.BoolVar(&asJSON, "json", false, "print JSON")
 	ctx.JSON = wantsJSON(args)
+	usage := fmt.Sprintf("usage: msgate %s [--days N | --all] [--session-id ID] [--json]", name)
 	if err := fset.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintf(ctx.Stderr, "usage: msgate %s [--days N | --all] [--session-id ID] [--json]\n", name)
+			fmt.Fprintln(ctx.Stderr, usage)
 			return w, false, ExitOK, true
 		}
-		return w, false, ctx.Fail(ExitUsage, "%v", err), true
+		return w, false, failFlagParse(ctx, usage, err), true
 	}
 	explicitDays := false
 	fset.Visit(func(f *flag.Flag) { explicitDays = explicitDays || f.Name == "days" })

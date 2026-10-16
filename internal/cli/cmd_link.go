@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -17,7 +18,7 @@ func init() {
 
 func runLink(ctx *Context, args []string) int {
 	fs := flag.NewFlagSet("link", flag.ContinueOnError)
-	fs.SetOutput(ctx.Stderr)
+	fs.SetOutput(io.Discard)
 	fs.Usage = func() {
 		fmt.Fprintln(ctx.Stderr, "usage: msgate link [--quiet] [--target <msgate shim or binary>] [--dir <launcher dir>]")
 	}
@@ -28,7 +29,7 @@ func runLink(ctx *Context, args []string) int {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitOK
 		}
-		return ExitUsage
+		return ctx.Fail(ExitUsage, "%v", err)
 	}
 	if fs.NArg() != 0 {
 		ctx.Errorf("link takes no positional arguments")

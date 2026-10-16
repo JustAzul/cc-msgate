@@ -184,7 +184,7 @@ func runUsageAdd(ctx *Context, args []string) int {
 		return ExitOK
 	}
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, usageAddLine, err)
 	}
 	ctx.JSON = f.asJSON
 	if problem := f.problem(positional); problem != "" {

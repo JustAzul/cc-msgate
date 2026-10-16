@@ -38,7 +38,7 @@ func TestPricesRefreshUsageErrorsComeBeforeEverything(t *testing.T) {
 				t.Error("a usage error created the home")
 			}
 			text := s.run(append([]string{"prices", "refresh"}, c.args...)...)
-			if text.code != 2 || text.stdout != "" || !strings.HasPrefix(text.stderr, "msgate: ") {
+			if text.code != 2 || text.stdout != "" || !strings.HasPrefix(text.lastStderrLine(), "msgate: ") {
 				t.Errorf("text mode: exit %d stdout %q stderr %q", text.code, text.stdout, text.stderr)
 			}
 		})

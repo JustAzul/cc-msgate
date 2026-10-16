@@ -27,6 +27,8 @@ type progressResult struct {
 	CostUSD *string         `json:"cost_usd"`
 }
 
+const progressUsage = "usage: msgate progress <run_id> [--from <n>] [--json]"
+
 func runProgress(ctx *Context, args []string) int {
 	var asJSON bool
 	var from int
@@ -37,11 +39,11 @@ func runProgress(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, progressUsage, err)
 	}
 	ctx.JSON = asJSON
 	if len(positional) != 1 {
-		return ctx.Fail(ExitUsage, "usage: msgate progress <run_id> [--from <n>] [--json]")
+		return ctx.Fail(ExitUsage, progressUsage)
 	}
 
 	home, err := store.ResolveHome(ctx.Getenv)

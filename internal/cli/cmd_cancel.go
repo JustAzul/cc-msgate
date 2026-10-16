@@ -17,6 +17,8 @@ func init() {
 	register(Command{Name: "cancel", Summary: "ask a run to stop", Run: runCancel})
 }
 
+const cancelUsage = "usage: msgate cancel <run_id> [--json]"
+
 func runCancel(ctx *Context, args []string) int {
 	var asJSON bool
 	fset := flag.NewFlagSet("cancel", flag.ContinueOnError)
@@ -25,11 +27,11 @@ func runCancel(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: msgate cancel <run_id> [--json]")
+		fmt.Fprintln(ctx.Stderr, cancelUsage)
 		return ExitOK
 	}
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, cancelUsage, err)
 	}
 	ctx.JSON = asJSON
 	if len(positional) != 1 {

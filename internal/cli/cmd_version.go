@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"runtime"
 
 	"github.com/JustAzul/cc-msgate/internal/version"
@@ -23,14 +24,14 @@ type versionInfo struct {
 
 func runVersion(ctx *Context, args []string) int {
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)
-	fs.SetOutput(ctx.Stderr)
+	fs.SetOutput(io.Discard)
 	fs.Usage = func() { fmt.Fprintln(ctx.Stderr, "usage: msgate version [--json]") }
 	asJSON := fs.Bool("json", false, "print one JSON object")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitOK
 		}
-		return ExitUsage
+		return ctx.Fail(ExitUsage, "%v", err)
 	}
 	if fs.NArg() != 0 {
 		ctx.Errorf("version takes no arguments")

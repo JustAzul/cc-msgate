@@ -22,6 +22,8 @@ const (
 	finalizeWait = 10 * time.Second
 )
 
+const waitUsage = "usage: msgate wait <run_id> [--timeout <seconds>] [--json]"
+
 func runWait(ctx *Context, args []string) int {
 	var asJSON bool
 	var timeoutS int
@@ -32,11 +34,11 @@ func runWait(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: msgate wait <run_id> [--timeout <seconds>] [--json]")
+		fmt.Fprintln(ctx.Stderr, waitUsage)
 		return ExitOK
 	}
 	if err != nil {
-		return ctx.Fail(ExitUsage, "%v", err)
+		return failFlagParse(ctx, waitUsage, err)
 	}
 	ctx.JSON = asJSON
 	if len(positional) != 1 {
