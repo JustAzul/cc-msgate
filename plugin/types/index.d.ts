@@ -71,6 +71,16 @@ export type MsgateRunResult = {
   continued: boolean
 }
 
+/** A run that asks to be shown and has no hidden row; see `flaggedRuns`. */
+export type MsgateFlaggedRun = {
+  run_id: string
+  /** The run's purpose, `''` when it has none. */
+  purpose: string
+  source: string
+  /** When the run started, `null` before it has. */
+  started_at: string | null
+}
+
 /** A run as `status --json` prints it: these keys, and others the binary adds. */
 export type MsgateRun = {
   run_id: string
@@ -132,6 +142,12 @@ declare module 'claude-code' {
         (args: { action: 'status'; run_id: string }): Promise<MsgateRun>
         (args: { action: 'result' | 'cancel'; run_id: string }): Promise<string>
       }
+      /**
+       * The session's runs that asked to be shown with `--agent-feedback`, are
+       * not finished, have a source other than `agent` and have no hidden row.
+       * It rejects with `msgate:flaggedRuns:failed`.
+       */
+      flaggedRuns: () => Promise<MsgateFlaggedRun[]>
     }
   }
 

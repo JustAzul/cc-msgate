@@ -584,8 +584,8 @@ How a backed row behaves:
 
 The mod adds the interface `msgate` to Claude Code, so another plugin's mod
 reaches the engine as `$.msgate`, with no binary to run and no agent type to
-install. It is an object of five functions:
-`{ complete, backType, version, run, jobs }`. The engine knows its caller from
+install. It is an object of six functions:
+`{ complete, backType, version, run, jobs, flaggedRuns }`. The engine knows its caller from
 the plugin name Claude Code stamps on the call, never from an argument. A
 refusal reaches the caller as an error whose message starts
 `msgate:<method>:`. Where `msgate` is not installed, `$.msgate` is undefined
@@ -661,6 +661,14 @@ A plugin sees only its own runs: `list` returns the session's runs whose source
 is `plugin:<caller>`, and `status`, `result` and `cancel` refuse a run whose
 source is not, with `msgate:jobs:not-yours`. A plugin cannot read or cancel the
 runs of Claude or of another plugin.
+
+### `flaggedRuns()`
+
+Resolves `[{ run_id, purpose, source, started_at }]`: the session's runs that
+asked to be shown with `--agent-feedback`, are not finished, and whose source is
+not `agent`, leaving out every run that already has a hidden row. `purpose` is
+`""` for a run with none, and `started_at` is `null` for a run that has not
+started. Any plugin can call it. It is refused with `msgate:flaggedRuns:failed`.
 
 ## Using it from hooks and scripts
 
@@ -806,7 +814,7 @@ with a usage error.
   that build, with notes listing the commits since the previous version.
 - The plugin's mod is plain JavaScript, tested with `claude plugin test plugin`.
   `make verify-plugin` loads the plugin in a model-free `claude -p` and fails
-  unless the `msgate` interface is mounted with its five methods; run it before
+  unless the `msgate` interface is mounted with its six methods; run it before
   every push that changes `plugin/` (see [`AGENTS.md`](AGENTS.md)).
 - [`docs/split-PRD.md`](docs/split-PRD.md) and
   [`docs/split-test-cases.md`](docs/split-test-cases.md) hold the requirements

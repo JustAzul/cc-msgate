@@ -1,7 +1,7 @@
 // Shared stubs for the mod tests: a fake world beneath the mod where the
 // msgate binary, the store, the clock and the display calls are all in memory.
 import { mock } from 'claude-code/testing'
-import { createVersionCache, serveBackType, serveJobs, serveRun, serveVersion } from '../hooks/iface.js'
+import { createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveRun, serveVersion } from '../hooks/iface.js'
 
 export const SESSION = 'sess-1'
 // The mod runs the plugin's own shim: an absolute path ending in bin/msgate.
@@ -337,5 +337,6 @@ export function msgateAs(w: ReturnType<typeof world>, caller: string = CALLER, v
     version: () => serveVersion($, versions),
     run: (args: unknown) => serveRun($, args, caller),
     jobs: (args: unknown) => serveJobs($, args, caller),
+    flaggedRuns: () => serveFlaggedRuns($),
   }
 }

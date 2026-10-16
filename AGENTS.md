@@ -47,7 +47,7 @@ Claude Code's own interfaces, so the plugin's interface is never mounted there.
 Run `make verify-plugin` before every push that touches `plugin/`. It starts
 `claude -p` with this plugin, in a temporary directory with no session kept and
 a main model that does not exist, so nothing is spent on a model; it reads the
-debug log and fails unless the `msgate` interface is mounted with its five
-methods (`complete`, `backType`, `version`, `run`, `jobs`) and the module
-loaded. The interface is an object of methods and nothing else: a member that is
-not a function unloads the plugin.
+debug log and fails unless the `msgate` interface is mounted with its six
+methods (`complete`, `backType`, `version`, `run`, `jobs`, `flaggedRuns`) and
+the module loaded. The interface is an object of methods and nothing else: a
+member that is not a function unloads the plugin.

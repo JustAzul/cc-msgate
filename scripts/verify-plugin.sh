@@ -43,7 +43,7 @@ if [ ! -s "$log" ]; then
 fi
 
 status=0
-methods="complete backType version run jobs"
+methods="complete backType version run jobs flaggedRuns"
 # The interface is mounted: the engine.create line names it with its methods.
 mounted=$(grep -E 'engine\.create: .*\$\.msgate \(msgate: ' "$log" | head -n 1)
 if [ -z "$mounted" ]; then

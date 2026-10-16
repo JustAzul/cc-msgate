@@ -82,7 +82,7 @@ import { BAND_REFRESH_MS, bandLine, flaggedRuns, followedRuns, labelled, withPro
 import { createSummarizer } from './summarizer.js'
 import { backedTypeOf } from './backed.js'
 import { createService } from './service.js'
-import { INTERFACE, createVersionCache, serveBackType, serveJobs, serveRun, serveVersion } from './iface.js'
+import { INTERFACE, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveRun, serveVersion } from './iface.js'
 import { summaryRecording } from './summary.js'
 import { modelCallCommand } from './modelcall.js'
 import { ETA_TIMEOUT_MS, ETA_UNAVAILABLE, etaCommand, etaText, endedSince, finishedTail, isAnnounceable, listedRuns, spawnNotice } from './spawn.js'
@@ -221,6 +221,7 @@ export function register(on, options) {
   on('msgate.version', ($, e, next) => serveVersion($, versionCache)).catch(() => ({ deny: 'msgate:version:failed' }))
   on('msgate.run', ($, e, next) => serveRun($, e, next.origin.plugin)).catch(() => ({ deny: 'msgate:run:failed' }))
   on('msgate.jobs', ($, e, next) => serveJobs($, e, next.origin.plugin)).catch(() => ({ deny: 'msgate:jobs:failed' }))
+  on('msgate.flaggedRuns', ($) => serveFlaggedRuns($)).catch(() => ({ deny: 'msgate:flaggedRuns:failed' }))
   on('session.start', async ($, e, next) => {
     await registerTools($)
     if (timer !== null) timer.cancel()

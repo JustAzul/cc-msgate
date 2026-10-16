@@ -5,6 +5,8 @@
 import { backType, backedData } from './backed.js'
 import { admitJob } from './admission.js'
 import { admittedRunIds, forgetRuns, recordAdmitted } from './admitted.js'
+import { flaggedRuns } from './band.js'
+import { hiddenRunIds } from './hidden.js'
 import { NOUN as SERVICE } from './service.js'
 import { EXIT_RUN_NOT_FOUND, RESULT_OUTPUT_BYTES, cutBytes, failureText, jobsCommand, messageOf, pluginSource, resultNote, shimPath, withPurpose } from './lib.js'
 
@@ -170,6 +172,22 @@ export async function serveJobs($, args, caller) {
   }
 }
 
+// serveFlaggedRuns answers the session's runs that ask to be shown and have no
+// hidden row, so a plugin that opens rows takes each run once.
+export async function serveFlaggedRuns($) {
+  try {
+    const bin = shimPath($.plugin.root)
+    const read = await readReply($, [bin, 'status', '--json', '--session-id', await $.session.id()])
+    if (read.error !== undefined) throw new Error(read.error)
+    const hidden = await hiddenRunIds($)
+    const runs = flaggedRuns(read.reply.stdout).filter((run) => !hidden.has(run.run_id))
+    return { value: runs.map((run) => ({ run_id: run.run_id, purpose: run.purpose ?? '', source: run.source, started_at: run.started_at ?? null })) }
+  } catch (error) {
+    await $.ui.log('could not list the flagged runs: ' + messageOf(error), { to: 'debug' })
+    return { deny: 'msgate:flaggedRuns:failed' }
+  }
+}
+
 const unserved = (method) => async () => {
   throw new Error('msgate:' + method + ':unserved')
 }
@@ -184,4 +202,5 @@ export const INTERFACE = {
   version: unserved('version'),
   run: unserved('run'),
   jobs: unserved('jobs'),
+  flaggedRuns: unserved('flaggedRuns'),
 }
