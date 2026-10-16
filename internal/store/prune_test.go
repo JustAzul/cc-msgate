@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 var pruneNow = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)

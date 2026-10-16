@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JustAzul/agentcli/internal/store"
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 func init() {
@@ -42,7 +42,7 @@ func runETA(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: agentcli eta --scenario <name> [--cwd <dir>] [--json]")
+		fmt.Fprintln(ctx.Stderr, "usage: msgate eta --scenario <name> [--cwd <dir>] [--json]")
 		return ExitOK
 	}
 	if err != nil {

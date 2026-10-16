@@ -20,22 +20,22 @@ const (
 // ErrRunExists is returned when a run directory already exists.
 var ErrRunExists = errors.New("run already exists")
 
-// ResolveHome applies AGENTCLI_HOME, then $XDG_STATE_HOME/agentcli, then
-// ~/.local/state/agentcli.
+// ResolveHome applies MSGATE_HOME, then $XDG_STATE_HOME/msgate, then
+// ~/.local/state/msgate.
 func ResolveHome(getenv func(string) string) (string, error) {
-	if h := getenv("AGENTCLI_HOME"); h != "" {
+	if h := getenv("MSGATE_HOME"); h != "" {
 		return h, nil
 	}
 	if x := getenv("XDG_STATE_HOME"); x != "" {
-		return filepath.Join(x, "agentcli"), nil
+		return filepath.Join(x, "msgate"), nil
 	}
 	if h := getenv("HOME"); h != "" {
-		return filepath.Join(h, ".local", "state", "agentcli"), nil
+		return filepath.Join(h, ".local", "state", "msgate"), nil
 	}
-	return "", errors.New("cannot resolve the agentcli home: set AGENTCLI_HOME")
+	return "", errors.New("cannot resolve the msgate home: set MSGATE_HOME")
 }
 
-// Store is the agentcli home directory.
+// Store is the msgate home directory.
 type Store struct{ Home string }
 
 // Open returns a store rooted at home. It touches nothing on disk.

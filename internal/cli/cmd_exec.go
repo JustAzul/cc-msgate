@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/profile"
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/runner"
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/profile"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func init() {
@@ -34,7 +34,7 @@ func runExec(ctx *Context, args []string) int {
 		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
 	}
 	if flagText, reserved := reservedPassthrough(prov, p.passthrough); reserved {
-		return ctx.Fail(ExitUsage, "native flag %q is reserved by agentcli and cannot be passed after --", flagText)
+		return ctx.Fail(ExitUsage, "native flag %q is reserved by msgate and cannot be passed after --", flagText)
 	}
 
 	if len(p.positional)+boolToInt(p.promptFile != "") != 1 {

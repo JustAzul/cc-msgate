@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/provider"
 )
 
 // ModelCall is a model-call record: one completion a tool made outside a

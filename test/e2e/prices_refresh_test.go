@@ -38,7 +38,7 @@ func TestPricesRefreshUsageErrorsComeBeforeEverything(t *testing.T) {
 				t.Error("a usage error created the home")
 			}
 			text := s.run(append([]string{"prices", "refresh"}, c.args...)...)
-			if text.code != 2 || text.stdout != "" || !strings.HasPrefix(text.stderr, "agentcli: ") {
+			if text.code != 2 || text.stdout != "" || !strings.HasPrefix(text.stderr, "msgate: ") {
 				t.Errorf("text mode: exit %d stdout %q stderr %q", text.code, text.stdout, text.stderr)
 			}
 		})
@@ -46,7 +46,7 @@ func TestPricesRefreshUsageErrorsComeBeforeEverything(t *testing.T) {
 }
 
 func TestPricesRefreshSwitchedOff(t *testing.T) {
-	s := newSandbox(t) // AGENTCLI_PRICES_URL=off
+	s := newSandbox(t) // MSGATE_PRICES_URL=off
 	r := s.run("prices", "refresh", "--json")
 	j := r.json(t)
 	if r.code != 0 || j["sdk_status"] != "ok" || j["exit_code"] != float64(0) || j["ran"] != false || j["changed"] != false || j["reason"] != "off" {
@@ -144,7 +144,7 @@ func TestPricesRefreshFreshCacheSkipsEverything(t *testing.T) {
 
 func TestPricesRefreshNothingWantedMakesNoRequestAndNoCache(t *testing.T) {
 	ps := newPriceServer(t)
-	s := newSandbox(t).set("AGENTCLI_PRICES_URL", ps.URL) // no catalog, no telemetry
+	s := newSandbox(t).set("MSGATE_PRICES_URL", ps.URL) // no catalog, no telemetry
 	record := s.recordTo()
 	r := s.run("prices", "refresh", "--json")
 	j := r.json(t)
@@ -174,7 +174,7 @@ func TestPricesRefreshNothingWantedWithAnEmptyCatalog(t *testing.T) {
 	if err := os.WriteFile(empty, []byte(`{"models":[]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s := newSandbox(t).set("AGENTCLI_PRICES_URL", ps.URL).set("FAKECODEX_MODELS", empty)
+	s := newSandbox(t).set("MSGATE_PRICES_URL", ps.URL).set("FAKECODEX_MODELS", empty)
 	j := s.run("prices", "refresh", "--json").json(t)
 	if j["reason"] != "nothing_wanted" || j["catalog_error"] != nil || len(ps.requests()) != 0 {
 		t.Errorf("json %v, %d requests", j, len(ps.requests()))
@@ -334,7 +334,7 @@ func TestPricesRefreshSourceChangeForcesAFullRequest(t *testing.T) {
 		t.Fatalf("first refresh exit %d: %s", r.code, r.stderr)
 	}
 	other := newPriceServer(t)
-	s.set("AGENTCLI_PRICES_URL", other.URL)
+	s.set("MSGATE_PRICES_URL", other.URL)
 	r := s.run("prices", "refresh", "--json")
 	j := r.json(t)
 	if r.code != 0 || j["reason"] != "updated" || j["source"] != other.URL {
@@ -457,11 +457,11 @@ func TestPricesRefreshListUnavailable(t *testing.T) {
 			})
 		}},
 		{"body over the limit", func(s *sandbox, ps *priceServer) {
-			s.set("AGENTCLI_TEST_PRICES_MAX_BYTES", "64")
+			s.set("MSGATE_TEST_PRICES_MAX_BYTES", "64")
 			ps.configure(func(p *priceServer) { p.etag = "" })
 		}},
 		{"server stalls", func(s *sandbox, ps *priceServer) {
-			s.set("AGENTCLI_TEST_PRICES_TIMEOUT_MS", "300")
+			s.set("MSGATE_TEST_PRICES_TIMEOUT_MS", "300")
 			ps.configure(func(p *priceServer) { p.delay, p.etag = 10*time.Second, "" })
 		}},
 	}
@@ -492,8 +492,8 @@ func TestPricesRefreshListUnavailable(t *testing.T) {
 					t.Errorf("json = %v", j)
 				}
 				msg, _ := j["error"].(string)
-				if msg == "" || r.stderr != "agentcli: "+msg+"\n" {
-					t.Errorf("error = %q, stderr = %q; want one matching agentcli: line", msg, r.stderr)
+				if msg == "" || r.stderr != "msgate: "+msg+"\n" {
+					t.Errorf("error = %q, stderr = %q; want one matching msgate: line", msg, r.stderr)
 				}
 				wantPriced, wantChecked := 0, any(nil)
 				if cached {
@@ -512,7 +512,7 @@ func TestPricesRefreshListUnavailable(t *testing.T) {
 				}
 
 				text := s.run("prices", "refresh")
-				if text.code != 7 || text.stdout != "" || strings.Count(text.stderr, "\n") != 1 || !strings.HasPrefix(text.stderr, "agentcli: ") {
+				if text.code != 7 || text.stdout != "" || strings.Count(text.stderr, "\n") != 1 || !strings.HasPrefix(text.stderr, "msgate: ") {
 					t.Errorf("text mode: exit %d stdout %q stderr %q", text.code, text.stdout, text.stderr)
 				}
 			})
@@ -522,7 +522,7 @@ func TestPricesRefreshListUnavailable(t *testing.T) {
 
 func TestPricesRefreshWantsTheModelsOfTheWholeTelemetry(t *testing.T) {
 	ps := newPriceServer(t)
-	s := newSandbox(t).set("AGENTCLI_PRICES_URL", ps.URL) // no catalog: telemetry only
+	s := newSandbox(t).set("MSGATE_PRICES_URL", ps.URL) // no catalog: telemetry only
 	old := tsAgo(400 * 24 * time.Hour)
 	recent := tsAgo(time.Hour)
 	writeMonthFile(t, s.home, monthOf(old), recLine("w-old", old, `"model":"m-half"`))
@@ -590,7 +590,7 @@ func TestPricesRefreshProvidersWithoutACatalogAreUnpriced(t *testing.T) {
 
 func TestPricesRefreshTakesPricesOnlyFromTheProvidersNamespaceAndNumbers(t *testing.T) {
 	ps := newPriceServer(t)
-	s := newSandbox(t).set("AGENTCLI_PRICES_URL", ps.URL)
+	s := newSandbox(t).set("MSGATE_PRICES_URL", ps.URL)
 	seedModelRuns(t, s, `"model":"m-half"`, `"model":"m-text"`, `"model":"m-azure"`, `"model":"chatgpt/m-sol"`, `"model":"m-sol"`)
 	j := s.run("prices", "refresh", "--json").json(t)
 	if got := strings.Join(strs(t, j["priced"]), ","); got != "codex/m-half,codex/m-sol" {
@@ -608,7 +608,7 @@ func TestPricesRefreshTakesPricesOnlyFromTheProvidersNamespaceAndNumbers(t *test
 
 func TestPricesRefreshWithOnlyUnpriceableModelsIsUnavailable(t *testing.T) {
 	ps := newPriceServer(t)
-	s := newSandbox(t).set("AGENTCLI_PRICES_URL", ps.URL)
+	s := newSandbox(t).set("MSGATE_PRICES_URL", ps.URL)
 	seedModelRuns(t, s, `"model":"m-azure"`, `"model":"m-text"`)
 	r := s.run("prices", "refresh", "--json")
 	if r.code != 7 || exists(pricesPath(s)) {

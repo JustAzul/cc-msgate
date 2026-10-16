@@ -16,7 +16,7 @@ import (
 // It is joined at run time on purpose: the linker packs string data together,
 // and a literal "name@host" followed by an unrelated dotted string in the
 // binary reads as a personal email to the PII scan of the dist artifacts.
-var PluginKey = strings.Join([]string{"agentcli", "agentcli"}, "@")
+var PluginKey = strings.Join([]string{"msgate", "cc-msgate"}, "@")
 
 // ErrNoInstallRecord means Claude Code has no install record for this plugin.
 var ErrNoInstallRecord = errors.New("no install record for this plugin")

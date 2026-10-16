@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/runner"
 )
 
 func startTicks(t *testing.T, pid int) uint64 {

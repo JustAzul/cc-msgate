@@ -147,7 +147,7 @@ func TestWorkerCommandIsNotListedInHelp(t *testing.T) {
 
 func TestJobPromptIsOnDiskBeforeTheWorkerStarts(t *testing.T) {
 	const prompt = "a long prompt\nover two lines"
-	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("AGENTCLI_TEST_WORKER_STALL_MS", "1500")
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("MSGATE_TEST_WORKER_STALL_MS", "1500")
 	rec := s.recordTo()
 	s.stdin = prompt
 	cleanupJob(t, s, "bg-stdin")
@@ -185,7 +185,7 @@ func TestJobLargePromptIsDeliveredIntact(t *testing.T) {
 }
 
 func TestJobThatNeverReachesRunningIsFailedAndRecorded(t *testing.T) {
-	s := newSandbox(t).set("AGENTCLI_TEST_WORKER_STALL_MS", "60000").set("AGENTCLI_TEST_ADMISSION_WAIT_MS", "800")
+	s := newSandbox(t).set("MSGATE_TEST_WORKER_STALL_MS", "60000").set("MSGATE_TEST_ADMISSION_WAIT_MS", "800")
 	cleanupJob(t, s, "stall1")
 	began := time.Now()
 	r := s.run("exec", "--background", "--json", "--run-id", "stall1", "q")
@@ -231,9 +231,9 @@ func assertFailedAdmissionCleanedUp(t *testing.T, s *sandbox, st map[string]any)
 // stdout lands in outFile.
 func startLauncherShell(t *testing.T, s *sandbox, outFile string, args string) int {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", `"$0" `+args+` >"$1"; sleep 60`, agentcliBin, outFile)
+	cmd := exec.Command("sh", "-c", `"$0" `+args+` >"$1"; sleep 60`, msgateBin, outFile)
 	cmd.Dir = t.TempDir()
-	cmd.Env = []string{"PATH=" + s.path, "HOME=" + t.TempDir(), "AGENTCLI_HOME=" + s.home}
+	cmd.Env = []string{"PATH=" + s.path, "HOME=" + t.TempDir(), "MSGATE_HOME=" + s.home}
 	for k, v := range s.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -349,7 +349,7 @@ func TestWaitReturnsAfterTheRunIsFinalized(t *testing.T) {
 // bound wait prints one warning and returns the run it saw.
 func TestWaitGivesUpOnFinalizationAfterTheBound(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_OUTPUT", "final").set("FAKECODEX_SLEEP_MS", "500").
-		set("AGENTCLI_TEST_FINALIZE_WAIT_MS", "600")
+		set("MSGATE_TEST_FINALIZE_WAIT_MS", "600")
 	admitJob(t, s, "wfin2", "q")
 	holdLock(t, filepath.Join(s.home, "telemetry", ".lock"))
 

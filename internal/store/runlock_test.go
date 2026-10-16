@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func newRunDir(t *testing.T, id string) *store.Store {

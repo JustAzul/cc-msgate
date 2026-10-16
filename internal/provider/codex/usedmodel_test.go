@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/provider/codex"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/provider/codex"
 )
 
 const sessionID = "00000000-0000-4000-8000-000000000004"

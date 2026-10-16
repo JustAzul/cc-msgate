@@ -115,7 +115,7 @@ type parsedTurn struct {
 // turnSpec describes one turn command for parseTurnArgs.
 type turnSpec struct {
 	name  string
-	usage string                 // synopsis printed after "agentcli <name> "
+	usage string                 // synopsis printed after "msgate <name> "
 	extra func(fs *flag.FlagSet) // registers the command's own flags; may be nil
 }
 
@@ -134,7 +134,7 @@ func parseTurnArgs(ctx *Context, spec turnSpec, args []string) (p parsedTurn, ex
 
 	fs := flag.NewFlagSet(spec.name, flag.ContinueOnError)
 	fs.SetOutput(ctx.Stderr)
-	fs.Usage = func() { fmt.Fprintf(ctx.Stderr, "usage: agentcli %s %s\n", spec.name, spec.usage) }
+	fs.Usage = func() { fmt.Fprintf(ctx.Stderr, "usage: msgate %s %s\n", spec.name, spec.usage) }
 	f := &p.turnFlags
 	fs.StringVar(&f.provider, "provider", "codex", "provider to run")
 	fs.StringVar(&f.scenario, "scenario", "adhoc", "caller's label for the run's purpose")
@@ -184,8 +184,8 @@ func parseTurnArgs(ctx *Context, spec turnSpec, args []string) (p parsedTurn, ex
 }
 
 // agentFeedbackEnv turns --agent-feedback on for every turn of a caller that
-// cannot change its arguments; an agentcli that predates the flag ignores it.
-const agentFeedbackEnv = "AGENTCLI_AGENT_FEEDBACK"
+// cannot change its arguments; a msgate that predates the flag ignores it.
+const agentFeedbackEnv = "MSGATE_AGENT_FEEDBACK"
 
 func isOn(value string) bool {
 	return value == "1" || strings.EqualFold(value, "true")
@@ -199,5 +199,5 @@ func requireSessionForFeedback(ctx *Context, f *turnFlags) {
 		return
 	}
 	f.agentFeedback = false
-	fmt.Fprintln(ctx.Stderr, "agentcli: --agent-feedback ignored: no session id (pass --session-id or set CLAUDE_CODE_SESSION_ID)")
+	fmt.Fprintln(ctx.Stderr, "msgate: --agent-feedback ignored: no session id (pass --session-id or set CLAUDE_CODE_SESSION_ID)")
 }

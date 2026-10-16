@@ -77,7 +77,7 @@ func TestCancelAForegroundRun(t *testing.T) {
 // stays queued; the admission process stays up behind it.
 func stalledJob(t *testing.T, runID string, stall time.Duration) (*sandbox, string, *proc) {
 	t.Helper()
-	s := newSandbox(t).set("AGENTCLI_TEST_WORKER_STALL_MS", strconv.Itoa(int(stall.Milliseconds())))
+	s := newSandbox(t).set("MSGATE_TEST_WORKER_STALL_MS", strconv.Itoa(int(stall.Milliseconds())))
 	rec := s.recordTo()
 	cleanupJob(t, s, runID)
 	admission := s.start(runID, "exec", "--background", "--run-id", runID, "q")
@@ -215,7 +215,7 @@ func TestCancelUnknownRunsAndBadUsage(t *testing.T) {
 // A queued run whose lock a worker holds is cancelled once that worker reaches
 // running, by signalling it; a worker that never gets there is reported.
 func TestCancelWaitsForAStartingWorker(t *testing.T) {
-	s := newSandbox(t).set("AGENTCLI_TEST_ADMISSION_WAIT_MS", "5000")
+	s := newSandbox(t).set("MSGATE_TEST_ADMISSION_WAIT_MS", "5000")
 	sleeper := exec.Command("sleep", "60")
 	if err := sleeper.Start(); err != nil {
 		t.Fatal(err)
@@ -256,7 +256,7 @@ func TestCancelWaitsForAStartingWorker(t *testing.T) {
 }
 
 func TestCancelGivesUpOnAWorkerThatNeverStarts(t *testing.T) {
-	s := newSandbox(t).set("AGENTCLI_TEST_ADMISSION_WAIT_MS", "600")
+	s := newSandbox(t).set("MSGATE_TEST_ADMISSION_WAIT_MS", "600")
 	seedConversation(t, s, "c-seed-ca8", "ca8")
 	seedRunFiles(t, s, "ca8", map[string]any{
 		"state": "queued", "admitted_at": time.Now().UTC().Format(time.RFC3339), "started_at": nil, "ended_at": nil,

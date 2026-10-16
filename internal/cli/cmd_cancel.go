@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/runner"
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func init() {
@@ -25,7 +25,7 @@ func runCancel(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: agentcli cancel <run_id> [--json]")
+		fmt.Fprintln(ctx.Stderr, "usage: msgate cancel <run_id> [--json]")
 		return ExitOK
 	}
 	if err != nil {

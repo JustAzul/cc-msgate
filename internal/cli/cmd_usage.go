@@ -13,16 +13,16 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/store"
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 func init() {
 	register(Command{Name: "usage", Summary: "usage add records the token usage of a model call", Run: runUsage})
 }
 
-const usageAddLine = "usage: agentcli usage add --session-id <id> --provider anthropic --model <model> --source <source> [--run-id <run_id>] [--call-id <id>] [--attr <key>=<value>]... [--ts <RFC 3339>] [--json]"
+const usageAddLine = "usage: msgate usage add --session-id <id> --provider anthropic --model <model> --source <source> [--run-id <run_id>] [--call-id <id>] [--attr <key>=<value>]... [--ts <RFC 3339>] [--json]"
 
 // What a call id, an attr and an attr count may be: the record of a call is
 // read back by whatever made it, so each is held to a shape it can rely on.
@@ -280,7 +280,7 @@ func (n *nonNegInt) UnmarshalJSON(b []byte) error {
 }
 
 // NormalizeAnthropicUsage turns Anthropic's usage object (one JSON object)
-// into agentcli's usage shape: input is the total input including the cache
+// into msgate's usage shape: input is the total input including the cache
 // read and cache creation tokens, cached is the cache reads, cache write is
 // the cache creations, and reasoning is zero. It fails when the input is not
 // one JSON object, or a count is not a non-negative integer, or the input

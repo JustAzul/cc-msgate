@@ -1,5 +1,5 @@
 #!/bin/sh
-# agentcli plugin shim: runs the static binary for this platform from ../libexec.
+# msgate plugin shim: runs the static binary for this platform from ../libexec.
 # Only this file sits in bin/, so it is the only thing that lands on PATH.
 
 self=$0
@@ -16,7 +16,7 @@ while [ -h "$self" ]; do
 done
 dir=${self%/*}
 dir=$(cd -P "$dir" 2>/dev/null && pwd -P) || {
-  echo "agentcli: cannot resolve the location of $0" >&2
+  echo "msgate: cannot resolve the location of $0" >&2
   exit 70
 }
 
@@ -33,13 +33,13 @@ case $mach in
   *) arch= ;;
 esac
 if [ -z "$os" ] || [ -z "$arch" ]; then
-  echo "agentcli: unsupported platform $sys/$mach; supported: linux/amd64 linux/arm64 darwin/amd64 darwin/arm64" >&2
+  echo "msgate: unsupported platform $sys/$mach; supported: linux/amd64 linux/arm64 darwin/amd64 darwin/arm64" >&2
   exit 70
 fi
 
-bin=$dir/../libexec/agentcli-$os-$arch
+bin=$dir/../libexec/msgate-$os-$arch
 if [ ! -x "$bin" ]; then
-  echo "agentcli: missing binary $bin" >&2
+  echo "msgate: missing binary $bin" >&2
   exit 70
 fi
 exec "$bin" "$@"

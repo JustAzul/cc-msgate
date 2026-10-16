@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	marker      = "# agentcli-launcher"
+	marker      = "# msgate-launcher"
 	maxLauncher = 64 << 10
 )
 
@@ -33,24 +33,24 @@ func Render(target string, buildSeq int) ([]byte, error) {
 	quoted := strings.ReplaceAll(target, "'", `'\''`)
 	var b bytes.Buffer
 	b.WriteString("#!/bin/sh\n")
-	b.WriteString(marker + `: written by "agentcli link"; do not edit.` + "\n")
+	b.WriteString(marker + `: written by "msgate link"; do not edit.` + "\n")
 	fmt.Fprintf(&b, "build_seq=%d\n", buildSeq)
 	fmt.Fprintf(&b, "target='%s'\n", quoted)
 	b.WriteString("if [ ! -e \"$target\" ]; then\n")
-	b.WriteString("  echo \"agentcli plugin is not installed (launcher target missing: $target)\" >&2\n")
+	b.WriteString("  echo \"msgate plugin is not installed (launcher target missing: $target)\" >&2\n")
 	b.WriteString("  exit 127\n")
 	b.WriteString("fi\n")
 	b.WriteString("exec \"$target\" \"$@\"\n")
 	return b.Bytes(), nil
 }
 
-// Parsed describes an existing agentcli launcher.
+// Parsed describes an existing msgate launcher.
 type Parsed struct {
 	BuildSeq int
 	Target   string
 }
 
-// Parse reports whether content is an agentcli launcher and what it records.
+// Parse reports whether content is a msgate launcher and what it records.
 func Parse(content []byte) (Parsed, bool) {
 	var p Parsed
 	isLauncher := false
@@ -75,7 +75,7 @@ type Action int
 const (
 	Written   Action = iota // launcher created or replaced
 	Unchanged               // launcher already current
-	Foreign                 // path holds something that is not an agentcli launcher
+	Foreign                 // path holds something that is not a msgate launcher
 )
 
 // Options configure Ensure.
@@ -86,12 +86,12 @@ type Options struct {
 }
 
 // LauncherPath is where the launcher lives inside dir.
-func LauncherPath(dir string) string { return filepath.Join(dir, "agentcli") }
+func LauncherPath(dir string) string { return filepath.Join(dir, "msgate") }
 
 // Ensure makes the launcher in opts.Dir point at opts.Target, under an
 // exclusive lock, writing only when the launcher is absent, older, or names
 // a target that no longer exists. It never touches a file that is not an
-// agentcli launcher.
+// msgate launcher.
 func Ensure(opts Options) (Action, error) {
 	script, err := Render(opts.Target, opts.BuildSeq)
 	if err != nil {
@@ -100,7 +100,7 @@ func Ensure(opts Options) (Action, error) {
 	if err := os.MkdirAll(opts.Dir, 0o755); err != nil {
 		return Foreign, err
 	}
-	lock, err := os.OpenFile(filepath.Join(opts.Dir, ".agentcli.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	lock, err := os.OpenFile(filepath.Join(opts.Dir, ".msgate.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return Foreign, err
 	}
@@ -135,7 +135,7 @@ func Ensure(opts Options) (Action, error) {
 }
 
 func writeAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".agentcli.tmp-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".msgate.tmp-*")
 	if err != nil {
 		return err
 	}

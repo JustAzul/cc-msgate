@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func init() {
@@ -18,7 +18,7 @@ func init() {
 const (
 	waitPoll = 25 * time.Millisecond
 	// finalizeWait is how long wait gives a terminal run's worker to release
-	// the run lock; AGENTCLI_TEST_FINALIZE_WAIT_MS overrides it in tests.
+	// the run lock; MSGATE_TEST_FINALIZE_WAIT_MS overrides it in tests.
 	finalizeWait = 10 * time.Second
 )
 
@@ -32,7 +32,7 @@ func runWait(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: agentcli wait <run_id> [--timeout <seconds>] [--json]")
+		fmt.Fprintln(ctx.Stderr, "usage: msgate wait <run_id> [--timeout <seconds>] [--json]")
 		return ExitOK
 	}
 	if err != nil {
@@ -116,7 +116,7 @@ func awaitTerminal(ctx *Context, st *store.Store, state store.State, expired <-c
 // first.
 func awaitFinalized(ctx *Context, st *store.Store, state store.State, expired <-chan time.Time, timeout time.Duration) int {
 	bound := finalizeWait
-	if d, ok := envMillis(ctx.Getenv, "AGENTCLI_TEST_FINALIZE_WAIT_MS"); ok {
+	if d, ok := envMillis(ctx.Getenv, "MSGATE_TEST_FINALIZE_WAIT_MS"); ok {
 		bound = d
 	}
 	giveUp := time.NewTimer(bound)

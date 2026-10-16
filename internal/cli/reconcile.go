@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/runner"
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 // defaultQueuedGrace is how long a queued run may go without a worker holding
@@ -15,9 +15,9 @@ import (
 const defaultQueuedGrace = 30 * time.Second
 
 // queuedGrace is defaultQueuedGrace unless the test-only override
-// AGENTCLI_TEST_QUEUED_GRACE_MS is set.
+// MSGATE_TEST_QUEUED_GRACE_MS is set.
 func queuedGrace(getenv func(string) string) time.Duration {
-	if d, ok := envMillis(getenv, "AGENTCLI_TEST_QUEUED_GRACE_MS"); ok {
+	if d, ok := envMillis(getenv, "MSGATE_TEST_QUEUED_GRACE_MS"); ok {
 		return d
 	}
 	return defaultQueuedGrace

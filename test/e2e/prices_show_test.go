@@ -10,7 +10,7 @@ import (
 func TestPricesWithoutACache(t *testing.T) {
 	s := newSandbox(t)
 	text := s.run("prices")
-	if text.code != 0 || text.stdout != "no price cache: run agentcli prices refresh\n" || text.stderr != "" {
+	if text.code != 0 || text.stdout != "no price cache: run msgate prices refresh\n" || text.stderr != "" {
 		t.Errorf("text: exit %d stdout %q stderr %q", text.code, text.stdout, text.stderr)
 	}
 	r := s.run("prices", "--json")
@@ -85,7 +85,7 @@ func TestPricesTreatsAnUnusableCacheAsAbsent(t *testing.T) {
 			if r := s.run("prices", "--json"); r.code != 0 || !reflect.DeepEqual(r.json(t), map[string]any{"cached": false}) {
 				t.Errorf("json: exit %d stdout %q", r.code, r.stdout)
 			}
-			if r := s.run("prices"); r.stdout != "no price cache: run agentcli prices refresh\n" {
+			if r := s.run("prices"); r.stdout != "no price cache: run msgate prices refresh\n" {
 				t.Errorf("text = %q", r.stdout)
 			}
 		})
@@ -114,17 +114,17 @@ func TestAnUnreadablePriceCacheIsWarnedAboutAndIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := s.run("prices")
-	if r.code != 0 || r.stdout != "no price cache: run agentcli prices refresh\n" {
+	if r.code != 0 || r.stdout != "no price cache: run msgate prices refresh\n" {
 		t.Errorf("prices: exit %d stdout %q", r.code, r.stdout)
 	}
-	if strings.Count(r.stderr, "agentcli: warning: reading the price cache:") != 1 {
+	if strings.Count(r.stderr, "msgate: warning: reading the price cache:") != 1 {
 		t.Errorf("prices stderr = %q, want one warning", r.stderr)
 	}
 	st := s.run("stats", "--all", "--json")
 	if st.code != 0 || st.json(t)["prices_checked_at"] != nil {
 		t.Errorf("stats: exit %d stdout %q", st.code, st.stdout)
 	}
-	if strings.Count(st.stderr, "agentcli: warning: reading the price cache:") != 1 {
+	if strings.Count(st.stderr, "msgate: warning: reading the price cache:") != 1 {
 		t.Errorf("stats stderr = %q, want one warning", st.stderr)
 	}
 }

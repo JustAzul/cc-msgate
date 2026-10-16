@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/prices"
+	"github.com/JustAzul/cc-msgate/internal/prices"
 )
 
 // fixtureList is a LiteLLM-shaped price list with fictitious models.

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/provider/codex"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/provider/codex"
 )
 
 func gitDir(t *testing.T) string {

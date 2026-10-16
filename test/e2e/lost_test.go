@@ -154,7 +154,7 @@ func TestLostWithAReusedProcessGroupKillsNothing(t *testing.T) {
 // is lost once the window has passed with no worker holding the lock; a worker
 // that wakes up afterwards leaves it alone.
 func TestQueuedRunIsLostOnlyAfterTheAdmissionWindow(t *testing.T) {
-	s := newSandbox(t).set("AGENTCLI_TEST_WORKER_STALL_MS", "5500").set("AGENTCLI_TEST_QUEUED_GRACE_MS", "2500")
+	s := newSandbox(t).set("MSGATE_TEST_WORKER_STALL_MS", "5500").set("MSGATE_TEST_QUEUED_GRACE_MS", "2500")
 	rec := s.recordTo()
 	cleanupJob(t, s, "lo6")
 	s.start("lo6", "exec", "--background", "--run-id", "lo6", "q")

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const pluginKey = "agentcli@agentcli"
+const pluginKey = "msgate@cc-msgate"
 
 // linkWorld is one isolated HOME with a Claude plugins root and a launcher dir.
 type linkWorld struct {
@@ -31,14 +31,14 @@ func newLinkWorld(t *testing.T) *linkWorld {
 	return w
 }
 
-func (w *linkWorld) launcher() string { return filepath.Join(w.home, ".local", "bin", "agentcli") }
+func (w *linkWorld) launcher() string { return filepath.Join(w.home, ".local", "bin", "msgate") }
 
 func (w *linkWorld) env(extra ...string) []string {
 	env := []string{"PATH=/usr/bin:/bin", "HOME=" + w.home, "CLAUDE_CONFIG_DIR=" + w.cfg}
 	return append(env, extra...)
 }
 
-// fakeInstall creates an install dir whose bin/agentcli is a stub script
+// fakeInstall creates an install dir whose bin/msgate is a stub script
 // and returns the install path.
 func (w *linkWorld) fakeInstall(name string) string {
 	w.t.Helper()
@@ -47,7 +47,7 @@ func (w *linkWorld) fakeInstall(name string) string {
 		w.t.Fatal(err)
 	}
 	script := "#!/bin/sh\necho \"installed-shim $*\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "bin", "agentcli"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "bin", "msgate"), []byte(script), 0o755); err != nil {
 		w.t.Fatal(err)
 	}
 	return dir
@@ -94,11 +94,11 @@ func buildSeqLine(t *testing.T, launcher string) string {
 
 func TestLinkFreshWritesExecutableLauncher(t *testing.T) {
 	w := newLinkWorld(t)
-	bin := buildAgentcliVariant(t, "1.0.0", "c0ffee", 7)
+	bin := buildMsgateVariant(t, "1.0.0", "c0ffee", 7)
 	install := w.fakeInstall("v1")
 	// The install's shim execs the real binary so `version` goes end to end.
 	script := fmt.Sprintf("#!/bin/sh\nexec %q \"$@\"\n", bin)
-	if err := os.WriteFile(filepath.Join(install, "bin", "agentcli"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(install, "bin", "msgate"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: install, Version: "1.0.0"})
@@ -141,7 +141,7 @@ func TestLinkCreatesMissingLauncherDir(t *testing.T) {
 	if exists(filepath.Dir(w.launcher())) {
 		t.Fatal("precondition: ~/.local/bin exists")
 	}
-	r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 7))
+	r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 7))
 	if r.code != 0 || !exists(w.launcher()) {
 		t.Fatalf("exit %d, launcher exists %v, stderr %s", r.code, exists(w.launcher()), r.stderr)
 	}
@@ -151,8 +151,8 @@ func TestLinkDirFlagOverridesLauncherDir(t *testing.T) {
 	w := newLinkWorld(t)
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: w.fakeInstall("v1")})
 	dir := filepath.Join(w.home, "elsewhere")
-	r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 7), "--dir", dir)
-	if r.code != 0 || !exists(filepath.Join(dir, "agentcli")) || exists(w.launcher()) {
+	r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 7), "--dir", dir)
+	if r.code != 0 || !exists(filepath.Join(dir, "msgate")) || exists(w.launcher()) {
 		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
 	}
 }
@@ -177,7 +177,7 @@ func TestLinkLeavesForeignFileUntouched(t *testing.T) {
 			if quiet {
 				args = append(args, "--quiet")
 			}
-			r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 7), args...)
+			r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 7), args...)
 			if r.code != 0 {
 				t.Fatalf("exit %d stderr %s", r.code, r.stderr)
 			}
@@ -212,7 +212,7 @@ func TestLinkTreatsSymlinkAsForeign(t *testing.T) {
 	if err := os.Symlink(dest, w.launcher()); err != nil {
 		t.Fatal(err)
 	}
-	r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 7))
+	r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 7))
 	if r.code != 0 {
 		t.Fatalf("exit %d %s", r.code, r.stderr)
 	}
@@ -224,7 +224,7 @@ func TestLinkTreatsSymlinkAsForeign(t *testing.T) {
 func TestLinkOptOut(t *testing.T) {
 	w := newLinkWorld(t)
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: w.fakeInstall("v1")})
-	r := runBin(t, buildAgentcliVariant(t, "1.0.0", "c0ffee", 7), w.env("AGENTCLI_NO_LINK=1"), "link")
+	r := runBin(t, buildMsgateVariant(t, "1.0.0", "c0ffee", 7), w.env("MSGATE_NO_LINK=1"), "link")
 	if r.code != 0 {
 		t.Fatalf("exit %d %s", r.code, r.stderr)
 	}
@@ -236,7 +236,7 @@ func TestLinkOptOut(t *testing.T) {
 func TestLinkRerunIsNoOp(t *testing.T) {
 	w := newLinkWorld(t)
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: w.fakeInstall("v1")})
-	bin := buildAgentcliVariant(t, "1.0.0", "c0ffee", 7)
+	bin := buildMsgateVariant(t, "1.0.0", "c0ffee", 7)
 	if r := w.link(bin); r.code != 0 {
 		t.Fatalf("first link: exit %d %s", r.code, r.stderr)
 	}
@@ -261,19 +261,19 @@ func TestLinkNeverDowngrades(t *testing.T) {
 	w := newLinkWorld(t)
 	install := w.fakeInstall("v1")
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: install})
-	if r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 50)); r.code != 0 {
+	if r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 50)); r.code != 0 {
 		t.Fatalf("link@50: %d %s", r.code, r.stderr)
 	}
 	before := readFile(t, w.launcher())
 
-	if r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 40)); r.code != 0 {
+	if r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 40)); r.code != 0 {
 		t.Fatalf("link@40: %d %s", r.code, r.stderr)
 	}
 	if got := readFile(t, w.launcher()); got != before {
 		t.Errorf("link from build_seq 40 changed a build_seq 50 launcher:\n%s", got)
 	}
 
-	if r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 60)); r.code != 0 {
+	if r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 60)); r.code != 0 {
 		t.Fatalf("link@60: %d %s", r.code, r.stderr)
 	}
 	if got := buildSeqLine(t, w.launcher()); got != "build_seq=60" {
@@ -285,7 +285,7 @@ func TestLinkRewritesStalePath(t *testing.T) {
 	w := newLinkWorld(t)
 	old := w.fakeInstall("v1")
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: old})
-	if r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 50)); r.code != 0 {
+	if r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 50)); r.code != 0 {
 		t.Fatalf("link@50: %d %s", r.code, r.stderr)
 	}
 	if err := os.RemoveAll(old); err != nil {
@@ -294,7 +294,7 @@ func TestLinkRewritesStalePath(t *testing.T) {
 	fresh := w.fakeInstall("v2")
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: fresh})
 
-	if r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 10)); r.code != 0 {
+	if r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 10)); r.code != 0 {
 		t.Fatalf("link@10: %d %s", r.code, r.stderr)
 	}
 	body := readFile(t, w.launcher())
@@ -307,7 +307,7 @@ func TestLinkRewritesStalePath(t *testing.T) {
 }
 
 func TestLinkWithoutInstallRecord(t *testing.T) {
-	bin := buildAgentcliVariant(t, "1.0.0", "c0ffee", 7)
+	bin := buildMsgateVariant(t, "1.0.0", "c0ffee", 7)
 
 	t.Run("no file", func(t *testing.T) {
 		w := newLinkWorld(t)
@@ -328,7 +328,7 @@ func TestLinkWithoutInstallRecord(t *testing.T) {
 	})
 	t.Run("target flag", func(t *testing.T) {
 		w := newLinkWorld(t)
-		shim := filepath.Join(w.home, "work", "agentcli-shim")
+		shim := filepath.Join(w.home, "work", "msgate-shim")
 		if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -367,7 +367,7 @@ func TestLinkPrefersUserScope(t *testing.T) {
 	w.record(pluginKey,
 		installEntry{Scope: "project", InstallPath: project},
 		installEntry{Scope: "user", InstallPath: user})
-	if r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 7)); r.code != 0 {
+	if r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 7)); r.code != 0 {
 		t.Fatalf("exit %d %s", r.code, r.stderr)
 	}
 	body := readFile(t, w.launcher())
@@ -383,7 +383,7 @@ func TestLinkPluginsRootPrecedence(t *testing.T) {
 	viaCfg := w.fakeInstall("via-cfg")
 	w.recordAt(cacheRoot, pluginKey, installEntry{Scope: "user", InstallPath: viaCache})
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: viaCfg})
-	bin := buildAgentcliVariant(t, "1.0.0", "c0ffee", 7)
+	bin := buildMsgateVariant(t, "1.0.0", "c0ffee", 7)
 
 	r := runBin(t, bin, w.env("CLAUDE_CODE_PLUGIN_CACHE_DIR="+cacheRoot), "link")
 	if r.code != 0 || !strings.Contains(readFile(t, w.launcher()), viaCache) {
@@ -414,7 +414,7 @@ func TestLauncherAfterUninstallExits127(t *testing.T) {
 	w := newLinkWorld(t)
 	install := w.fakeInstall("v1")
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: install})
-	if r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 7)); r.code != 0 {
+	if r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 7)); r.code != 0 {
 		t.Fatalf("exit %d %s", r.code, r.stderr)
 	}
 	if err := os.RemoveAll(install); err != nil {
@@ -424,7 +424,7 @@ func TestLauncherAfterUninstallExits127(t *testing.T) {
 	if r.code != 127 {
 		t.Errorf("exit %d, want 127", r.code)
 	}
-	if !strings.Contains(r.stderr, "agentcli plugin is not installed") || !strings.Contains(r.stderr, install) {
+	if !strings.Contains(r.stderr, "msgate plugin is not installed") || !strings.Contains(r.stderr, install) {
 		t.Errorf("stderr = %q", r.stderr)
 	}
 }
@@ -433,7 +433,7 @@ func TestLauncherQuotesAwkwardInstallPaths(t *testing.T) {
 	w := newLinkWorld(t)
 	install := w.fakeInstall("it's a $path `x`")
 	w.record(pluginKey, installEntry{Scope: "user", InstallPath: install})
-	if r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 7)); r.code != 0 {
+	if r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 7)); r.code != 0 {
 		t.Fatalf("exit %d %s", r.code, r.stderr)
 	}
 	r := runBin(t, w.launcher(), w.env(), "x y")
@@ -442,7 +442,7 @@ func TestLauncherQuotesAwkwardInstallPaths(t *testing.T) {
 	}
 	// Re-running must recognise its own quoted launcher and stay a no-op.
 	before := readFile(t, w.launcher())
-	if r := w.link(buildAgentcliVariant(t, "1.0.0", "c0ffee", 7)); r.code != 0 || readFile(t, w.launcher()) != before {
+	if r := w.link(buildMsgateVariant(t, "1.0.0", "c0ffee", 7)); r.code != 0 || readFile(t, w.launcher()) != before {
 		t.Errorf("re-run changed the launcher (exit %d)", r.code)
 	}
 }

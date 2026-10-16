@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 func sample(runID string) telemetry.Record {

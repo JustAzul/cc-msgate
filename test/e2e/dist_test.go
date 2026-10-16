@@ -74,9 +74,9 @@ func TestDistContent(t *testing.T) {
 		t.Error("dist manifest carries a version field")
 	}
 
-	shim := filepath.Join(out, "bin", "agentcli")
+	shim := filepath.Join(out, "bin", "msgate")
 	if st, err := os.Stat(shim); err != nil || st.Mode().Perm()&0o111 == 0 {
-		t.Errorf("bin/agentcli missing or not executable: %v %v", st, err)
+		t.Errorf("bin/msgate missing or not executable: %v %v", st, err)
 	}
 	for _, d := range []string{"bin", "libexec"} {
 		entries, err := os.ReadDir(filepath.Join(out, d))
@@ -87,11 +87,11 @@ func TestDistContent(t *testing.T) {
 		for _, e := range entries {
 			names = append(names, e.Name())
 		}
-		want := []string{"agentcli"}
+		want := []string{"msgate"}
 		if d == "libexec" {
 			want = nil
 			for _, p := range distPlatforms {
-				want = append(want, "agentcli-"+p)
+				want = append(want, "msgate-"+p)
 			}
 			sort.Strings(want)
 		}
@@ -107,7 +107,7 @@ func TestDistContent(t *testing.T) {
 		t.Fatalf("SHA256SUMS has %d lines:\n%s", len(lines), sums)
 	}
 	for i, p := range distPlatforms {
-		rel := "libexec/agentcli-" + p
+		rel := "libexec/msgate-" + p
 		want := sha256File(t, filepath.Join(out, rel)) + "  " + rel
 		if lines[i] != want {
 			t.Errorf("SHA256SUMS line %d = %q, want %q", i+1, lines[i], want)
@@ -183,7 +183,7 @@ func TestDistIsReproducible(t *testing.T) {
 		t.Errorf("SHA256SUMS differ:\n%s\n%s", x, y)
 	}
 	for _, p := range distPlatforms {
-		rel := filepath.Join("libexec", "agentcli-"+p)
+		rel := filepath.Join("libexec", "msgate-"+p)
 		if !bytes.Equal([]byte(readFile(t, filepath.Join(a, rel))), []byte(readFile(t, filepath.Join(b, rel)))) {
 			t.Errorf("%s differs between two builds", rel)
 		}
@@ -202,7 +202,7 @@ func TestDistEmbedsVersionMetadata(t *testing.T) {
 	}
 	want := strings.TrimSpace(readFile(t, filepath.Join(repoRoot, "VERSION")))
 	// Through the plugin shim, so the whole chain runs.
-	r := runShim(t, filepath.Join(out, "bin", "agentcli"), "", "version", "--json")
+	r := runShim(t, filepath.Join(out, "bin", "msgate"), "", "version", "--json")
 	if r.code != 0 {
 		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
 	}
@@ -283,7 +283,7 @@ func TestDistBuildSeqComesFromFullGitHistory(t *testing.T) {
 		t.Fatalf("build-dist exit %d\n%s%s", r.code, r.stdout, r.stderr)
 	}
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		bin := filepath.Join(out, "libexec", "agentcli-"+runtime.GOOS+"-"+runtime.GOARCH)
+		bin := filepath.Join(out, "libexec", "msgate-"+runtime.GOOS+"-"+runtime.GOARCH)
 		if exists(bin) {
 			m := runBin(t, bin, []string{"PATH=/usr/bin:/bin"}, "version", "--json").json(t)
 			if m["build_seq"] != float64(3) || m["source_commit"] != head {

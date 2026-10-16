@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 // isTerminalState reports whether a run in this state will not change again.
@@ -111,7 +111,7 @@ type runView struct {
 	Source     string  `json:"source"`
 	SessionID  *string `json:"session_id"`
 	// AgentFeedback asks the run's Claude Code session to show it while it
-	// works; the agentcli plugin reads it here.
+	// works; the msgate plugin reads it here.
 	AgentFeedback bool    `json:"agent_feedback"`
 	AdmittedAt    string  `json:"admitted_at"`
 	StartedAt     *string `json:"started_at"`

@@ -15,15 +15,15 @@ type Shutdown struct {
 var DefaultShutdown = Shutdown{Grace: 5 * time.Second, Drain: 5 * time.Second}
 
 // ShutdownFromEnv returns DefaultShutdown unless the environment carries the
-// test-only overrides AGENTCLI_TEST_SHUTDOWN_GRACE_MS and
-// AGENTCLI_TEST_SHUTDOWN_DRAIN_MS (positive whole milliseconds; anything else
+// test-only overrides MSGATE_TEST_SHUTDOWN_GRACE_MS and
+// MSGATE_TEST_SHUTDOWN_DRAIN_MS (positive whole milliseconds; anything else
 // is ignored).
 func ShutdownFromEnv(getenv func(string) string) Shutdown {
 	s := DefaultShutdown
-	if d, ok := millis(getenv("AGENTCLI_TEST_SHUTDOWN_GRACE_MS")); ok {
+	if d, ok := millis(getenv("MSGATE_TEST_SHUTDOWN_GRACE_MS")); ok {
 		s.Grace = d
 	}
-	if d, ok := millis(getenv("AGENTCLI_TEST_SHUTDOWN_DRAIN_MS")); ok {
+	if d, ok := millis(getenv("MSGATE_TEST_SHUTDOWN_DRAIN_MS")); ok {
 		s.Drain = d
 	}
 	return s

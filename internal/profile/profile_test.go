@@ -3,7 +3,7 @@ package profile_test
 import (
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/profile"
+	"github.com/JustAzul/cc-msgate/internal/profile"
 )
 
 func TestResolveCodexBuiltIns(t *testing.T) {

@@ -92,7 +92,7 @@ func TestHooksDeclareTheModEntry(t *testing.T) {
 }
 
 func TestShimIsExecutableShellScript(t *testing.T) {
-	p := filepath.Join(repoRoot, "plugin", "bin", "agentcli")
+	p := filepath.Join(repoRoot, "plugin", "bin", "msgate")
 	st, err := os.Stat(p)
 	if err != nil {
 		t.Fatal(err)

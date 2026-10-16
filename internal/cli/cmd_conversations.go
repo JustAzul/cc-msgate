@@ -9,7 +9,7 @@ import (
 	"sort"
 	"text/tabwriter"
 
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func init() {
@@ -47,7 +47,7 @@ func runConversations(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	if err := fset.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintln(ctx.Stderr, "usage: agentcli conversations [--json]")
+			fmt.Fprintln(ctx.Stderr, "usage: msgate conversations [--json]")
 			return ExitOK
 		}
 		return ctx.Fail(ExitUsage, "%v", err)

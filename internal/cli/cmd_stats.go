@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/JustAzul/agentcli/internal/store"
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 func init() {

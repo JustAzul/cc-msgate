@@ -6,8 +6,8 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 func init() {
@@ -41,7 +41,7 @@ func runProgress(ctx *Context, args []string) int {
 	}
 	ctx.JSON = asJSON
 	if len(positional) != 1 {
-		return ctx.Fail(ExitUsage, "usage: agentcli progress <run_id> [--from <n>] [--json]")
+		return ctx.Fail(ExitUsage, "usage: msgate progress <run_id> [--from <n>] [--json]")
 	}
 
 	home, err := store.ResolveHome(ctx.Getenv)

@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/JustAzul/agentcli/internal/prices"
+	"github.com/JustAzul/cc-msgate/internal/prices"
 )
 
 func rat(t *testing.T, s string) *big.Rat {

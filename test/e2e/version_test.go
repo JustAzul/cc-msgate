@@ -7,7 +7,7 @@ import (
 )
 
 func TestVersionJSONReportsBakedMetadata(t *testing.T) {
-	bin := buildAgentcliVariant(t, "9.8.7", "abc123def456", 4242)
+	bin := buildMsgateVariant(t, "9.8.7", "abc123def456", 4242)
 	r := runBin(t, bin, []string{"PATH=/usr/bin:/bin"}, "version", "--json")
 	if r.code != 0 {
 		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
@@ -36,7 +36,7 @@ func TestVersionDefaultBuildHasDevMetadata(t *testing.T) {
 }
 
 func TestVersionPlainIsOneLine(t *testing.T) {
-	bin := buildAgentcliVariant(t, "9.8.7", "abc123def456", 4242)
+	bin := buildMsgateVariant(t, "9.8.7", "abc123def456", 4242)
 	r := runBin(t, bin, []string{"PATH=/usr/bin:/bin"}, "version")
 	if r.code != 0 || len(r.lines()) != 1 {
 		t.Fatalf("exit %d stdout %q", r.code, r.stdout)

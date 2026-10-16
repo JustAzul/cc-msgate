@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const versionPkg = "github.com/JustAzul/agentcli/internal/version"
+const versionPkg = "github.com/JustAzul/cc-msgate/internal/version"
 
 var (
 	variantMu   sync.Mutex
@@ -20,9 +20,9 @@ var (
 	variantDir  string
 )
 
-// buildAgentcliVariant builds agentcli once per distinct ldflags set and
+// buildMsgateVariant builds msgate once per distinct ldflags set and
 // returns the binary path. The default harness binary carries no metadata.
-func buildAgentcliVariant(t *testing.T, version, commit string, buildSeq int) string {
+func buildMsgateVariant(t *testing.T, version, commit string, buildSeq int) string {
 	t.Helper()
 	key := strings.Join([]string{version, commit, strconv.Itoa(buildSeq)}, "|")
 	variantMu.Lock()
@@ -31,17 +31,17 @@ func buildAgentcliVariant(t *testing.T, version, commit string, buildSeq int) st
 		return p
 	}
 	if variantDir == "" {
-		d, err := os.MkdirTemp("", "agentcli-variants-*")
+		d, err := os.MkdirTemp("", "msgate-variants-*")
 		if err != nil {
 			t.Fatal(err)
 		}
 		variantDir = d
 	}
-	out := filepath.Join(variantDir, "agentcli-"+strconv.Itoa(len(variantBins)))
+	out := filepath.Join(variantDir, "msgate-"+strconv.Itoa(len(variantBins)))
 	ld := "-X " + versionPkg + ".Version=" + version +
 		" -X " + versionPkg + ".SourceCommit=" + commit +
 		" -X " + versionPkg + ".BuildSeq=" + strconv.Itoa(buildSeq)
-	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", ld, "-o", out, "./cmd/agentcli")
+	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", ld, "-o", out, "./cmd/msgate")
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if o, err := cmd.CombinedOutput(); err != nil {

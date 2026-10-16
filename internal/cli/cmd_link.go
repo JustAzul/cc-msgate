@@ -7,22 +7,22 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/JustAzul/agentcli/internal/link"
-	"github.com/JustAzul/agentcli/internal/version"
+	"github.com/JustAzul/cc-msgate/internal/link"
+	"github.com/JustAzul/cc-msgate/internal/version"
 )
 
 func init() {
-	register(Command{Name: "link", Summary: "put an agentcli launcher on PATH (~/.local/bin)", Run: runLink})
+	register(Command{Name: "link", Summary: "put a msgate launcher on PATH (~/.local/bin)", Run: runLink})
 }
 
 func runLink(ctx *Context, args []string) int {
 	fs := flag.NewFlagSet("link", flag.ContinueOnError)
 	fs.SetOutput(ctx.Stderr)
 	fs.Usage = func() {
-		fmt.Fprintln(ctx.Stderr, "usage: agentcli link [--quiet] [--target <agentcli shim or binary>] [--dir <launcher dir>]")
+		fmt.Fprintln(ctx.Stderr, "usage: msgate link [--quiet] [--target <msgate shim or binary>] [--dir <launcher dir>]")
 	}
 	quiet := fs.Bool("quiet", false, "print nothing unless something fails")
-	target := fs.String("target", "", "agentcli shim or binary the launcher executes")
+	target := fs.String("target", "", "msgate shim or binary the launcher executes")
 	dir := fs.String("dir", "", "launcher directory (default ~/.local/bin)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -34,7 +34,7 @@ func runLink(ctx *Context, args []string) int {
 		ctx.Errorf("link takes no positional arguments")
 		return ExitUsage
 	}
-	if ctx.Getenv("AGENTCLI_NO_LINK") == "1" {
+	if ctx.Getenv("MSGATE_NO_LINK") == "1" {
 		return ExitOK
 	}
 
@@ -59,13 +59,13 @@ func runLink(ctx *Context, args []string) int {
 		install, err := link.FindInstall(root)
 		switch {
 		case errors.Is(err, link.ErrNoInstallRecord):
-			ctx.Errorf("no install record for %s in %s; install the plugin, or pass --target <path to an agentcli shim or binary>", link.PluginKey, root)
+			ctx.Errorf("no install record for %s in %s; install the plugin, or pass --target <path to a msgate shim or binary>", link.PluginKey, root)
 			return ExitNotFound
 		case err != nil:
 			ctx.Errorf("%v", err)
 			return ExitInternal
 		}
-		execPath = filepath.Join(install, "bin", "agentcli")
+		execPath = filepath.Join(install, "bin", "msgate")
 	}
 
 	launcherDir := *dir
@@ -87,7 +87,7 @@ func runLink(ctx *Context, args []string) int {
 	switch action {
 	case link.Foreign:
 		if !*quiet {
-			ctx.Errorf("not overwriting %s: it is not an agentcli launcher", path)
+			ctx.Errorf("not overwriting %s: it is not a msgate launcher", path)
 		}
 	case link.Written:
 		if !*quiet {

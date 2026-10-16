@@ -300,7 +300,7 @@ func TestProgressWarnsAndKeepsGoingWhenTheSessionFileCannotBeRead(t *testing.T) 
 
 	wantUsage(t, got, nil, nil)
 	if lines := strings.Split(strings.TrimSpace(stderr), "\n"); len(lines) != 1 ||
-		!strings.HasPrefix(lines[0], "agentcli: warning: reading the live usage of run ur1: ") {
+		!strings.HasPrefix(lines[0], "msgate: warning: reading the live usage of run ur1: ") {
 		t.Errorf("stderr = %q, want one warning naming the run", stderr)
 	}
 }
@@ -360,7 +360,7 @@ func TestProgressWarnsWhenTheConversationCannotBeRead(t *testing.T) {
 
 	wantUsage(t, got, nil, nil)
 	if lines := strings.Split(strings.TrimSpace(stderr), "\n"); len(lines) != 1 ||
-		!strings.HasPrefix(lines[0], "agentcli: warning: reading the conversation of run cr1: ") {
+		!strings.HasPrefix(lines[0], "msgate: warning: reading the conversation of run cr1: ") {
 		t.Errorf("stderr = %q, want one warning naming the run", stderr)
 	}
 }
@@ -386,7 +386,7 @@ func TestProgressWarnsWhenTheRunStartCannotBeRead(t *testing.T) {
 
 	wantUsage(t, got, nil, nil)
 	if lines := strings.Split(strings.TrimSpace(stderr), "\n"); len(lines) != 1 ||
-		!strings.HasPrefix(lines[0], "agentcli: warning: reading the start of run bs1: ") {
+		!strings.HasPrefix(lines[0], "msgate: warning: reading the start of run bs1: ") {
 		t.Errorf("stderr = %q, want one warning naming the run", stderr)
 	}
 }
@@ -407,7 +407,7 @@ func TestProgressWarnsWhenTheRequestCannotBeRead(t *testing.T) {
 		t.Errorf("usage = %v, cost_usd = %v; want usage and no cost", got["usage"], got["cost_usd"])
 	}
 	if lines := strings.Split(strings.TrimSpace(stderr), "\n"); len(lines) != 1 ||
-		!strings.HasPrefix(lines[0], "agentcli: warning: reading the request of run br1: ") {
+		!strings.HasPrefix(lines[0], "msgate: warning: reading the request of run br1: ") {
 		t.Errorf("stderr = %q, want one warning naming the run", stderr)
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/JustAzul/agentcli/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/provider"
 )
 
 func init() { provider.Register(New()) }

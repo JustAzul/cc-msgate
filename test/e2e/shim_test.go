@@ -22,11 +22,11 @@ func pluginTree(t *testing.T, bins map[string]string) string {
 	if err := os.MkdirAll(filepath.Join(root, "libexec"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	shim, err := os.ReadFile(filepath.Join(repoRoot, "plugin", "bin", "agentcli"))
+	shim, err := os.ReadFile(filepath.Join(repoRoot, "plugin", "bin", "msgate"))
 	if err != nil {
 		t.Fatalf("shim missing: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "bin", "agentcli"), shim, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "bin", "msgate"), shim, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for name, content := range bins {
@@ -40,7 +40,7 @@ func pluginTree(t *testing.T, bins map[string]string) string {
 func stubBins() map[string]string {
 	bins := map[string]string{}
 	for _, p := range supportedPlatforms {
-		bins["agentcli-"+p] = "#!/bin/sh\necho \"picked " + p + "\"\nfor a in \"$@\"; do echo \"arg=$a\"; done\n"
+		bins["msgate-"+p] = "#!/bin/sh\necho \"picked " + p + "\"\nfor a in \"$@\"; do echo \"arg=$a\"; done\n"
 	}
 	return bins
 }
@@ -66,13 +66,13 @@ func runShim(t *testing.T, shim, stubDir string, args ...string) result {
 }
 
 func TestShimRunsBinaryForThisPlatform(t *testing.T) {
-	name := "agentcli-" + runtime.GOOS + "-" + runtime.GOARCH
-	real, err := os.ReadFile(agentcliBin)
+	name := "msgate-" + runtime.GOOS + "-" + runtime.GOARCH
+	real, err := os.ReadFile(msgateBin)
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := pluginTree(t, map[string]string{name: string(real)})
-	r := runShim(t, filepath.Join(root, "bin", "agentcli"), "", "version", "--json")
+	r := runShim(t, filepath.Join(root, "bin", "msgate"), "", "version", "--json")
 	if r.code != 0 {
 		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
 	}
@@ -93,7 +93,7 @@ func TestShimPlatformAliases(t *testing.T) {
 		{"Darwin", "aarch64", "darwin-arm64"},
 	}
 	root := pluginTree(t, stubBins())
-	shim := filepath.Join(root, "bin", "agentcli")
+	shim := filepath.Join(root, "bin", "msgate")
 	for _, c := range cases {
 		t.Run(c.sys+"/"+c.machine, func(t *testing.T) {
 			r := runShim(t, shim, unameStub(t, c.sys, c.machine), "two words", "--flag")
@@ -110,7 +110,7 @@ func TestShimPlatformAliases(t *testing.T) {
 
 func TestShimUnsupportedPlatform(t *testing.T) {
 	root := pluginTree(t, stubBins())
-	shim := filepath.Join(root, "bin", "agentcli")
+	shim := filepath.Join(root, "bin", "msgate")
 	for _, c := range []struct{ sys, machine string }{
 		{"FreeBSD", "amd64"},
 		{"Linux", "riscv64"},
@@ -135,19 +135,19 @@ func TestShimUnsupportedPlatform(t *testing.T) {
 
 func TestShimMissingBinaryExits70(t *testing.T) {
 	bins := stubBins()
-	delete(bins, "agentcli-linux-amd64")
+	delete(bins, "msgate-linux-amd64")
 	root := pluginTree(t, bins)
-	r := runShim(t, filepath.Join(root, "bin", "agentcli"), unameStub(t, "Linux", "x86_64"), "version")
-	if r.code != 70 || !strings.Contains(r.stderr, "agentcli-linux-amd64") {
+	r := runShim(t, filepath.Join(root, "bin", "msgate"), unameStub(t, "Linux", "x86_64"), "version")
+	if r.code != 70 || !strings.Contains(r.stderr, "msgate-linux-amd64") {
 		t.Errorf("exit %d stderr %q", r.code, r.stderr)
 	}
 }
 
 func TestShimPassesThroughExitCode(t *testing.T) {
 	bins := stubBins()
-	bins["agentcli-linux-amd64"] = "#!/bin/sh\nexit 3\n"
+	bins["msgate-linux-amd64"] = "#!/bin/sh\nexit 3\n"
 	root := pluginTree(t, bins)
-	r := runShim(t, filepath.Join(root, "bin", "agentcli"), unameStub(t, "Linux", "x86_64"))
+	r := runShim(t, filepath.Join(root, "bin", "msgate"), unameStub(t, "Linux", "x86_64"))
 	if r.code != 3 {
 		t.Errorf("exit %d, want 3", r.code)
 	}
@@ -155,7 +155,7 @@ func TestShimPassesThroughExitCode(t *testing.T) {
 
 func TestShimResolvesItselfThroughSymlinks(t *testing.T) {
 	root := pluginTree(t, stubBins())
-	real := filepath.Join(root, "bin", "agentcli")
+	real := filepath.Join(root, "bin", "msgate")
 	stub := unameStub(t, "Linux", "aarch64")
 
 	linkDir := t.TempDir()
@@ -163,7 +163,7 @@ func TestShimResolvesItselfThroughSymlinks(t *testing.T) {
 	if err := os.Symlink(real, first); err != nil { // absolute link
 		t.Fatal(err)
 	}
-	second := filepath.Join(linkDir, "agentcli")
+	second := filepath.Join(linkDir, "msgate")
 	if err := os.Symlink("first", second); err != nil { // relative link to a link
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestShimResolvesItselfThroughSymlinks(t *testing.T) {
 	if err := os.Symlink(root, dirLink); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{first, second, filepath.Join(dirLink, "bin", "agentcli")} {
+	for _, p := range []string{first, second, filepath.Join(dirLink, "bin", "msgate")} {
 		r := runShim(t, p, stub)
 		if r.code != 0 || !strings.HasPrefix(r.stdout, "picked linux-arm64\n") {
 			t.Errorf("via %s: exit %d stdout %q stderr %q", p, r.code, r.stdout, r.stderr)
@@ -184,11 +184,11 @@ func TestShimViaPathLookup(t *testing.T) {
 	root := pluginTree(t, stubBins())
 	stub := unameStub(t, "Linux", "x86_64")
 	linkDir := t.TempDir()
-	if err := os.Symlink(filepath.Join(root, "bin", "agentcli"), filepath.Join(linkDir, "agentcli")); err != nil {
+	if err := os.Symlink(filepath.Join(root, "bin", "msgate"), filepath.Join(linkDir, "msgate")); err != nil {
 		t.Fatal(err)
 	}
 	// Invoked as a bare name found through PATH, as the SessionStart hook's users do.
-	r := runBin(t, "/bin/sh", []string{"PATH=" + linkDir + ":" + stub + ":/usr/bin:/bin"}, "-c", "agentcli version")
+	r := runBin(t, "/bin/sh", []string{"PATH=" + linkDir + ":" + stub + ":/usr/bin:/bin"}, "-c", "msgate version")
 	if r.code != 0 || !strings.HasPrefix(r.stdout, "picked linux-amd64\n") {
 		t.Errorf("exit %d stdout %q stderr %q", r.code, r.stdout, r.stderr)
 	}

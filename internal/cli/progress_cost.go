@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/prices"
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/prices"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 // liveReading is what a run has used so far and what that costs. Both are nil

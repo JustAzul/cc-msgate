@@ -4,9 +4,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/profile"
-	"github.com/JustAzul/agentcli/internal/provider"
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/profile"
+	"github.com/JustAzul/cc-msgate/internal/provider"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 type admission struct {

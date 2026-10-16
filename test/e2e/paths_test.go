@@ -19,7 +19,7 @@ func symlinkedGitRepo(t *testing.T) string {
 
 // samePath reports whether two paths name the same location once symlinks are
 // resolved. A provider process reports its working directory resolved, while
-// agentcli records the path as the caller passed it.
+// msgate records the path as the caller passed it.
 func samePath(t *testing.T, a, b string) bool {
 	t.Helper()
 	ra, err := filepath.EvalSymlinks(a)

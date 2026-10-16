@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/prices"
+	"github.com/JustAzul/cc-msgate/internal/prices"
 )
 
 // seen records the requests a test server received.

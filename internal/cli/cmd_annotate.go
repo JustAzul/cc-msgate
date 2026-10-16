@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/store"
-	"github.com/JustAzul/agentcli/internal/telemetry"
+	"github.com/JustAzul/cc-msgate/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/telemetry"
 )
 
 func init() {
@@ -40,7 +40,7 @@ func runAnnotate(ctx *Context, args []string) int {
 	ctx.JSON = wantsJSON(args)
 	positional, err := parseInterspersed(fset, args)
 	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(ctx.Stderr, "usage: agentcli annotate <run_id | output path> [--attr key=value]... [--attr-json key=<json>]... [--json]")
+		fmt.Fprintln(ctx.Stderr, "usage: msgate annotate <run_id | output path> [--attr key=value]... [--attr-json key=<json>]... [--json]")
 		return ExitOK
 	}
 	if err != nil {

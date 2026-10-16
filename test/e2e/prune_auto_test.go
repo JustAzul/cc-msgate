@@ -83,7 +83,7 @@ func TestAutoPruneRunsAtMostOncePerDay(t *testing.T) {
 }
 
 func TestAutoPruneIsOffWithTheOptOut(t *testing.T) {
-	s := twoRuns(t).set("AGENTCLI_NO_PRUNE", "1")
+	s := twoRuns(t).set("MSGATE_NO_PRUNE", "1")
 	r := s.run("prune", "--auto")
 	if r.code != 0 || r.stdout != "" || r.stderr != "" || !runDirExists(s, "pr-old") || exists(stampPath(s)) {
 		t.Errorf("exit %d stdout %q stderr %q old run kept %v stamp %v; want a no-op",
@@ -133,7 +133,7 @@ func assertSilentSuccess(t *testing.T, r result) {
 // The pass stops cleanly when its time budget is spent and the next day's
 // pass picks up the rest.
 func TestAutoPruneStopsAtItsTimeBudgetAndResumesLater(t *testing.T) {
-	s := newSandbox(t).set("AGENTCLI_TEST_PRUNE_BUDGET_MS", "150").set("AGENTCLI_TEST_PRUNE_STEP_MS", "60")
+	s := newSandbox(t).set("MSGATE_TEST_PRUNE_BUDGET_MS", "150").set("MSGATE_TEST_PRUNE_STEP_MS", "60")
 	seedOldRuns(t, s, "bud", 12)
 	assertSilentSuccess(t, s.run("prune", "--auto"))
 	left := countRunDirs(t, s)
@@ -145,7 +145,7 @@ func TestAutoPruneStopsAtItsTimeBudgetAndResumesLater(t *testing.T) {
 		t.Errorf("a second pass on the same day changed %d -> %d runs", left, got)
 	}
 	writeStamp(t, s, stampAgo(25*time.Hour))
-	s.set("AGENTCLI_TEST_PRUNE_BUDGET_MS", "60000").set("AGENTCLI_TEST_PRUNE_STEP_MS", "1")
+	s.set("MSGATE_TEST_PRUNE_BUDGET_MS", "60000").set("MSGATE_TEST_PRUNE_STEP_MS", "1")
 	assertSilentSuccess(t, s.run("prune", "--auto"))
 	if got := countRunDirs(t, s); got != 0 {
 		t.Errorf("%d runs left, want the next day's pass to finish", got)

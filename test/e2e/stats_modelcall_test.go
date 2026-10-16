@@ -209,7 +209,7 @@ func TestPricesRefreshWantsTheModelsOfModelCalls(t *testing.T) {
   "unknown": {"litellm_provider": "anthropic", "mode": "chat", "input_cost_per_token": 1e-07, "output_cost_per_token": 5e-07}
 }`)
 	})
-	s := newSandbox(t).set("AGENTCLI_PRICES_URL", ps.URL).set("FAKECODEX_MODELS", catalogFixture())
+	s := newSandbox(t).set("MSGATE_PRICES_URL", ps.URL).set("FAKECODEX_MODELS", catalogFixture())
 	ts := tsAgo(time.Hour)
 	writeMonthFile(t, s.home, monthOf(ts),
 		modelCallLine("m-1", ts, "S", "claude-haiku-5-5", callPlain),

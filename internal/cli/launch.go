@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/JustAzul/agentcli/internal/runner"
-	"github.com/JustAzul/agentcli/internal/store"
+	"github.com/JustAzul/cc-msgate/internal/runner"
+	"github.com/JustAzul/cc-msgate/internal/store"
 )
 
 const (
@@ -20,9 +20,9 @@ const (
 )
 
 // admissionWait is defaultAdmissionWait unless the test-only override
-// AGENTCLI_TEST_ADMISSION_WAIT_MS is set.
+// MSGATE_TEST_ADMISSION_WAIT_MS is set.
 func admissionWait(getenv func(string) string) time.Duration {
-	if d, ok := envMillis(getenv, "AGENTCLI_TEST_ADMISSION_WAIT_MS"); ok {
+	if d, ok := envMillis(getenv, "MSGATE_TEST_ADMISSION_WAIT_MS"); ok {
 		return d
 	}
 	return defaultAdmissionWait
