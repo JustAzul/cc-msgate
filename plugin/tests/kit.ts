@@ -103,6 +103,8 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
     storeWrites: [] as { key: string; value: unknown }[],
     // How many of the next store writes fail; Infinity fails them all.
     storeSetFailures: 0,
+    // While set, a store write that does not fail waits for it before it lands.
+    storeSetHold: null as null | Promise<void>,
     sessionId: SESSION,
     refuseCommand: false,
     respond: ((argv: string[]) => {
@@ -158,11 +160,12 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
     return outcome === 'drop' ? { drop: 'busy' } : { text: e.text }
   })
   on('store.get', (_$: any, e: any) => ({ value: w.store.get(e.key) }))
-  on('store.set', (_$: any, e: any) => {
+  on('store.set', async (_$: any, e: any) => {
     if (w.storeSetFailures > 0) {
       w.storeSetFailures -= 1
       throw new Error('the store is unavailable')
     }
+    if (w.storeSetHold !== null) await w.storeSetHold
     w.store.set(e.key, JSON.parse(JSON.stringify(e.value)))
     w.storeWrites.push({ key: e.key, value: e.value })
     return { value: undefined }

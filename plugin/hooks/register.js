@@ -4,6 +4,7 @@ import {
   DELIVERY_PREFIX,
   attemptedRuns,
   isAbandoned,
+  isSameQueue,
   deliveryKey,
   nextBatch,
   queueEntry,
@@ -383,13 +384,15 @@ async function startTurn($, e, kind) {
 let queueWrites = Promise.resolve()
 
 // updateQueue applies `change` to the stored queue of a session and writes the
-// result back; a queue left empty is removed.
+// result back; a queue left empty is removed, and one the change left as it was
+// is not written.
 function updateQueue($, sessionId, change) {
   const write = queueWrites.then(async () => {
     const key = deliveryKey(sessionId)
-    const next = change(readQueue(await $.store.get(key)))
+    const queue = readQueue(await $.store.get(key))
+    const next = change(queue)
     if (next.length === 0) await $.store.delete(key)
-    else await $.store.set(key, next)
+    else if (!isSameQueue(queue, next)) await $.store.set(key, next)
   })
   queueWrites = write.catch(() => {})
   return write
@@ -446,11 +449,21 @@ async function writeHeld($, { sessionId, entry }) {
   else if (current.entry === entry) unwritten.delete(entry.run_id)
 }
 
-// changeEntry applies a change to the entry of a run, in memory while the entry
-// is held and in the stored queue otherwise.
+// changeEntry applies a change to the entry of a run in every place a copy can
+// be: in memory while the entry is held, and in the stored queue, where a copy
+// may exist whenever a write of the held entry has landed. A stored queue that
+// cannot be written is tolerated only while a held copy keeps the change.
 async function changeEntry($, sessionId, runId, change) {
   const held = unwritten.get(runId)
-  if (held === undefined) return updateQueue($, sessionId, change)
+  if (held !== undefined) changeHeld(held, runId, change)
+  try {
+    await updateQueue($, sessionId, change)
+  } catch (error) {
+    if (!unwritten.has(runId)) throw error
+  }
+}
+
+function changeHeld(held, runId, change) {
   const [next] = change([held.entry])
   if (next === undefined) unwritten.delete(runId)
   else unwritten.set(runId, { ...held, entry: next })

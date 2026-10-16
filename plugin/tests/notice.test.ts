@@ -413,3 +413,53 @@ test('several entries the store refuses raise one toast between them, and each i
   expect(w.toasts.filter((text) => text.includes(NOT_QUEUED)).length).toBe(1)
   expect(w.debugLogs.filter((line) => line.includes(NOT_QUEUED)).length).toBe(2)
 })
+
+test('a submit that settles while its held entry is being written leaves no copy behind once accepted', async ($, on) => {
+  const w = world(on)
+  w.respond = () => ok(JSON.stringify(ADMITTED))
+  await $.session.start(START)
+  w.storeSetFailures = 1
+  await $.tool.call({ tool: TOOL('ask'), prompt: 'p' })
+  w.respond = deliveries({ 'run-1': finished({ run_id: 'run-1' }) })
+
+  // The store refuses while the run ends: the notice is delivered from memory,
+  // and its submit stays pending.
+  w.storeSetFailures = Infinity
+  let settle: (outcome: 'accept' | 'drop' | 'throw') => void = () => {}
+  const pending = new Promise<'accept' | 'drop' | 'throw'>((resolve) => (settle = resolve))
+  let submits = 0
+  w.submitOutcome = () => (++submits === 1 ? pending : 'accept')
+  await w.clock.advance(POLL_MS)
+  expect(submits).toBe(1)
+
+  // The store takes writes again, but the write of the held entry stays open
+  // while the pending submit is refused.
+  w.storeSetFailures = 0
+  let release: () => void = () => {}
+  w.storeSetHold = new Promise<void>((resolve) => (release = resolve))
+  await w.clock.advance(POLL_MS)
+  settle('drop')
+  await w.clock.advance(1)
+  w.storeSetHold = null
+  release()
+  await w.clock.advance(POLL_MS * 4)
+
+  // One retry, accepted once, and no copy of the entry is left to announce the run again.
+  expect(submits).toBe(2)
+  expect([...w.store.keys()].filter((key) => key.startsWith('delivery:'))).toEqual([])
+})
+
+test('a held entry is delivered and toasted while the store refuses writes next to other queued entries', async ($, on) => {
+  const w = world(on, { store: seeded([queued('other')]) })
+  w.respond = () => ok(JSON.stringify(ADMITTED))
+  await $.session.start(START)
+  w.storeSetFailures = Infinity
+  await $.tool.call({ tool: TOOL('ask'), prompt: 'p' })
+  w.respond = deliveries({ 'run-1': finished({ run_id: 'run-1' }), other: job({ run_id: 'other', state: 'running' }) })
+
+  await w.clock.advance(POLL_MS * 2)
+
+  expect(w.submits.length).toBe(1)
+  expect(w.toasts.filter((text) => text.startsWith('job run-1 finished')).length).toBe(1)
+  expect((w.store.get(queueKey()) as any[]).map((entry) => entry.run_id)).toEqual(['other'])
+})

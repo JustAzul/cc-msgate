@@ -183,6 +183,11 @@ export function queueEntry(ids, purpose, now) {
   }
 }
 
+// isSameQueue tells that a change left every entry as it was.
+export function isSameQueue(before, after) {
+  return before.length === after.length && before.every((entry, index) => entry === after[index])
+}
+
 export function withEntry(queue, entry) {
   return [...queue.filter((kept) => kept.run_id !== entry.run_id), entry]
 }
