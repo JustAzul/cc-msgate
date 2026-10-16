@@ -53,7 +53,7 @@ function startTurn($: any, w: any) {
         return ok('Codex: done.')
     }
   }
-  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:second-opinion' })
   w.agents.push({ id: 'ag-2', type: 'Explore' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   return {

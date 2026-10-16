@@ -43,6 +43,7 @@ import {
   CONVERSATIONS_KEY,
   LOST_CONVERSATION,
   HEARTBEAT_MS,
+  STEP_LIMIT,
   SLICE_TIMEOUT_MS,
   answerText,
   conversationOf,
@@ -62,10 +63,11 @@ import {
   rememberConversation,
   sessionStatsCommand,
   sliceWaitCommand,
+  stepNumber,
   statusLine,
   terminalRunIds,
   turnPrompt,
-  typeOf,
+  typeNameOf,
 } from './subagent.js'
 import {
   FULL_REFRESH,
@@ -78,6 +80,7 @@ import {
 } from './prices.js'
 import { BAND_REFRESH_MS, bandLine, flaggedRuns, followedRuns, labelled, withProgress } from './band.js'
 import { createSummarizer } from './summarizer.js'
+import { backedTypeOf } from './backed.js'
 import { createService } from './service.js'
 import { INTERFACE, createVersionCache, serveBackType, serveJobs, serveRun, serveVersion } from './iface.js'
 import { summaryRecording } from './summary.js'
@@ -152,9 +155,14 @@ const pricedModels = new Set()
 const loggedSpinners = new Set()
 // Runs whose progress could not be read, each logged once.
 const loggedProgressFailures = new Set()
-// The agent ids this load has resolved: the type name for one of this plugin's
-// agent types, null for any other agent. A reload refills it from $.agent.list().
-const knownTypes = new Map()
+// The full type of each agent id this load has looked up, from $.agent.list().
+// Whether the type is backed is asked of the registry at each step, so a type
+// backed later is answered from its next row on.
+const agentTypes = new Map()
+// The agents this load has found to be rows of a backed type.
+const rowAgents = new Set()
+// The steps each row's latest turn has made, by agent id.
+const stepCounts = new Map()
 // The agents whose turn is running in this load, by agent id: the run each
 // follows and its type name. The spinner of such an agent says what the run does.
 const turnAgents = new Map()
@@ -194,6 +202,9 @@ export function register(on, options) {
   summaries = createSummarizer(options ?? {})
   pendingRecordings.length = 0
   answeredTurns.clear()
+  agentTypes.clear()
+  rowAgents.clear()
+  stepCounts.clear()
   startTexts.clear()
   isLossToastShown = false
   service = createService()
@@ -264,22 +275,23 @@ export function register(on, options) {
 
   // Every way the hooks below can fail ends in an answer that says the
   // hand-off failed, never in a Claude model's answer.
-  // The text a msgate subagent's turn started with: its prompt when a
-  // session that saves no transcript has no rows to read it from.
+  // The text a row's turn started with: its prompt when a session that saves no
+  // transcript has no rows to read it from.
   on('turn.start', async ($, e, next) => {
-    if ((await subagentTypeOf($, e.agentId)) !== null) startTexts.set(e.agentId, { turnId: e.turnId, text: e.text })
+    if ((await rowOf($, e.agentId)) !== null) startTexts.set(e.agentId, { turnId: e.turnId, text: e.text })
     return next(e)
   }).catch(($, e, next) => next(e))
 
   on('turn.step', async function* ($, e, next) {
-    const type = await subagentTypeOf($, e.agentId)
-    if (type === null) return yield* next(e)
+    const row = await rowOf($, e.agentId)
+    if (row === null) return yield* next(e)
+    if (await isOverStepLimit($, e)) return yield* next(e)
     // A later step of a turn that has answered (the tool is missing in the
     // default permission mode, or the request repeats) needs no new run.
     const answered = answeredText(e)
     if (answered !== null) return yield* answer(e, answered)
-    yield thinking('msgate · ' + type)
-    return yield* deliver(e, yield* followTurn($, { agentId: e.agentId, turnId: e.turnId, type }, next.signal))
+    yield thinking('msgate · ' + row.name)
+    return yield* deliver(e, yield* followTurn($, { agentId: e.agentId, turnId: e.turnId, row }, next.signal))
   }).catch(async function* ($, e, next) {
     if (next.called || !isKnownSubagent(e.agentId)) return yield* next(e)
     return yield* deliver(e, handoffFailure('the plugin hook failed: ' + failureOf(next.error)))
@@ -288,7 +300,7 @@ export function register(on, options) {
   // The hand-back call is the one tool they may make: it is how their answer
   // reaches the caller.
   on('tool.call', async ($, e, next) => {
-    if (e.tool === HANDBACK_TOOL || (await subagentTypeOf($, e.agentId)) === null) return next(e)
+    if (e.tool === HANDBACK_TOOL || (await rowOf($, e.agentId)) === null) return next(e)
     return { deny: NO_TOOLS }
   }).catch(($, e, next) => (next.called || e.tool === HANDBACK_TOOL || !isKnownSubagent(e.agentId) ? next(e) : { deny: NO_TOOLS }))
 
@@ -1035,18 +1047,40 @@ async function outputPathOf($, bin, runId) {
   }
 }
 
-// subagentTypeOf returns this plugin's type name for the agent whose loop an
-// event runs in, or null for the main loop and any other agent.
-async function subagentTypeOf($, agentId) {
+// rowOf describes the agent whose loop an event runs in when it is a row of a
+// backed type, whoever spawned it: its full type, the type's own name and what
+// it is backed with. It is null for the main loop and for any other agent.
+async function rowOf($, agentId) {
   if (agentId === undefined) return null
-  if (knownTypes.has(agentId)) return knownTypes.get(agentId)
+  const fullType = await typeOfAgent($, agentId)
+  if (fullType === null) return null
+  const backed = await backedTypeOf($, fullType)
+  if (backed === null) return null
+  rowAgents.add(agentId)
+  return { fullType, name: typeNameOf(fullType), backed }
+}
 
+// typeOfAgent is the full type of an agent, or null when the session lists no
+// such agent (asked again at its next event).
+async function typeOfAgent($, agentId) {
+  if (agentTypes.has(agentId)) return agentTypes.get(agentId)
   const listed = (await $.agent.list()).find((agent) => agent.id === agentId)
-  if (listed === undefined) return null
+  if (listed === undefined || typeof listed.type !== 'string') return null
+  agentTypes.set(agentId, listed.type)
+  return listed.type
+}
 
-  const type = typeOf($.plugin.name, listed.type)
-  knownTypes.set(agentId, type)
-  return type
+// isOverStepLimit counts the step of a row's turn and tells whether it is past
+// the limit; the first step past it is logged, once for the turn.
+async function isOverStepLimit($, e) {
+  const number = stepNumber(stepCounts, e.agentId, e.turnId)
+  if (number === STEP_LIMIT + 1) {
+    await $.ui.log(
+      'agent ' + e.agentId + ' reached the step limit of ' + STEP_LIMIT + ' in turn ' + e.turnId + ': the model beneath the plugin answers the rest of the turn',
+      { to: 'debug' },
+    )
+  }
+  return number > STEP_LIMIT
 }
 
 // summaryPorts is what the summaries use of the engine.
@@ -1147,7 +1181,7 @@ async function retryRecordings($) {
 }
 
 function isKnownSubagent(agentId) {
-  return agentId !== undefined && typeof knownTypes.get(agentId) === 'string'
+  return agentId !== undefined && rowAgents.has(agentId)
 }
 
 function thinking(line) {
@@ -1207,7 +1241,7 @@ async function* answer(e, text) {
 }
 
 // followTurn shows the turn's run as it works and returns the answer. `turn`
-// names the agent, the turn and the agent's type.
+// names the agent, the turn and the agent's row.
 async function* followTurn($, turn, signal) {
   try {
     return yield* runSubagentTurn($, turn, signal)
@@ -1231,8 +1265,8 @@ async function* runSubagentTurn($, turn, signal) {
   const ids = admittedJob(reply.stdout)
   if (ids === null) return handoffFailure('msgate printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500))
 
-  startNotice($, () => notifyAdmitted($, bin, ids.run_id, turn.type, AGENT_SOURCE))
-  turnAgents.set(turn.agentId, { runId: ids.run_id, type: turn.type })
+  startNotice($, () => notifyAdmitted($, bin, ids.run_id, turn.row.name, AGENT_SOURCE))
+  turnAgents.set(turn.agentId, { runId: ids.run_id, type: turn.row.name })
   await recordConversation($, turn.agentId, ids.conversation_id)
   yield* followOwnRun($, bin, ids.run_id, signal)
   return finalAnswer($, bin, ids.run_id)
@@ -1246,7 +1280,7 @@ async function subagentCommand($, bin, turn, rows) {
   const conversationId = conversationOf(readConversations(await $.store.get(CONVERSATIONS_KEY)), turn.agentId)
   if (conversationId !== null) return followUpCommand(bin, sessionId, conversationId, prompt)
   if (hasAnswered(rows)) return { error: LOST_CONVERSATION }
-  return firstTurnCommand(turn.type, bin, sessionId, prompt)
+  return firstTurnCommand(turn.row, bin, sessionId, prompt)
 }
 
 async function recordConversation($, agentId, conversationId) {

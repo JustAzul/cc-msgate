@@ -81,8 +81,21 @@ export function apiError(status: number | null) {
 }
 export const emptyReply = () => ({ isAnswered: false, reason: 'empty-reply', usage: { ...NO_USAGE, input_tokens: 458, output_tokens: 2 } })
 
+// The types a plugin that backs agent types has backed by session start: the
+// engine answers the rows of these. A row test works with them unless it names
+// others through the `backed` option of `world`.
+export const AGENTS = 'msgate-agents'
+export const PROFILES: Record<string, Record<string, unknown>> = {
+  [AGENTS + ':second-opinion']: { command: 'exec', promptMode: 'free', model: 'gpt-6.1-sol', effort: 'high', sandbox: 'read-only' },
+  [AGENTS + ':code-review']: { command: 'review', promptMode: 'review-target', model: 'gpt-6.1-sol', effort: 'high', sandbox: 'read-only' },
+  [AGENTS + ':cross-check']: { command: 'exec', promptMode: 'free', model: 'gpt-6.1-sol', effort: 'high', sandbox: 'read-only' },
+  [AGENTS + ':expert-persona']: { command: 'exec', promptMode: 'free', model: 'gpt-6.1-sol', effort: 'xhigh', sandbox: 'read-only' },
+  [AGENTS + ':delegation']: { command: 'exec', promptMode: 'free', model: 'gpt-6.1-sol', effort: 'medium', sandbox: 'workspace-write' },
+  [AGENTS + ':adhoc']: { command: 'exec', promptMode: 'free' },
+}
+
 // world registers every stub a test needs. Call it before the first call on $.
-export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
+export function world(on: any, opts: { store?: Record<string, unknown>; backed?: Record<string, Record<string, unknown>> } = {}) {
   const w = {
     clock: mock.clock(on),
     runs: [] as Run[],
@@ -139,6 +152,7 @@ export function world(on: any, opts: { store?: Record<string, unknown> } = {}) {
     // What a completion answers; by default a label.
     respondModel: ((): any => answered('Reading auth.go')) as (request: any) => any,
   }
+  w.state.set('backedTypes', { value: opts.backed ?? PROFILES, version: 1 })
   on('session.start', () => ({ cwd: '/work' }))
   on('session.id', () => ({ value: w.sessionId }))
   on('tool.register', (_$: any, e: any) => {

@@ -1,6 +1,6 @@
-// Pure helpers for the agent types the mod answers. Each type is a subagent
-// whose every model request is answered by a msgate job, never by a Claude
-// model. Nothing here touches the mods API, so these functions can be read and
+// Pure helpers for the rows the mod answers. A row is the subagent of a type that
+// a plugin backed, and every model request of it is answered by a msgate job,
+// never by a Claude model. Nothing here touches the mods API, so these functions can be read and
 // tested on their own.
 
 import { RESULT_OUTPUT_BYTES, cutBytes, isTerminal, resultNote } from './lib.js'
@@ -22,20 +22,23 @@ const REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g
 const REVISION_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._/~^-]{0,254}$/
 const REVIEW_TARGETS = "'uncommitted', 'base <branch>' or 'commit <sha>'"
 
-// The agent types whose subagents the mod answers.
-const TYPE_NAMES = ['second-opinion', 'code-review', 'cross-check', 'expert-persona', 'delegation', 'adhoc']
-
-export function agentTypeNames() {
-  return [...TYPE_NAMES]
+// typeNameOf is the type's own name in a full type ("<plugin>:<name>"), the
+// part after the plugin's prefix.
+export function typeNameOf(fullType) {
+  return fullType.slice(fullType.indexOf(':') + 1)
 }
 
-// typeOf returns the agent type name for a full type ("<plugin>:<name>") this
-// plugin answers, or null.
-export function typeOf(pluginName, fullType) {
-  const prefix = pluginName + ':'
-  if (typeof fullType !== 'string' || !fullType.startsWith(prefix)) return null
-  const name = fullType.slice(prefix.length)
-  return agentTypeNames().includes(name) ? name : null
+// The most steps of one turn of a row the engine answers; the model the type
+// registered as its fallback answers the rest of the turn.
+export const STEP_LIMIT = 8
+
+// stepNumber counts one more step for an agent's turn and returns how many the
+// turn has made, this one included. A step of another turn starts at one.
+export function stepNumber(counts, agentId, turnId) {
+  const earlier = counts.get(agentId)
+  const number = earlier !== undefined && earlier.turnId === turnId ? earlier.number + 1 : 1
+  counts.set(agentId, { turnId, number })
+  return number
 }
 
 // turnPrompt is the newest user message of a subagent's conversation: the
@@ -61,8 +64,18 @@ function fail(error) {
   return { error }
 }
 
+// The flags every job of a row carries.
 function jobFlags(sessionId) {
   return ['--background', '--json', '--source', AGENT_SOURCE, '--session-id', sessionId]
+}
+
+// admissionFlags are the flags of the first turn of a row: the type's own name
+// as the purpose, and the settings it is backed with, recorded as coming from a
+// profile. A setting the type does not name is left to the provider.
+function admissionFlags(name, sessionId, backed) {
+  const settings = ['model', 'effort', 'sandbox'].flatMap((setting) => (backed[setting] === undefined ? [] : ['--' + setting, backed[setting]]))
+  const [background, json, ...rest] = jobFlags(sessionId)
+  return [background, json, '--purpose', name, ...rest, '--settings-source', 'profile', ...settings]
 }
 
 // reviewFlags reads a code-review prompt as exactly one review target.
@@ -77,17 +90,18 @@ export function reviewFlags(prompt) {
   return { flags: ['--' + kind, revision] }
 }
 
-// firstTurnCommand starts the conversation of a new subagent. The prompt goes
-// on standard input so no prompt text ever becomes part of an argument.
-export function firstTurnCommand(type, bin, sessionId, prompt) {
+// firstTurnCommand starts the conversation of a new row of a backed type. `row`
+// names the type (`name`, without its plugin's prefix) and what it is backed
+// with. The prompt goes on standard input so no prompt text ever becomes part of
+// an argument; a review reads it as its one target instead.
+export function firstTurnCommand(row, bin, sessionId, prompt) {
   if (prompt === '') return fail('the prompt is empty')
-  if (type !== 'code-review') {
-    return { argv: [bin, 'exec', '--scenario', type, ...jobFlags(sessionId), '-'], stdin: prompt }
-  }
+  const flags = admissionFlags(row.name, sessionId, row.backed)
+  if (row.backed.command !== 'review') return { argv: [bin, row.backed.command, ...flags, '-'], stdin: prompt }
 
   const target = reviewFlags(prompt)
   if (target.error) return target
-  return { argv: [bin, 'review', '--scenario', type, ...target.flags, ...jobFlags(sessionId)] }
+  return { argv: [bin, 'review', ...target.flags, ...flags] }
 }
 
 // followUpCommand sends a SendMessage to the subagent's conversation.

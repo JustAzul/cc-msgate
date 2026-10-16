@@ -54,7 +54,7 @@ function thinkingOf(chunks: any[]) {
 // row starts the agent of an msgate type over a run of `slices` and reads its row.
 async function row($: any, w: any, slices: { kind: string; text: string }[][]) {
   w.respond = codex(slices)
-  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   return step($, 'ag-1')
@@ -115,7 +115,7 @@ test('the next label is asked for only after three more entries, with the previo
     if (argv[1] === 'progress') requestsBeforeRead.push(w.modelRequests.length)
     return run(argv)
   }
-  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   await step($, 'ag-1')
@@ -182,7 +182,7 @@ test('the session has at most two requests in flight', async ($, on) => {
     return argv[1] === 'wait' || argv[1] === 'progress' ? ok(reply.stdout.replace(/run-1/g, id)) : reply
   }
   for (const id of ['ag-1', 'ag-2', 'ag-3']) {
-    w.agents.push({ id, type: 'msgate:second-opinion' })
+    w.agents.push({ id, type: 'msgate-agents:second-opinion' })
     w.messages[id] = [{ role: 'user', text: 'Is auth.go safe?' }]
   }
   await $.session.start(START)
@@ -390,7 +390,7 @@ test('the row never waits for a request: the label streams on the first slice af
     if (argv[1] === 'wait' && chunksBySlice.length === 3) slow.release(answered('Reading auth.go'))
     return run(argv)
   }
-  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   const out = await step($, 'ag-1')
@@ -413,7 +413,7 @@ test('a quiet row still shows the heartbeat while summaries are active', async (
     }
     return run(argv)
   }
-  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   const out = await step($, 'ag-1')
@@ -443,7 +443,7 @@ test('a request due while one is in flight is deferred, then made with the windo
     if (argv[1] === 'wait' && ++waits === 3) slow.release(answered('Reading auth.go'))
     return run(argv)
   }
-  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   const out = await step($, 'ag-1')

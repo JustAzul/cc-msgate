@@ -7,7 +7,7 @@ const SECOND_OPINION = { type: 'second-opinion', command: 'exec', promptMode: 'f
 const registry = (w: ReturnType<typeof world>) => w.state.get('backedTypes')?.value as Record<string, any> | undefined
 
 test('backType marks the caller\'s type as backed and resolves its full name', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { backed: {} })
   await $.session.start(START)
 
   const out = await msgateAs(w, 'msgate-agents').backType(SECOND_OPINION)
@@ -19,7 +19,7 @@ test('backType marks the caller\'s type as backed and resolves its full name', a
 })
 
 test('a type with no model, effort or sandbox is stored without them', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { backed: {} })
   await $.session.start(START)
 
   await msgateAs(w).backType({ type: 'adhoc', command: 'exec', promptMode: 'free' })
@@ -28,7 +28,7 @@ test('a type with no model, effort or sandbox is stored without them', async ($,
 })
 
 test('a review type is backed with the review-target prompt mode', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { backed: {} })
   await $.session.start(START)
 
   const out = await msgateAs(w).backType({ type: 'code-review', command: 'review', promptMode: 'review-target', sandbox: 'workspace-write' })
@@ -57,25 +57,25 @@ const REFUSALS: [string, Record<string, unknown>, string][] = [
 
 for (const [name, args, field] of REFUSALS) {
   test(`backType refuses ${name} as msgate:backType:${field} and stores nothing`, async ($, on) => {
-    const w = world(on)
+    const w = world(on, { backed: {} })
     await $.session.start(START)
 
     const out = await msgateAs(w).backType(args)
 
     expect(out).toEqual({ deny: 'msgate:backType:' + field })
-    expect(registry(w)).toBeUndefined()
+    expect(registry(w)).toEqual({})
   })
 }
 
 test('backType refuses a call that carries no arguments', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { backed: {} })
   await $.session.start(START)
 
   expect(await msgateAs(w).backType(undefined)).toEqual({ deny: 'msgate:backType:type' })
 })
 
 test('a later call for the same type replaces its data', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { backed: {} })
   await $.session.start(START)
   const msgate = msgateAs(w, 'msgate-agents')
 
@@ -88,7 +88,7 @@ test('a later call for the same type replaces its data', async ($, on) => {
 })
 
 test('two plugins backing the same type name keep two entries, each under its own name', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { backed: {} })
   await $.session.start(START)
 
   await msgateAs(w).backType({ ...SECOND_OPINION, effort: 'low' })
@@ -101,7 +101,7 @@ test('two plugins backing the same type name keep two entries, each under its ow
 })
 
 test('backed types stay when the engine\'s module loads again', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { backed: {} })
   await $.session.start(START)
   await msgateAs(w, 'msgate-agents').backType(SECOND_OPINION)
 
@@ -112,7 +112,7 @@ test('backed types stay when the engine\'s module loads again', async ($, on) =>
 })
 
 test('six calls made together are all stored', async ($, on) => {
-  const w = world(on)
+  const w = world(on, { backed: {} })
   await $.session.start(START)
   const msgate = msgateAs(w, 'msgate-agents')
   const types = ['second-opinion', 'code-review', 'cross-check', 'expert-persona', 'delegation', 'adhoc']

@@ -33,7 +33,7 @@ test('what the run does streams into the agent row as thinking, then the answer'
     if (argv[1] === 'status') return finishedRun()
     return ok('Codex: the token is never checked.')
   }
-  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
 
@@ -293,7 +293,7 @@ test('a progress read that fails leaves the run followed to its answer', async (
     if (argv[1] === 'status') return finishedRun()
     return ok('Codex answered anyway.')
   }
-  w.agents.push({ id: 'ag-1', type: 'msgate:adhoc' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:adhoc' })
   w.messages['ag-1'] = [{ role: 'user', text: 'q' }]
   await $.session.start(START)
 

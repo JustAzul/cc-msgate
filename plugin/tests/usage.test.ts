@@ -52,7 +52,7 @@ async function row($: any, w: ReturnType<typeof world>, slices: { kind: string; 
   const run = codex(slices)
   w.surfaces = ['terminal']
   w.respond = (argv) => (isUsageAdd(argv) ? recording(argv) : run(argv))
-  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
   return step($, 'ag-1')

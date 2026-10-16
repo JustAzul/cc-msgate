@@ -273,7 +273,7 @@ test('an agent type turn announces its run right after admission without waiting
           : ok(JSON.stringify(FINISHED_AGENT_RUN))
     }
   }
-  w.agents.push({ id: 'ag-1', type: 'msgate:second-opinion' })
+  w.agents.push({ id: 'ag-1', type: 'msgate-agents:second-opinion' })
   w.messages['ag-1'] = [{ role: 'user', text: 'Is auth.go safe?' }]
   await $.session.start(START)
 
