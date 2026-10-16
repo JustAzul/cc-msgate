@@ -61,3 +61,62 @@ for (const [name, args, answer, deny] of REFUSED) {
     expect(out.value).toBeUndefined()
   })
 }
+
+const recorded = (w: ReturnType<typeof world>) => w.state.get('admittedRuns')?.value as Record<string, string[]> | undefined
+
+test('run records the run id for the calling plugin at admission', async ($, on) => {
+  const w = world(on)
+  let n = 0
+  w.respond = () => ok(JSON.stringify({ ...ADMITTED, run_id: 'run-' + ++n }))
+
+  await msgateAs(w, 'p2').run({ prompt: 'a' })
+  await msgateAs(w, 'p2').run({ prompt: 'b' })
+  await msgateAs(w, OTHER_CALLER).run({ prompt: 'c' })
+
+  expect(recorded(w)).toEqual({ p2: ['run-1', 'run-2'], p3: ['run-3'] })
+})
+
+test('a refused admission records nothing', async ($, on) => {
+  const w = world(on)
+  w.respond = () => ({ exitCode: 3, stdout: '', stderr: 'msgate: busy\n' })
+
+  await msgateAs(w).run({ prompt: 'q' })
+
+  expect(recorded(w)).toBeUndefined()
+})
+
+test('runs admitted together are all recorded', async ($, on) => {
+  const w = world(on)
+  let n = 0
+  w.respond = () => ok(JSON.stringify({ ...ADMITTED, run_id: 'run-' + ++n }))
+  const msgate = msgateAs(w, 'p2')
+
+  await Promise.all(Array.from({ length: 6 }, (_, i) => msgate.run({ prompt: 'p' + i })))
+
+  expect(recorded(w)!.p2.slice().sort()).toEqual(['run-1', 'run-2', 'run-3', 'run-4', 'run-5', 'run-6'])
+})
+
+test('the record keeps the 200 most recent runs of each caller', async ($, on) => {
+  const w = world(on)
+  let n = 0
+  w.respond = () => ok(JSON.stringify({ ...ADMITTED, run_id: 'run-' + ++n }))
+  const msgate = msgateAs(w, 'p2')
+
+  for (let i = 0; i < 205; i++) await msgate.run({ prompt: 'p' })
+
+  const ids = recorded(w)!.p2
+  expect(ids.length).toBe(200)
+  expect(ids[0]).toBe('run-6')
+  expect(ids.at(-1)).toBe('run-205')
+})
+
+test('a record that cannot be written leaves the admitted run answered, and the failure in the debug log', async ($, on) => {
+  const w = world(on)
+  w.respond = () => ok(JSON.stringify(ADMITTED))
+  w.stateWriteFailures = Infinity
+
+  const out = await msgateAs(w).run({ prompt: 'q' })
+
+  expect(out).toEqual({ value: { conversation_id: 'conv-1', run_id: 'run-1', continued: false } })
+  expect(w.debugLogs).toEqual(['could not record run run-1 for p2: the state is unavailable'])
+})

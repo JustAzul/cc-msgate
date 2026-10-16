@@ -119,7 +119,8 @@ declare module 'claude-code' {
        */
       run: (args: MsgateRunArgs) => Promise<MsgateRunResult>
       /**
-       * `list` resolves the session's runs the caller started; `status` one such
+       * `list` resolves the runs the caller admitted through `run` this session (the
+       * 200 most recent), newest first, read by id; `status` one such
        * run; `result` its output (cut at 64 KiB, with a note naming the file);
        * `cancel` the confirmation of the request. `status`, `result` and
        * `cancel` reject a run the caller did not start with `msgate:jobs:not-yours`.
@@ -143,6 +144,9 @@ declare module 'claude-code' {
       // The agent types the engine answers, by full type (`<plugin>:<type>`),
       // written by `backType`.
       backedTypes: { [fullType: string]: MsgateBackedType }
+      // The run ids each plugin admitted through `run`, oldest first, at most 200
+      // per plugin: what `jobs` lists.
+      admittedRuns: { [plugin: string]: string[] }
     }
   }
 }

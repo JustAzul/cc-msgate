@@ -124,6 +124,8 @@ export function world(on: any, opts: { store?: Record<string, unknown>; backed?:
     // The named values of the session's state the interface reads and writes,
     // each with its version.
     state: new Map<string, { value: unknown; version: number }>(),
+    // How many of the next writes of those values fail.
+    stateWriteFailures: 0,
     // What a process the mod runs answers: the call is kept in `runs`.
     processRun: async (argv: string[], init?: any): Promise<Reply> => {
       w.runs.push({ argv: [...argv], stdin: init?.stdin, cwd: init?.cwd, timeoutMs: init?.timeoutMs })
@@ -310,7 +312,13 @@ export function engineOf(w: ReturnType<typeof world>) {
     process: { run: (argv: string[], init?: any) => w.processRun(argv, init) },
     state: {
       get: async (ref: { key: string }) => ({ value: w.state.get(ref.key)?.value, version: w.state.get(ref.key)?.version ?? 0 }),
-      set: async (ref: { key: string }, value: unknown, options?: { ifVersion?: number }) => stateWrite(w.state, ref.key, value, options?.ifVersion),
+      set: async (ref: { key: string }, value: unknown, options?: { ifVersion?: number }) => {
+        if (w.stateWriteFailures > 0) {
+          w.stateWriteFailures -= 1
+          throw new Error('the state is unavailable')
+        }
+        return stateWrite(w.state, ref.key, value, options?.ifVersion)
+      },
     },
     ui: { log: async (text: string) => void w.debugLogs.push(text) },
   }

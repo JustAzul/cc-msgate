@@ -4,8 +4,9 @@
 
 import { backType, backedData } from './backed.js'
 import { admitJob } from './admission.js'
+import { admittedRunIds, forgetRuns, recordAdmitted } from './admitted.js'
 import { NOUN as SERVICE } from './service.js'
-import { RESULT_OUTPUT_BYTES, cutBytes, failureText, jobsCommand, messageOf, pluginSource, resultNote, shimPath, withPurpose } from './lib.js'
+import { EXIT_RUN_NOT_FOUND, RESULT_OUTPUT_BYTES, cutBytes, failureText, jobsCommand, messageOf, pluginSource, resultNote, shimPath, withPurpose } from './lib.js'
 
 const VERSION_UNAVAILABLE = 'msgate:version:unavailable'
 
@@ -22,7 +23,8 @@ async function releaseVersion($) {
 const jobsDenial = (reason) => ({ deny: 'msgate:jobs:' + reason })
 
 // readReply runs a command of the binary: { reply } for one that exited 0, or
-// { error } with why it did not. It never throws.
+// { error } with why it did not, plus `isNotFound` when the run asked for is not
+// known to it. It never throws.
 async function readReply($, argv) {
   let reply
   try {
@@ -30,14 +32,48 @@ async function readReply($, argv) {
   } catch (error) {
     return { error: 'msgate could not run: ' + messageOf(error) }
   }
-  return reply.exitCode === 0 ? { reply } : { error: failureText(reply) }
+  return reply.exitCode === 0 ? { reply } : { error: failureText(reply), isNotFound: reply.exitCode === EXIT_RUN_NOT_FOUND }
 }
 
-// ownRuns are the runs of a `status --json` listing the caller started.
-function ownRuns(stdout, caller) {
-  const runs = JSON.parse(stdout).runs
-  if (!Array.isArray(runs)) throw new Error('the listing holds no runs')
-  return runs.filter((run) => run && run.source === pluginSource(caller)).map(withPurpose)
+// The runs of a record read together; each read is a process of its own.
+const READ_BATCH = 10
+
+// readRecorded reads the runs with the given ids: { runs } in the order given for
+// those the binary knows, { pruned } for the ids it does not, or { error } for
+// the first read that failed otherwise.
+async function readRecorded($, bin, ids) {
+  const runs = []
+  const pruned = []
+  for (let from = 0; from < ids.length; from += READ_BATCH) {
+    const batch = ids.slice(from, from + READ_BATCH)
+    const reads = await Promise.all(batch.map((id) => readReply($, [bin, 'status', id, '--json'])))
+    for (const [index, read] of reads.entries()) {
+      if (read.isNotFound) pruned.push(batch[index])
+      else if (read.error !== undefined) return { error: read.error }
+      else runs.push(withPurpose(JSON.parse(read.reply.stdout)))
+    }
+  }
+  return { runs, pruned }
+}
+
+// listOwn answers `list`: the runs the caller admitted through run, newest first,
+// each read by id. A run the binary no longer knows leaves the record.
+async function listOwn($, bin, caller) {
+  const ids = (await admittedRunIds($, caller)).reverse()
+  const read = await readRecorded($, bin, ids)
+  if (read.error !== undefined) return jobsDenial(read.error)
+  if (read.pruned.length > 0) await forgetQuietly($, caller, read.pruned)
+  return { value: { runs: read.runs } }
+}
+
+// forgetQuietly drops pruned runs from the record. A write that fails is logged:
+// the next list drops them again.
+async function forgetQuietly($, caller, runIds) {
+  try {
+    await forgetRuns($, caller, runIds)
+  } catch (error) {
+    await $.ui.log('could not drop pruned runs from the record of ' + caller + ': ' + messageOf(error), { to: 'debug' })
+  }
 }
 
 // ownedRun reads the status of a run and answers it only when the caller started it.
@@ -63,11 +99,8 @@ async function jobsOnRun($, bin, args, caller) {
 }
 
 // jobsOf answers a jobs call whose arguments were accepted.
-async function jobsOf($, bin, built, args, caller) {
-  if (args.action !== 'list') return jobsOnRun($, bin, args, caller)
-  const read = await readReply($, built.argv)
-  if (read.error !== undefined) return jobsDenial(read.error)
-  return { value: { runs: ownRuns(read.reply.stdout, caller) } }
+async function jobsOf($, bin, args, caller) {
+  return args.action === 'list' ? listOwn($, bin, caller) : jobsOnRun($, bin, args, caller)
 }
 
 // The version a load has read, shared by every call of the load. A read that
@@ -110,7 +143,19 @@ export async function serveVersion($, cache) {
 export async function serveRun($, args, caller) {
   const admitted = await admitJob($, args, pluginSource(caller))
   if (admitted.error !== undefined) return { deny: 'msgate:run:' + admitted.error }
+  await recordQuietly($, caller, admitted.ids.run_id)
   return { value: { ...admitted.ids, continued: admitted.isContinuation } }
+}
+
+// recordQuietly adds an admitted run to the caller's record. The run is admitted
+// already, so a record that cannot be written is logged and the caller still gets
+// the ids; it reads that run with a status.
+async function recordQuietly($, caller, runId) {
+  try {
+    await recordAdmitted($, caller, runId)
+  } catch (error) {
+    await $.ui.log('could not record run ' + runId + ' for ' + caller + ': ' + messageOf(error), { to: 'debug' })
+  }
 }
 
 // serveJobs reads and cancels the runs the caller started, and no other.
@@ -119,7 +164,7 @@ export async function serveJobs($, args, caller) {
   const built = jobsCommand(bin, await $.session.id(), args)
   if (built.error) return jobsDenial(built.error)
   try {
-    return await jobsOf($, bin, built, args, caller)
+    return await jobsOf($, bin, args, caller)
   } catch (error) {
     return jobsDenial('msgate printed something unexpected: ' + messageOf(error))
   }
