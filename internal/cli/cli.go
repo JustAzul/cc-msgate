@@ -136,6 +136,8 @@ type Command struct {
 	Run     func(ctx *Context, args []string) int
 	// Hidden commands are internal entry points; help does not list them.
 	Hidden bool
+	// NoHome commands never read the home, so they run before any migration.
+	NoHome bool
 }
 
 var commands = map[string]Command{}
@@ -171,6 +173,11 @@ func Run(args []string, env []string, stdin io.Reader, stdout, stderr io.Writer)
 		ctx.JSON = wantsJSON(args[1:])
 		usage(stderr)
 		return ctx.Fail(ExitUsage, "unknown command %q", args[1])
+	}
+	if !cmd.NoHome {
+		if code := migrateHome(ctx, args[2:]); code != ExitOK {
+			return code
+		}
 	}
 	return cmd.Run(ctx, args[2:])
 }

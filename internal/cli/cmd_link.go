@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	register(Command{Name: "link", Summary: "put a msgate launcher on PATH (~/.local/bin)", Run: runLink})
+	register(Command{Name: "link", Summary: "put a msgate launcher on PATH (~/.local/bin)", Run: runLink, NoHome: true})
 }
 
 func runLink(ctx *Context, args []string) int {
