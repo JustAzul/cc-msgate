@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/JustAzul/cc-msgate/internal/store"
 )
@@ -58,6 +59,35 @@ func requireSettledRuns(ctx *Context, old *store.Store) error {
 		if !store.IsTerminal(state.State) {
 			return fmt.Errorf("run %s is still %s", id, state.State)
 		}
+		if err := awaitWorkerExit(ctx, old, id, state.State); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// awaitWorkerExit waits for a terminal run's worker to release the run's
+// lock. The worker still clears the conversation's active-run marker and
+// appends the telemetry record after the state turns terminal, and does both
+// under the old home, so moving the home before it exits would lose them. It
+// fails naming the run when the lock is still held after the wait.
+func awaitWorkerExit(ctx *Context, old *store.Store, id, state string) error {
+	bound := finalizeWait
+	if d, ok := envMillis(ctx.Getenv, "MSGATE_TEST_FINALIZE_WAIT_MS"); ok {
+		bound = d
+	}
+	deadline := time.Now().Add(bound)
+	for {
+		held, err := old.RunLockHeld(id)
+		if err != nil {
+			return fmt.Errorf("run %s cannot be read: %w", id, err)
+		}
+		if !held {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("run %s is %s but its worker still holds the run", id, state)
+		}
+		time.Sleep(waitPoll)
+	}
 }

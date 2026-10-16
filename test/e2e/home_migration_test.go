@@ -409,3 +409,44 @@ func TestMigratedRunIsReadFromTheNewHome(t *testing.T) {
 	}
 	checkFields(t, "annotate json", ann.json(t), map[string]any{"run_id": "m1"})
 }
+
+// finalizeWaitEnv shortens (or lengthens) how long the migration gives a
+// terminal run's worker to release its run.
+func finalizeWaitEnv(w *migrationWorld, ms string) []string {
+	return append(append([]string(nil), w.env...), "MSGATE_TEST_FINALIZE_WAIT_MS="+ms)
+}
+
+func TestMigrationRefusesATerminalRunWhoseWorkerStillHoldsIt(t *testing.T) {
+	w := newDefaultTierWorld(t)
+	ids := w.seedOldRuns(1)
+	release := holdLock(t, filepath.Join(w.old, "runs", ids[0], "lock")) // a worker still finalizing
+
+	r := runBin(t, msgateBin, finalizeWaitEnv(w, "200"), "status", ids[0])
+
+	if r.code != 1 || !strings.Contains(r.stderr, ids[0]) {
+		t.Errorf("exit %d stderr %q, want 1 naming the run", r.code, r.stderr)
+	}
+	if exists(w.new) || !exists(filepath.Join(w.old, "runs", ids[0], "state.json")) {
+		t.Errorf("the old home was moved while a worker held a run")
+	}
+
+	release()
+	if r := w.run("status", ids[0]); r.code != 0 {
+		t.Fatalf("after the release: exit %d stderr %s", r.code, r.stderr)
+	}
+	assertMovedWithRuns(t, w, ids)
+}
+
+func TestMigrationWaitsForAFinalizingWorkerToRelease(t *testing.T) {
+	w := newDefaultTierWorld(t)
+	ids := w.seedOldRuns(1)
+	release := holdLock(t, filepath.Join(w.old, "runs", ids[0], "lock"))
+	time.AfterFunc(300*time.Millisecond, release)
+
+	r := runBin(t, msgateBin, finalizeWaitEnv(w, "5000"), "status", ids[0])
+
+	if r.code != 0 {
+		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
+	}
+	assertMovedWithRuns(t, w, ids)
+}
