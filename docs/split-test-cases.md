@@ -60,7 +60,7 @@ Each case names the requirement it checks (FRn of the msgate split PRD). "mod" m
 - [ ] **Rollback documented (FR55):** before cutover step 1 → the rollback steps are written where the cutover is run: uninstall both plugins, rename the home back, the local marketplace manifest sourcing `agentcli` from `JustAzul/msgate-agents` at ref `v0.6.3`, the consumer revert; the local manifest is tried once against a scratch Claude Code config directory and installs agentcli 0.6.3.
 - [ ] **Cutover preconditions (FR53):** before step 1 → agentcli 0.6.3 is the installed version; releases `v1.0.0` and `v0.7.0` exist; the consumer test suites pass against the 1.0.0 binary; `agentcli status` across the home lists no non-terminal run; `agentcli stats --all --json` and `agentcli runs --all` are saved.
 - [ ] **Mods notes (FR52):** the owner's mods notes → every path they cite exists in `cc-msgate`.
-- [ ] **Phase 3 proof (FR59, real):** in the default and auto modes → a hidden row ends its turn once, Claude receives nothing from it, and the hook's delivery arrives once; the result is recorded before phase 3 ships.
+- [ ] **Phase 3 proof (FR59, real):** in the default and bypass modes → a hidden row ends its turn once, Claude receives nothing from it, and the hook's delivery arrives once; in the auto mode → the spawn is refused, no row opens, Claude receives nothing, and the hook's delivery arrives once; the result is recorded before phase 3 ships.
 - [ ] **Hidden row (FR56–FR58, phase 3, real):** a hook starts a flagged run → the agents plugin's timer opens one `msgate-agents:run` row within 5 seconds; the row streams progress; the run leaves the band; the row ends with `msgate run <id> ended ok` in plain text.
 
 ---
@@ -93,7 +93,8 @@ Each case names the requirement it checks (FRn of the msgate split PRD). "mod" m
 - [ ] **Failure once per state, post-commit (FR46, hook):** a review fails for range A..B → delivered once; the next PostToolUse with HEAD still B delivers nothing; a new commit C delivers for A..C.
 - [ ] **Failure once per state, Stop (FR46, hook):** a Stop review fails with dirty hash H → delivered once; the next Stop with hash H delivers nothing; a changed hash H2 runs again.
 - [ ] **Hooks pass the session (FR45, hook):** every hook exec argv holds `--session-id <id>` and the environment holds `MSGATE_AGENT_FEEDBACK=1`.
-- [ ] **Hidden row from another spawner (FR58, phase 3, mod):** a `msgate-agents:run` row whose spawner is not `msgate-agents`, or whose prompt names a run of another session → not answered by the engine; the step passes through.
+- [ ] **Hidden row from another spawner (FR58, phase 3, mod):** a `msgate-agents:run` row whose spawn origin is not `msgate-agents`, or whose prompt names a run of another session → not answered by the engine; the step passes through.
+- [ ] **Hidden row in the auto mode (FR58, phase 3, mod):** the `agent.spawn` of a `msgate-agents:run` row from `msgate-agents` with `permissionMode` `auto` → the engine's hook returns `{ deny }`; no row opens; the run stays in the band. The same spawn in the default or bypass mode passes through.
 - [ ] **Stopped hidden row (FR58, phase 3, real):** TaskStop on a hidden row → the row disappears; the run keeps running and does not return to the band.
 
 ---
@@ -122,7 +123,7 @@ Each case names the requirement it checks (FRn of the msgate split PRD). "mod" m
 - [ ] **backType refused for one type (FR41, mod):** the fake engine refuses `delegation` → that type is hidden and logged; the other five are offered after the skill loads.
 - [ ] **Report of a running run (FR44, CLI):** `msgate result <running run> --report` → exit 5.
 - [ ] **Report of an unknown run (FR44, CLI):** an unknown id or a path outside any run directory → exit 4.
-- [ ] **Hidden row spawn fails (FR57, phase 3, mod):** `$.agent.spawn` refuses (no Agent tool) → one debug-log line for that run; the run stays in the band.
+- [ ] **Hidden row spawn fails (FR57, phase 3, mod):** `$.agent.spawn` resolves `{ deny }` (no Agent tool, or the engine's refusal in the auto mode) → one debug-log line for that run; the run stays in the band, and the timer does not spawn it again.
 
 ---
 
