@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	register(Command{Name: "version", Summary: "print version, source commit, build_seq and platform", Run: runVersion})
+	register(Command{Name: "version", Summary: "print version, source commit, build_seq and platform", Run: runVersion, NoHome: true})
 }
 
 type versionInfo struct {
