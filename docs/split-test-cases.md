@@ -67,7 +67,7 @@ Each case names the requirement it checks (FRn of the msgate split PRD). "mod" m
 
 ## Edge Cases
 
-- [ ] **25 jobs between two ticks (FR2, mod):** 25 queue entries all terminal at the next tick → 25 notices, read by id, no listing call; with the 50-per-tick cap, 60 entries → 50 read this tick, oldest first, 10 next tick.
+- [ ] **25 jobs between two ticks (FR2, mod):** 25 queue entries all terminal at the next tick → 25 notices, read by id, no listing call; with the 50-per-tick cap, 60 entries → 50 read this tick, oldest first, and the next tick starts after the last one read; 60 entries whose 50 oldest are still running and whose 10 newest are done → all 10 notices within two ticks.
 - [ ] **Possible repeat (FR3, mod):** a load finds an entry with `attempted_at` set → it is delivered with ` (possibly repeated)` after the outcome, then removed.
 - [ ] **Notice output over 8 KiB (FR3, mod):** a 20 KiB output → the notice holds its first 8 KiB and the output path.
 - [ ] **Two sessions (FR1, mod):** sessions `s1` and `s2` each admit a job → keys `delivery:s1` and `delivery:s2`; each session delivers only its own.
@@ -128,6 +128,7 @@ Each case names the requirement it checks (FRn of the msgate split PRD). "mod" m
 
 ## Idempotency / Re-run Safety
 
+- [ ] **Moved run readable (FR14, FR16, CLI):** after the move, a terminal run of the old home → `status --json`, `wait --json` and `result` name and read its output under the new home; `annotate <new output path>` finds the run.
 - [ ] **Migration re-run (FR14, CLI):** a second command after a successful migration → finds the new home and does nothing to the old path.
 - [ ] **Concurrent migration (FR14, CLI):** two commands start at once against an unmigrated home → one moves it under the lock; the other waits, finds the new home and proceeds.
 - [ ] **link re-run (FR11, CLI):** `msgate link` twice with the same install → the launcher is unchanged the second time.
