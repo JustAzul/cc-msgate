@@ -299,3 +299,41 @@ test('a follow that threw while the row was not stopped ends with the hand-off f
 
   expect(text).toBe('msgate: the hand-off to the agent failed, so this is not its answer. store is locked')
 })
+
+const bash = ($: any) => $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'ag-hidden' } as any)
+
+test('the model beneath keeps its tools in a hidden row the engine passed to it', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = follower()
+  w.agents.push({ id: 'ag-hidden', type: ROW_TYPE })
+  await $.session.start(START)
+  await step($, 'ag-hidden')
+
+  const call: any = await bash($)
+
+  expect(call.deny).toBeUndefined()
+})
+
+test('the model beneath keeps its tools in a registered row whose run the engine does not answer for', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = () => ({ exitCode: 4, stdout: '', stderr: 'msgate: run not found\n' })
+  hiddenRow(w)
+  await $.session.start(START)
+  await step($, 'ag-hidden')
+
+  const call: any = await bash($)
+
+  expect(call.deny).toBeUndefined()
+})
+
+test('a hidden row the engine answers runs no tools', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = follower()
+  hiddenRow(w)
+  await $.session.start(START)
+  await step($, 'ag-hidden')
+
+  const call: any = await bash($)
+
+  expect(call.deny).toContain('msgate agents run no tools')
+})

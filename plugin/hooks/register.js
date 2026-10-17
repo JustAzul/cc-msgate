@@ -162,6 +162,9 @@ const loggedProgressFailures = new Set()
 const agentTypes = new Map()
 // The agents this load has found to be rows of a backed type.
 const rowAgents = new Set()
+// The hidden rows whose latest step the engine answered, by agent id; one it
+// passed to the model beneath is not in the set.
+const answeredHiddenRows = new Set()
 // The steps each row's latest turn has made, by agent id.
 const stepCounts = new Map()
 // The agents whose turn is running in this load, by agent id: the run each
@@ -205,6 +208,7 @@ export function register(on, options) {
   answeredTurns.clear()
   agentTypes.clear()
   rowAgents.clear()
+  answeredHiddenRows.clear()
   stepCounts.clear()
   startTexts.clear()
   isLossToastShown = false
@@ -306,7 +310,7 @@ export function register(on, options) {
   // The hand-back call is the one tool they may make: it is how their answer
   // reaches the caller.
   on('tool.call', async ($, e, next) => {
-    if (e.tool === HANDBACK_TOOL || (await rowOf($, e.agentId)) === null) return next(e)
+    if (e.tool === HANDBACK_TOOL || !(await isAnsweredRow($, e.agentId))) return next(e)
     return { deny: NO_TOOLS }
   }).catch(($, e, next) => (next.called || e.tool === HANDBACK_TOOL || !isKnownSubagent(e.agentId) ? next(e) : { deny: NO_TOOLS }))
 
@@ -1074,6 +1078,14 @@ async function rowOf($, agentId) {
   return { fullType, name: typeNameOf(fullType), backed }
 }
 
+// isAnsweredRow tells that the engine answers the agent's turns, so the agent has
+// no tools: a row of a backed type, except a hidden row the engine passed to the
+// model beneath, which keeps its tools.
+async function isAnsweredRow($, agentId) {
+  const row = await rowOf($, agentId)
+  return row !== null && (row.backed.command !== FOLLOW || answeredHiddenRows.has(agentId))
+}
+
 // typeOfAgent is the full type of an agent, or null when the session lists no
 // such agent (asked again at its next event).
 async function typeOfAgent($, agentId) {
@@ -1265,8 +1277,12 @@ async function* hiddenStep($, e, next, row) {
   const runId = await hiddenRunOf($, e.agentId)
   const bin = shimPath($.plugin.root)
   const checked = runId === null ? { isPassed: true } : await checkRun($, bin, runId)
-  if (checked.isPassed) return yield* next(e)
+  if (checked.isPassed) {
+    answeredHiddenRows.delete(e.agentId)
+    return yield* next(e)
+  }
 
+  answeredHiddenRows.add(e.agentId)
   yield thinking('msgate · ' + row.name)
   const text = checked.error === undefined ? yield* followHidden($, bin, { agentId: e.agentId, row }, runId, next.signal) : handoffFailure(checked.error)
   rememberAnswer(e, text)
