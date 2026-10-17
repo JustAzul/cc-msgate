@@ -337,3 +337,31 @@ test('a hidden row the engine answers runs no tools', async ($, on) => {
 
   expect(call.deny).toContain('msgate agents run no tools')
 })
+
+test('a run that gets a hidden row keeps its summary across the polls that follow', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.surfaces = ['terminal']
+  w.respondModel = () => ({ isAnswered: true, text: 'Reading auth.go', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } })
+  w.respond = (argv) => {
+    if (argv[1] === 'progress') {
+      const entries = argv[4] === '0' ? [{ seq: 0, at: 't', kind: 'message', text: 'I will read auth.go' }] : []
+      return ok(JSON.stringify({ run_id: 'run-hook', state: 'running', next: 1, entries }))
+    }
+    if (argv[1] === 'wait') return ok(JSON.stringify(finished()))
+    if (argv[1] === 'stats') return ok(JSON.stringify({ usage_totals: {} }))
+    if (argv[1] === 'usage') return ok('')
+    if (argv[1] === 'status' && argv[2] === 'run-hook') return ok(JSON.stringify(finished()))
+    return listing(flagged())
+  }
+  await $.session.start(START)
+  await w.clock.advance(POLL_MS)
+  expect(w.modelRequests).toHaveLength(1)
+
+  hiddenRow(w)
+  await w.clock.advance(POLL_MS * 3)
+  const out = await step($, 'ag-hidden')
+
+  // The label that settled while the band showed the run is the row's now.
+  expect(out.chunks.filter((c) => c.kind === 'thinking').map((c) => c.text.trim())).toContain('» Reading auth.go')
+  expect(w.modelRequests).toHaveLength(1)
+})

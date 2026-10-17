@@ -728,7 +728,8 @@ async function checkJobs($) {
   if (reply.exitCode !== 0) return
   const jobs = modJobs(sessionJobs(reply.stdout))
 
-  setFollowed(followedRuns(followed, flaggedRuns(reply.stdout)))
+  const hidden = await hiddenRunIds($)
+  setFollowed(followedRuns(followed, flaggedRuns(reply.stdout).filter((run) => !hidden.has(run.run_id))), hidden)
   hasPolledRuns = true
   await refreshBand($)
   // Before the costs are read, so a recording that lands now is counted by them.
@@ -938,7 +939,7 @@ async function refreshBand($) {
 // them from then on.
 async function dropHidden($) {
   const hidden = await hiddenRunIds($)
-  if (followed.some((run) => hidden.has(run.run_id))) setFollowed(followed.filter((run) => !hidden.has(run.run_id)))
+  if (followed.some((run) => hidden.has(run.run_id))) setFollowed(followed.filter((run) => !hidden.has(run.run_id)), hidden)
 }
 
 // isBandDue tells that a refresh has work: the first poll has read the session's
@@ -974,10 +975,11 @@ function logBandFailure($, error) {
 }
 
 // setFollowed replaces the runs the band follows; a run it lets go of keeps no
-// summaries.
-function setFollowed(next) {
+// summaries, unless it passed to a hidden row (`handedOver` holds those), whose
+// follow carries them on.
+function setFollowed(next, handedOver = new Set()) {
   for (const run of followed) {
-    if (!next.some((kept) => kept.run_id === run.run_id)) summaries.forget(run.run_id)
+    if (!next.some((kept) => kept.run_id === run.run_id) && !handedOver.has(run.run_id)) summaries.forget(run.run_id)
   }
   followed = next
 }
