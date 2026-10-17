@@ -5,7 +5,7 @@
 //
 import { backedTypeOf } from './backed.js'
 import { EXIT_RUN_NOT_FOUND, failureText, messageOf } from './lib.js'
-import { finishedRun } from './subagent.js'
+import { finishedRun, handoffFailure } from './subagent.js'
 
 export const FOLLOW = 'follow'
 export const AUTO_MODE = 'auto'
@@ -121,4 +121,11 @@ export function endedText(run) {
 // stoppedText ends the turn of a row that was stopped before its run ended.
 export function stoppedText(runId) {
   return 'msgate run ' + runId + ' stopped'
+}
+
+// followFailureText is what a follow that threw ends the turn with: the stopped
+// text when the row was stopped, since stopping aborts the reads the follow was
+// waiting on, and the hand-off failure for any other error.
+export function followFailureText(error, runId, signal) {
+  return signal.aborted ? stoppedText(runId) : handoffFailure(messageOf(error))
 }

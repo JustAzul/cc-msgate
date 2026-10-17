@@ -81,7 +81,7 @@ import {
 import { BAND_REFRESH_MS, bandLine, flaggedRuns, followedRuns, labelled, withProgress } from './band.js'
 import { createSummarizer } from './summarizer.js'
 import { backedTypeOf } from './backed.js'
-import { FOLLOW, admitSpawn, checkRun, endedText, hiddenRunIds, hiddenRunOf, stoppedText } from './hidden.js'
+import { FOLLOW, admitSpawn, checkRun, endedText, followFailureText, hiddenRunIds, hiddenRunOf, stoppedText } from './hidden.js'
 import { createService } from './service.js'
 import { INTERFACE, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveRun, serveVersion } from './iface.js'
 import { summaryRecording } from './summary.js'
@@ -1283,7 +1283,7 @@ async function* followHidden($, bin, turn, runId, signal) {
     const read = await readFinished($, bin, runId)
     return read.failure === undefined ? endedText(read.run) : read.failure
   } catch (error) {
-    return handoffFailure(messageOf(error))
+    return followFailureText(error, runId, signal)
   } finally {
     turnAgents.delete(turn.agentId)
   }

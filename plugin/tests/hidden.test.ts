@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { AGENTS, POLL_MS, SESSION, engineOf, job, listing, ok, startTurn, step, world } from './kit'
 import { BAND_REFRESH_MS } from '../hooks/band.js'
-import { admitSpawn } from '../hooks/hidden.js'
+import { admitSpawn, followFailureText } from '../hooks/hidden.js'
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 const ROW_TYPE = AGENTS + ':run'
@@ -283,4 +283,19 @@ test('a run flagged by a hook leaves the band as soon as its row is registered',
   // The next poll lists the run again, and the band does not take it back.
   await w.clock.advance(POLL_MS)
   expect(await band.findAll({ type: 'Text' })).toHaveLength(1)
+})
+
+// A step cannot be aborted through the kit, so the end of a follow that threw is
+// decided where a test can hand it the signal and the error.
+test('a follow that threw after the row was stopped ends with the stopped text, not a hand-off failure', () => {
+  const stop = new AbortController()
+  stop.abort()
+
+  expect(followFailureText(new Error('$.process.run(/plugin/bin/msgate) aborted'), 'run-hook', stop.signal)).toBe('msgate run run-hook stopped')
+})
+
+test('a follow that threw while the row was not stopped ends with the hand-off failure', () => {
+  const text = followFailureText(new Error('store is locked'), 'run-hook', new AbortController().signal)
+
+  expect(text).toBe('msgate: the hand-off to the agent failed, so this is not its answer. store is locked')
 })
