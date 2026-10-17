@@ -1,0 +1,19 @@
+{
+  "name": "msgate",
+  "description": "msgate: the engine that runs agent CLIs (Codex today) for Claude Code, hooks, scripts and other plugins, with resumable conversations, background jobs and append-only telemetry.",
+  "author": {
+    "name": "Diego (Azul) Ferreira"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/JustAzul/cc-msgate",
+  "repository": "https://github.com/JustAzul/cc-msgate",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "summaries": {
+      "type": "boolean",
+      "title": "Summarize progress",
+      "description": "Summarize what a run is doing with claude-haiku-5-5, in the agent row and above the prompt. This sends the run's progress text (commands, file names, messages) to the Anthropic API, and the calls count toward your Claude usage. Turn it off to see the raw progress lines.",
+      "default": true
+    }
+  }
+}
