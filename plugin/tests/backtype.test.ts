@@ -59,6 +59,8 @@ const REFUSALS: [string, Record<string, unknown>, string][] = [
   ['an exec command with the run-id prompt mode', { ...SECOND_OPINION, promptMode: 'run-id' }, 'promptMode'],
   ['a review command with the run-id prompt mode', { ...SECOND_OPINION, command: 'review', promptMode: 'run-id' }, 'promptMode'],
   ['a missing command', { ...SECOND_OPINION, command: undefined }, 'command'],
+  ['a command that is a list holding a command', { ...SECOND_OPINION, command: ['exec'] }, 'command'],
+  ['a command that is not text', { ...SECOND_OPINION, command: 7 }, 'command'],
   ['a review command with the free prompt mode', { ...SECOND_OPINION, command: 'review', promptMode: 'free' }, 'promptMode'],
   ['an exec command with the review-target prompt mode', { ...SECOND_OPINION, promptMode: 'review-target' }, 'promptMode'],
   ['an unknown prompt mode', { ...SECOND_OPINION, promptMode: 'by-name' }, 'promptMode'],

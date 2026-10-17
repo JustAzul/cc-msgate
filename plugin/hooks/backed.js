@@ -22,7 +22,7 @@ const isOptionalText = (value) => value === undefined || isText(value)
 function invalidField(args) {
   const call = typeof args === 'object' && args !== null ? args : {}
   if (typeof call.type !== 'string' || !TYPE_PATTERN.test(call.type)) return 'type'
-  if (!Object.hasOwn(PROMPT_MODE_OF, call.command)) return 'command'
+  if (typeof call.command !== 'string' || !Object.hasOwn(PROMPT_MODE_OF, call.command)) return 'command'
   if (call.promptMode !== PROMPT_MODE_OF[call.command]) return 'promptMode'
   if (!isOptionalText(call.model)) return 'model'
   if (!isOptionalText(call.effort)) return 'effort'
