@@ -236,6 +236,17 @@ func TestEffortSourceWithoutAnEffortChangesNothing(t *testing.T) {
 	})
 }
 
+func TestBackgroundRunRecordsTheEffortSourceItWasAdmittedWith(t *testing.T) {
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok"))
+
+	admitJob(t, s, "eb1", "--settings-source", "profile", "--effort-source", "flag", "--model", "m1", "--effort", "low", "--cwd", gitRepo(t), "q")
+	waitOK(t, s, "eb1")
+
+	checkFields(t, "run record", lastRunRecord(t, s.home), map[string]any{
+		"run_id": "eb1", "model_source": "profile", "effort": "low", "effort_source": "flag",
+	})
+}
+
 func TestSendRecordsTheEffortSourceOfAnEffortItPasses(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
 	conv := startConversation(t, s, "sf1", "--model", "m1", "--settings-source", "profile")
