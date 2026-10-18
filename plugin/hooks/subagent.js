@@ -71,9 +71,15 @@ function jobFlags(sessionId) {
 
 // admissionFlags are the flags of the first turn of a row: the type's own name
 // as the purpose, and the settings it is backed with, recorded as coming from a
-// profile. A setting the type does not name is left to the provider.
-function admissionFlags(name, sessionId, backed) {
-  const settings = ['model', 'effort', 'sandbox'].flatMap((setting) => (backed[setting] === undefined ? [] : ['--' + setting, backed[setting]]))
+// profile. A setting the type does not name is left to the provider. An effort
+// the Agent call asked for takes the place of the type's, and is recorded as
+// coming from a flag.
+function admissionFlags(name, sessionId, backed, effort) {
+  const flagsOf = (setting) => {
+    if (setting === 'effort' && effort !== undefined) return ['--effort', effort, '--effort-source', 'flag']
+    return backed[setting] === undefined ? [] : ['--' + setting, backed[setting]]
+  }
+  const settings = ['model', 'effort', 'sandbox'].flatMap(flagsOf)
   const [background, json, ...rest] = jobFlags(sessionId)
   return [background, json, '--purpose', name, ...rest, '--settings-source', 'profile', ...settings]
 }
@@ -93,10 +99,11 @@ export function reviewFlags(prompt) {
 // firstTurnCommand starts the conversation of a new row of a backed type. `row`
 // names the type (`name`, without its plugin's prefix) and what it is backed
 // with. The prompt goes on standard input so no prompt text ever becomes part of
-// an argument; a review reads it as its one target instead.
-export function firstTurnCommand(row, bin, sessionId, prompt) {
+// an argument; a review reads it as its one target instead. `effort` is the one
+// the Agent call asked for, when it did.
+export function firstTurnCommand(row, bin, sessionId, prompt, effort) {
   if (prompt === '') return fail('the prompt is empty')
-  const flags = admissionFlags(row.name, sessionId, row.backed)
+  const flags = admissionFlags(row.name, sessionId, row.backed, effort)
   if (row.backed.command !== 'review') return { argv: [bin, row.backed.command, ...flags, '-'], stdin: prompt }
 
   const target = reviewFlags(prompt)

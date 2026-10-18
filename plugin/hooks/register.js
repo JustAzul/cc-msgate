@@ -81,6 +81,7 @@ import {
 import { BAND_REFRESH_MS, bandLine, flaggedRuns, followedRuns, labelled, withProgress } from './band.js'
 import { createSummarizer } from './summarizer.js'
 import { backedTypeOf } from './backed.js'
+import { forgetEfforts, holdEffort, takeEffort } from './efforts.js'
 import { FOLLOW, admitSpawn, checkRun, endedText, followFailureText, hiddenRunIds, hiddenRunOf, stoppedText } from './hidden.js'
 import { createService } from './service.js'
 import { INTERFACE, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveRun, serveVersion } from './iface.js'
@@ -211,6 +212,7 @@ export function register(on, options) {
   answeredHiddenRows.clear()
   stepCounts.clear()
   startTexts.clear()
+  forgetEfforts()
   isLossToastShown = false
   service = createService()
   versionCache = createVersionCache()
@@ -308,9 +310,10 @@ export function register(on, options) {
   })
 
   // The hand-back call is the one tool they may make: it is how their answer
-  // reaches the caller.
+  // reaches the caller. An Agent call that names an effort is held with it, for
+  // the spawn beneath that its row's first turn admits.
   on('tool.call', async ($, e, next) => {
-    if (e.tool === HANDBACK_TOOL || !(await isAnsweredRow($, e.agentId))) return next(e)
+    if (e.tool === HANDBACK_TOOL || !(await isAnsweredRow($, e.agentId))) return holdEffort(e, next)
     return { deny: NO_TOOLS }
   }).catch(($, e, next) => (next.called || e.tool === HANDBACK_TOOL || !isKnownSubagent(e.agentId) ? next(e) : { deny: NO_TOOLS }))
 
@@ -1347,7 +1350,7 @@ async function subagentCommand($, bin, turn, rows) {
   const conversationId = conversationOf(readConversations(await $.store.get(CONVERSATIONS_KEY)), turn.agentId)
   if (conversationId !== null) return followUpCommand(bin, sessionId, conversationId, prompt)
   if (hasAnswered(rows)) return { error: LOST_CONVERSATION }
-  return firstTurnCommand(turn.row, bin, sessionId, prompt)
+  return firstTurnCommand(turn.row, bin, sessionId, prompt, await takeEffort($, turn.agentId))
 }
 
 async function recordConversation($, agentId, conversationId) {

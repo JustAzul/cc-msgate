@@ -4,6 +4,7 @@
 // an engine reload keeps it. Only the state calls touch the mods API.
 //
 import { backedTypeOf } from './backed.js'
+import { asksEffort, bindEffort } from './efforts.js'
 import { EXIT_RUN_NOT_FOUND, failureText, messageOf } from './lib.js'
 import { finishedRun, handoffFailure } from './subagent.js'
 
@@ -65,6 +66,9 @@ export function runIdOfPrompt(prompt) {
 // The plugin that backed a full type: the part before its name.
 const pluginOfType = (fullType) => fullType.slice(0, fullType.indexOf(':'))
 
+// isEngineRow tells a type whose rows run an msgate job, not a follow.
+const isEngineRow = (backed) => backed !== null && (backed.command === 'exec' || backed.command === 'review')
+
 // admitSpawn is the engine's part of an `agent.spawn`, made by `spawner`, the
 // plugin the host stamped on the call. Only the plugin that backed a type with
 // the follow command may spawn its rows, and a row opens in no mode that cannot
@@ -73,6 +77,7 @@ const pluginOfType = (fullType) => fullType.slice(0, fullType.indexOf(':'))
 export async function admitSpawn($, e, spawner, next) {
   const fullType = e.subagentType
   const backed = typeof fullType === 'string' ? await backedTypeOf($, fullType) : null
+  if (isEngineRow(backed) && asksEffort(e)) return bindEffort($, e, next)
   if (backed === null || backed.command !== FOLLOW || spawner !== pluginOfType(fullType)) return next(e)
   if (e.permissionMode === AUTO_MODE) return { deny: AUTO_DENIAL }
 

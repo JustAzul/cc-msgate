@@ -167,6 +167,11 @@ declare module 'claude-code' {
       // The run each hidden row follows, by agent id, oldest row first, at most
       // 200: the rows the engine answers.
       hiddenRows: { [agentId: string]: string }
+      // The effort an Agent call asked for, by the id of the agent it started:
+      // the row's first turn runs with it instead of the type's, takes it once,
+      // and leaves null. It is in the state so that a reload between the spawn
+      // and the first turn loses nothing.
+      agentEfforts: StateFamily<string | null>
     }
   }
 }

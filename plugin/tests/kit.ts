@@ -126,6 +126,17 @@ export function world(on: any, opts: { store?: Record<string, unknown>; backed?:
     state: new Map<string, { value: unknown; version: number }>(),
     // How many of the next writes of those values fail.
     stateWriteFailures: 0,
+    // The effort of each agent an Agent call asked for, by agent id: the state
+    // family the mod keeps, a consumed member back at null.
+    agentEfforts: new Map<string, string | null>(),
+    // The Agent calls that reached the bottom and wait for the test to end them.
+    // The agent id of every read of the efforts state, in order.
+    effortReads: [] as string[],
+    // While set, a read of the efforts state answers only after it settles, with
+    // the value it held when the read was made.
+    effortReadHold: null as null | Promise<void>,
+    heldAgentCalls: [] as { toolUseId: string; end: () => void }[],
+    onAgentCall: null as null | (() => void),
     // What a process the mod runs answers: the call is kept in `runs`.
     processRun: async (argv: string[], init?: any): Promise<Reply> => {
       w.runs.push({ argv: [...argv], stdin: init?.stdin, cwd: init?.cwd, timeoutMs: init?.timeoutMs })
@@ -209,6 +220,17 @@ export function world(on: any, opts: { store?: Record<string, unknown>; backed?:
     on('state.get', { plugin: 'msgate', key }, () => ({ value: { value: w.state.get(key)?.value, version: w.state.get(key)?.version ?? 0 } }))
     on('state.set', { plugin: 'msgate', key }, (_$: any, e: any) => ({ value: stateWrite(w.state, key, e.value, e.ifVersion) }))
   }
+  // The efforts are a family: a member is told by its id.
+  on('state.get', { plugin: 'msgate', key: 'agentEfforts' }, async (_$: any, e: any) => {
+    w.effortReads.push(e.id)
+    const read = { value: { value: w.agentEfforts.get(e.id), version: w.agentEfforts.has(e.id) ? 1 : 0 } }
+    if (w.effortReadHold !== null) await w.effortReadHold
+    return read
+  })
+  on('state.set', { plugin: 'msgate', key: 'agentEfforts' }, (_$: any, e: any) => {
+    w.agentEfforts.set(e.id, e.value)
+    return { value: { isSet: true, version: 1 } }
+  })
   // The compaction beneath the plugin: the engine's own, which keeps nothing.
   on('session.compact', () => ({ messages: [{ role: 'user', text: 'a summary', toolUses: [] }] }))
   on('agent.list', () => ({ value: w.agents.map((a) => ({ ...a, description: '', status: 'running' })) }))
@@ -236,8 +258,17 @@ export function world(on: any, opts: { store?: Record<string, unknown>; backed?:
     w.modelRequests.push(e)
     return { value: await w.respondModel(e) }
   })
-  // Anything the mod does not answer itself falls through to here.
-  on('tool.call', () => ({ result: 'unanswered' }))
+  // Anything the mod does not answer itself falls through to here. An Agent call
+  // is held at the bottom until the test ends it: the test hooks cannot spawn,
+  // so the test raises the spawn the engine would nest in the call (see agentCall).
+  on('tool.call', async (_$: any, e: any) => {
+    if (e.tool !== 'Agent') return { result: 'unanswered' }
+    await new Promise<void>((end) => {
+      w.heldAgentCalls.push({ toolUseId: e.tool_use_id, end })
+      w.onAgentCall?.()
+    })
+    return { result: 'the agent ended' }
+  })
   on('ui.invalidate', (_$: any, e: any) => {
     w.invalidations.push(e.event)
     return { value: undefined }
@@ -262,6 +293,27 @@ export function world(on: any, opts: { store?: Record<string, unknown>; backed?:
 export async function step($: any, agentId?: string, { turnId = 'turn-1', index = 0 }: { turnId?: string; index?: number } = {}) {
   const { chunks, result } = await drain($.turn.step({ turnId, index, model: 'claude-haiku-4-5', messageCount: 1, agentId }))
   return { chunks, result, text: answerText(chunks, result) }
+}
+
+// agentCall raises an Agent call for `type` and holds it open, as the engine does
+// while the agent it spawns runs. `spawn` raises the `agent.spawn` the engine
+// nests in the call, carrying the call's id; `end` ends the call.
+export async function agentCall($: any, w: ReturnType<typeof world>, type: string, over: Record<string, unknown> = {}) {
+  const arrived = new Promise<void>((resolve) => {
+    w.onAgentCall = resolve
+  })
+  const settled = $.tool.call({ tool: 'Agent', description: 'a task', prompt: 'q', subagent_type: type, ...over })
+  await arrived
+  const held = w.heldAgentCalls.at(-1)!
+  return {
+    toolUseId: held.toolUseId,
+    spawn: (prompt = 'q', more: Record<string, unknown> = {}) =>
+      $.agent.spawn({ prompt, description: 'a task', subagentType: type, tool_use_id: held.toolUseId, ...more }),
+    end: async () => {
+      held.end()
+      await settled
+    },
+  }
 }
 
 // startTurn raises the start of one turn in the loop of `agentId`, with the

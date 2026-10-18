@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { AGENTS, SESSION, isShim, msgateAs, ok, startTurn, step, world } from './kit'
+import { SPAWN_WAIT_MS } from '../hooks/efforts.js'
+import { AGENTS, PROFILES, SESSION, agentCall, isShim, msgateAs, ok, startTurn, step, world } from './kit'
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 const HANDOFF_FAILED = 'msgate: the hand-off to the agent failed, so this is not its answer.'
@@ -519,6 +520,263 @@ for (const [name, settings] of SETTINGS) {
     expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION(name), ...settings, '-'])
   })
 }
+
+// An Agent call for a row of `type`, whose spawn starts the row's agent. The row
+// has the call's prompt. Resolves the agent the spawn started.
+async function callAgent($: any, w: ReturnType<typeof world>, type: string, over: Record<string, unknown> = {}, spawn: Record<string, unknown> = {}): Promise<string> {
+  const call = await agentCall($, w, type, over)
+  const prompt = String(over.prompt ?? 'q')
+  const spawned = await call.spawn(prompt, spawn)
+  await call.end()
+  w.messages[spawned.agentId] = [{ role: 'user', text: prompt }]
+  return spawned.agentId
+}
+
+const FLAGGED = (effort: string) => ['--effort', effort, '--effort-source', 'flag']
+
+test('an Agent call with an explicit effort starts the row\'s run with that effort in place of the type\'s', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  const agentId = await callAgent($, w, AGENTS + ':second-opinion', { effort: 'xhigh' })
+
+  await step($, agentId)
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), '--model', 'gpt-6.1-sol', ...FLAGGED('xhigh'), '--sandbox', 'read-only', '-'])
+})
+
+test('an Agent call with no effort starts the row\'s run with the type\'s own', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  const agentId = await callAgent($, w, AGENTS + ':second-opinion')
+
+  await step($, agentId)
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), ...READ_ONLY_HIGH, '-'])
+})
+
+test('an Agent call with an effort starts a review with that effort in its flags', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  const agentId = await callAgent($, w, AGENTS + ':code-review', { effort: 'xhigh', prompt: 'uncommitted' })
+
+  await step($, agentId)
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['review', '--uncommitted', ...ADMISSION('code-review'), '--model', 'gpt-6.1-sol', ...FLAGGED('xhigh'), '--sandbox', 'read-only'])
+})
+
+test('an effort is passed in its place among the settings of a type that names no effort', async ($, on) => {
+  const w = world(on, { backed: { 'p2:scratch': { command: 'exec', promptMode: 'free', sandbox: 'read-only' }, [AGENTS + ':adhoc']: PROFILES[AGENTS + ':adhoc']! } })
+  w.respond = codex('done')
+  await $.session.start(START)
+  const scratch = await callAgent($, w, 'p2:scratch', { effort: 'low' })
+  const adhoc = await callAgent($, w, AGENTS + ':adhoc', { effort: 'max' })
+
+  await step($, scratch)
+  await step($, adhoc)
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('scratch'), ...FLAGGED('low'), '--sandbox', 'read-only', '-'])
+  expect(w.runs.find((r) => r.argv[1] === 'exec' && r.argv.includes('adhoc'))!.argv.slice(1)).toEqual(['exec', ...ADMISSION('adhoc'), ...FLAGGED('max'), '-'])
+})
+
+test('an Agent call of a type nobody backed records no effort and its agent is answered by the model', async ($, on) => {
+  const w = world(on)
+  await $.session.start(START)
+  const agentId = await callAgent($, w, 'other:thing', { effort: 'xhigh' })
+
+  await step($, agentId)
+
+  expect([...w.agentEfforts]).toEqual([])
+  expect(w.modelSteps).toEqual([agentId])
+})
+
+test('an Agent call of a hidden row\'s type records no effort', async ($, on) => {
+  const w = world(on, { backed: { 'p2:follow': { command: 'follow', promptMode: 'run-id' } } })
+  await $.session.start(START)
+
+  await callAgent($, w, 'p2:follow', { effort: 'xhigh', prompt: 'msgate run run-1' })
+
+  expect([...w.agentEfforts]).toEqual([])
+})
+
+const NOT_ROWS: [string, Record<string, unknown>, Record<string, unknown>][] = [
+  ['a fork call', { subagent_type: 'fork' }, {}],
+  ['a forked spawn', {}, { fork: true }],
+  ['a teammate\'s spawn', {}, { isTeammate: true }],
+  ['a resumed run', {}, { resume: { agentId: 'ag-old' } }],
+  ['a workflow\'s agent', {}, { workflow: { runId: 'wf-1', agentIndex: 0 } }],
+]
+
+for (const [name, call, spawn] of NOT_ROWS) {
+  test(`${name} carrying an effort does not change the effort of its row`, async ($, on) => {
+    const w = world(on)
+    w.respond = codex('done')
+    await $.session.start(START)
+    const agentId = await callAgent($, w, AGENTS + ':second-opinion', { effort: 'xhigh', ...call }, spawn)
+
+    await step($, agentId)
+
+    expect([...w.agentEfforts]).toEqual([])
+    expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), ...READ_ONLY_HIGH, '-'])
+  })
+}
+
+test('two Agent calls with different efforts give each row its own', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  const first = await agentCall($, w, AGENTS + ':second-opinion', { effort: 'low' })
+  const second = await agentCall($, w, AGENTS + ':second-opinion', { effort: 'max' })
+  const [one, two] = [await first.spawn(), await second.spawn()]
+  await first.end()
+  await second.end()
+  w.messages[one.agentId] = [{ role: 'user', text: 'q' }]
+  w.messages[two.agentId] = [{ role: 'user', text: 'q' }]
+
+  await step($, two.agentId)
+  await step($, one.agentId)
+
+  const efforts = w.runs.filter((r) => r.argv[1] === 'exec').map((r) => r.argv[r.argv.indexOf('--effort') + 1])
+  expect(efforts).toEqual(['max', 'low'])
+})
+
+test('a spawn that starts no agent records no effort and leaves the call\'s effort unused', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  w.spawnAnswer = () => ({ deny: 'no agent today' })
+  const call = await agentCall($, w, AGENTS + ':second-opinion', { effort: 'xhigh' })
+
+  const denied = await call.spawn()
+  w.spawnAnswer = null
+  const later = await call.spawn()
+  await call.end()
+  w.messages[later.agentId] = [{ role: 'user', text: 'q' }]
+  await step($, later.agentId)
+
+  expect(denied).toEqual({ deny: 'no agent today' })
+  expect(w.debugLogs.filter((text) => text.includes('effort'))).toEqual([expect.stringContaining('xhigh')])
+  expect([...w.agentEfforts]).toEqual([])
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), ...READ_ONLY_HIGH, '-'])
+})
+
+test('the effort of an Agent call is kept in the state, so a first turn after a reload still admits with it', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  subagent(w, 'ag-1', AGENTS + ':second-opinion', [{ role: 'user', text: 'q' }])
+  // The load that saw the call is gone: only the state remembers its effort.
+  w.agentEfforts.set('ag-1', 'xhigh')
+  await $.session.start(START)
+
+  await step($, 'ag-1')
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), '--model', 'gpt-6.1-sol', ...FLAGGED('xhigh'), '--sandbox', 'read-only', '-'])
+})
+
+test('a first turn consumes the effort, so a later turn of the row carries none', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  const agentId = await callAgent($, w, AGENTS + ':second-opinion', { effort: 'xhigh' })
+  expect(w.agentEfforts.get(agentId)).toBe('xhigh')
+
+  await step($, agentId)
+  w.messages[agentId] = [...w.messages[agentId]!, { role: 'assistant', text: 'done' }, { role: 'user', text: 'and then?' }]
+  await step($, agentId, { turnId: 'turn-2' })
+
+  expect(w.agentEfforts.get(agentId)).toBeNull()
+  const sends = w.runs.filter((r) => r.argv[1] === 'send')
+  expect(sends.map((r) => r.argv.slice(1))).toEqual([['send', 'conv-1', ...JOB_FLAGS, '-']])
+})
+
+// A spawn that has started its agent and is held before it answers, as the
+// engine's is until the agent is up. `release` lets it answer.
+function slowSpawn(w: ReturnType<typeof world>, agentId: string) {
+  let release = () => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  w.spawnAnswer = async () => {
+    w.agents.push({ id: agentId, type: AGENTS + ':second-opinion' })
+    w.messages[agentId] = [{ role: 'user', text: 'q' }]
+    await held
+    return { model: 'claude-haiku-4-5', agentId }
+  }
+  return release
+}
+
+// The runs the mod admitted for first turns.
+const admissions = (w: ReturnType<typeof world>) => w.runs.filter((r) => r.argv[1] === 'exec')
+
+// Lets the work in flight run until `done` holds.
+async function until(done: () => boolean) {
+  for (let i = 0; i < 100 && !done(); i += 1) await new Promise((resolve) => setTimeout(resolve, 1))
+}
+
+test('a first turn that starts while its spawn is still in flight waits for the spawn and admits with its effort', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  const release = slowSpawn(w, 'ag-slow')
+  const call = await agentCall($, w, AGENTS + ':second-opinion', { effort: 'xhigh' })
+  const spawning = call.spawn()
+  await until(() => w.agents.length > 0)
+
+  const turn = step($, 'ag-slow')
+  await until(() => w.effortReads.length > 0)
+  expect(w.runs).toEqual([])
+  release()
+  await spawning
+  await call.end()
+  await turn
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), '--model', 'gpt-6.1-sol', ...FLAGGED('xhigh'), '--sandbox', 'read-only', '-'])
+})
+
+test('a first turn whose state read returns after the spawn answered still admits with the spawn\'s effort', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  const release = slowSpawn(w, 'ag-slow')
+  let answerRead = () => {}
+  w.effortReadHold = new Promise<void>((resolve) => {
+    answerRead = resolve
+  })
+  const call = await agentCall($, w, AGENTS + ':second-opinion', { effort: 'xhigh' })
+  const spawning = call.spawn()
+  await until(() => w.agents.length > 0)
+
+  const turn = step($, 'ag-slow')
+  await until(() => w.effortReads.length > 0)
+  release()
+  await spawning
+  await call.end()
+  answerRead()
+  await turn
+
+  expect(admissions(w)[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), '--model', 'gpt-6.1-sol', ...FLAGGED('xhigh'), '--sandbox', 'read-only', '-'])
+})
+
+test('a first turn gives up waiting for a spawn after the bound and admits with the type\'s own effort', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  slowSpawn(w, 'ag-slow')
+  const call = await agentCall($, w, AGENTS + ':second-opinion', { effort: 'xhigh' })
+  void call.spawn()
+  await until(() => w.agents.length > 0)
+
+  const turn = step($, 'ag-slow')
+  await until(() => w.effortReads.length > 0)
+  await w.clock.advance(SPAWN_WAIT_MS - 1)
+  expect(admissions(w)).toEqual([])
+  await w.clock.advance(1)
+  await turn
+
+  expect(admissions(w)[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), ...READ_ONLY_HIGH, '-'])
+})
 
 test('a type backed again is run with its new data from the next row on', async ($, on) => {
   const w = world(on)
