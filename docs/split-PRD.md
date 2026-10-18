@@ -1,5 +1,7 @@
 # Product Requirements Document
 
+> This document amends and supersedes [`PRD.md`](PRD.md), which describes agentcli up to 0.6.3: what a requirement here does not name carries over to msgate, and section 8, Appendix A maps each agentcli requirement to its home after the split. Read the two together.
+
 **Project / Feature**: msgate split — the agentcli plugin becomes the engine `msgate` (repository `cc-msgate`) and the agents plugin `msgate-agents`
 **Date**: 2026-10-16
 

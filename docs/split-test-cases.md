@@ -1,5 +1,7 @@
 # Verification Checklist: msgate split
 
+> These cases cover what [`split-PRD.md`](split-PRD.md) changes. The cases for the requirements it does not name are still in [`test-cases.md`](test-cases.md), which describes agentcli up to 0.6.3.
+
 **Date**: 2026-10-16
 **Status**: Draft
 
