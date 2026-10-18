@@ -300,7 +300,7 @@ Each run records where every value came from:
 
 | Source | Meaning |
 |---|---|
-| `flag` | passed on the command line |
+| `flag` | passed on the command line, or the effort passed with `--effort-source flag` |
 | `profile` | passed on the command line by a caller applying a profile, with `--settings-source profile` |
 | `provider-default` | not passed; the provider chose |
 | `default` | the sandbox, not passed, so the engine's read-only default applied |
@@ -308,9 +308,13 @@ Each run records where every value came from:
 `--settings-source <flag|profile>` (default `flag`) is for a caller that
 resolves its own profile and hands the values over as flags, such as an agent
 type of `msgate-agents`: the model, effort and sandbox passed as flags are then
-recorded with source `profile`. `send` reuses the defaults of its conversation
-and their sources; a conversation recorded before the sandbox default existed,
-with no sandbox, continues read-only with source `default`.
+recorded with source `profile`. `--effort-source <flag|profile>` sets the source
+of the effort alone, so a caller can hand over a profile's model and sandbox
+together with an effort someone asked for explicitly: `--settings-source profile
+--effort-source flag` records the model and sandbox as `profile` and the effort
+as `flag`. Without `--effort` it changes nothing. `send` reuses the defaults of
+its conversation and their sources; a conversation recorded before the sandbox
+default existed, with no sandbox, continues read-only with source `default`.
 
 ## Telemetry
 
@@ -562,6 +566,14 @@ How a backed row behaves:
   of `uncommitted`, `base <branch>` or `commit <sha>`; anything else is refused
   naming the three forms. The run carries the type's name as its purpose, the
   source `agent` and the settings source `profile`.
+- **Effort.** An `effort` given in the Agent call that spawned the agent
+  replaces the type's: the first turn runs with it, recorded with
+  `--effort-source flag`, and the later turns keep it through the conversation.
+  The value reaches the provider as given; Codex takes `minimal`, `low`,
+  `medium`, `high` and `xhigh`, so a `max` ends as the run's failure. Without an
+  effort in the call, the type's effort applies, then the provider's default;
+  the session's own effort setting never applies. A fork, a resumed agent, a
+  teammate and a workflow's agent take no effort from the call.
 - **Later turns.** A SendMessage to the agent continues the same conversation.
   An agent whose earlier answer is saved but whose conversation is not recorded
   answers that it cannot be resumed.
@@ -665,7 +677,8 @@ full type takes the caller's name.
 - `model`, `effort` and `sandbox` are optional strings, and `sandbox` is
   `read-only` or `workspace-write`. These are the type's profile, handed over as
   data: the engine passes them to the run as flags with the settings source
-  `profile`.
+  `profile`. An `effort` in the Agent call that spawns a row replaces the
+  profile's for that row.
 - Anything else is refused with `msgate:backType:<field>`, naming the field.
 - The backed types live in the engine's session state, keyed by full type, so an
   engine reload keeps them. A later call for the same type replaces its data.
@@ -709,7 +722,8 @@ out=$("$msgate" exec --purpose code-review --source my-review-hook \
 (`MSGATE_BIN` is a convention of your own script, not a variable `msgate`
 reads.) A run passes its settings as flags because a purpose carries none: say
 the model, effort and sandbox every time, and add `--settings-source profile`
-when the values come from a profile you keep.
+when the values come from a profile you keep, with `--effort-source flag` when
+the effort alone does not.
 
 Useful flags:
 - `--agent-feedback` shows the run in the band above the prompt of its Claude
