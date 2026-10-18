@@ -40,7 +40,7 @@ func runReview(ctx *Context, args []string) int {
 	if len(p.positional) > 0 || p.promptFile != "" {
 		return ctx.Fail(ExitUsage, "review targets take no prompt: pass a target flag and no prompt source")
 	}
-	eff := settings.Resolve(settings.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox}, p.settingsSource)
+	eff := settings.Resolve(settings.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox, EffortSource: p.effortSource}, p.settingsSource)
 	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "review", Sandbox: eff.Sandbox, ReviewTarget: target}); err != nil {
 		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
 	}

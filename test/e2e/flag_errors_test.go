@@ -62,6 +62,14 @@ func TestBadSettingsSourceIsAFlagError(t *testing.T) {
 	assertFlagError(t, r, "usage: msgate exec ", `msgate: invalid value "plugin" for flag -settings-source: `)
 }
 
+func TestBadEffortSourceIsAFlagError(t *testing.T) {
+	s := newSandbox(t)
+
+	r := s.run("exec", "--effort-source", "bogus", "-")
+
+	assertFlagError(t, r, "usage: msgate exec ", `msgate: invalid value "bogus" for flag -effort-source: --effort-source needs "flag" or "profile", got "bogus"`)
+}
+
 func TestUnknownFlagOnEveryCommandThatParsesFlags(t *testing.T) {
 	cases := []struct {
 		args  []string

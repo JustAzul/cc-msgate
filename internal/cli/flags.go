@@ -17,6 +17,7 @@ type turnFlags struct {
 	provider       string
 	purpose        string
 	settingsSource string
+	effortSource   string // "" when --effort-source was not passed
 	model          string
 	effort         string
 	sandbox        string
@@ -124,6 +125,25 @@ func (f settingsSourceFlag) Set(raw string) error {
 	return nil
 }
 
+// effortSourceFlag parses --effort-source: the source recorded for the effort
+// the caller passes, in place of --settings-source's.
+type effortSourceFlag struct{ target *string }
+
+func (f effortSourceFlag) String() string {
+	if f.target == nil {
+		return ""
+	}
+	return *f.target
+}
+
+func (f effortSourceFlag) Set(raw string) error {
+	if !settings.ValidSource(raw) {
+		return fmt.Errorf("--effort-source needs %q or %q, got %q", settings.SourceFlag, settings.SourceProfile, raw)
+	}
+	*f.target = raw
+	return nil
+}
+
 // failFlagParse reports a refused flag parse: the command's usage on stderr
 // first, then one last line carrying the error, so the line a caller keeps is
 // the error. It returns the usage exit.
@@ -170,6 +190,7 @@ func parseTurnArgs(ctx *Context, spec turnSpec, args []string) (p parsedTurn, ex
 	fs.StringVar(&f.purpose, "purpose", "adhoc", "caller's label for the run's purpose")
 	f.settingsSource = settings.SourceFlag
 	fs.Var(settingsSourceFlag{&f.settingsSource}, "settings-source", "source recorded for the model, effort and sandbox passed: flag or profile (default flag)")
+	fs.Var(effortSourceFlag{&f.effortSource}, "effort-source", "source recorded for the effort passed, in place of --settings-source's: flag or profile")
 	fs.StringVar(&f.model, "model", "", "model")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort")
 	fs.StringVar(&f.sandbox, "sandbox", "", "read-only or workspace-write")

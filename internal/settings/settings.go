@@ -19,6 +19,9 @@ type Flags struct {
 	Model   string
 	Effort  string
 	Sandbox string
+	// EffortSource, when set, is the source recorded for a passed effort in
+	// place of the one Resolve is given for the others.
+	EffortSource string
 }
 
 // Resolved is the effective setting for each field and where it came from.
@@ -38,11 +41,11 @@ func ValidSource(source string) bool { return source == SourceFlag || source == 
 
 // Resolve takes a flag's value, else the provider's default, and for the
 // sandbox the engine's read-only default. A value the caller passed is
-// recorded with passedSource.
+// recorded with passedSource, an effort with f.EffortSource when that is set.
 func Resolve(f Flags, passedSource string) Resolved {
 	var r Resolved
 	r.Model, r.ModelSource = pick(f.Model, passedSource, SourceProviderDefault)
-	r.Effort, r.EffortSource = pick(f.Effort, passedSource, SourceProviderDefault)
+	r.Effort, r.EffortSource = pick(f.Effort, firstSet(f.EffortSource, passedSource), SourceProviderDefault)
 	r.Sandbox, r.SandboxSource = pick(f.Sandbox, passedSource, SourceDefault)
 	if r.Sandbox == "" {
 		r.Sandbox = DefaultSandbox
@@ -55,4 +58,11 @@ func pick(flagValue, passedSource, unsetSource string) (value, source string) {
 		return flagValue, passedSource
 	}
 	return "", unsetSource
+}
+
+func firstSet(source, fallback string) string {
+	if source != "" {
+		return source
+	}
+	return fallback
 }

@@ -118,19 +118,19 @@ func findConversation(st *store.Store, id string) (store.Conversation, error) {
 // stored defaults. A stored value keeps the source its first turn recorded.
 func turnSettings(st *store.Store, conv store.Conversation, p parsedTurn) settings.Resolved {
 	first := firstTurnSources(st, conv)
-	pick := func(name, flagValue, stored, storedSource, unset, unsetSource string) (string, string) {
+	pick := func(name, flagValue, passedSource, stored, storedSource, unset, unsetSource string) (string, string) {
 		switch {
 		case p.given[name] && flagValue != "":
-			return flagValue, p.settingsSource
+			return flagValue, passedSource
 		case stored == "":
 			return unset, unsetSource
 		}
 		return stored, storedSource
 	}
 	var r settings.Resolved
-	r.Model, r.ModelSource = pick("model", p.model, conv.Defaults.Model, first.model, "", settings.SourceProviderDefault)
-	r.Effort, r.EffortSource = pick("effort", p.effort, conv.Defaults.Effort, first.effort, "", settings.SourceProviderDefault)
-	r.Sandbox, r.SandboxSource = pick("sandbox", p.sandbox, conv.Defaults.Sandbox, first.sandbox, settings.DefaultSandbox, settings.SourceDefault)
+	r.Model, r.ModelSource = pick("model", p.model, p.settingsSource, conv.Defaults.Model, first.model, "", settings.SourceProviderDefault)
+	r.Effort, r.EffortSource = pick("effort", p.effort, firstNonEmpty(p.effortSource, p.settingsSource), conv.Defaults.Effort, first.effort, "", settings.SourceProviderDefault)
+	r.Sandbox, r.SandboxSource = pick("sandbox", p.sandbox, p.settingsSource, conv.Defaults.Sandbox, first.sandbox, settings.DefaultSandbox, settings.SourceDefault)
 	return r
 }
 

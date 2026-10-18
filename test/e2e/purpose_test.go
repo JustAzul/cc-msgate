@@ -187,6 +187,69 @@ func TestSettingsSourceRejectsOtherValues(t *testing.T) {
 	}
 }
 
+func TestEffortSourceOverridesTheSettingsSourceForTheEffortOnly(t *testing.T) {
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
+	conv := startConversation(t, s, "es1", "--settings-source", "profile", "--effort-source", "flag",
+		"--model", "m1", "--effort", "low", "--sandbox", "workspace-write")
+	want := map[string]any{
+		"model": "m1", "model_source": "profile", "effort": "low", "effort_source": "flag",
+		"sandbox": "workspace-write", "sandbox_source": "profile",
+	}
+
+	checkFields(t, "request", readJSONFile(t, filepath.Join(s.home, "runs", "es1", "request.json")), want)
+	defaults, _ := conversationRecord(t, s.home, conv)["defaults"].(map[string]any)
+	checkFields(t, "defaults", defaults, want)
+
+	s.set("FAKECODEX_FIXTURE", fixture("resume-turn2"))
+	if r := s.run("send", conv, "--run-id", "es2", "again"); r.code != 0 {
+		t.Fatalf("exit %d %s", r.code, r.stderr)
+	}
+	checkFields(t, "turn 2", lastRunRecord(t, s.home), map[string]any{
+		"model_source": "profile", "effort": "low", "effort_source": "flag",
+	})
+}
+
+func TestReviewRecordsTheEffortSourceOfAnEffortItPasses(t *testing.T) {
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("review-ok"))
+
+	r := s.run("review", "--uncommitted", "--cwd", gitRepo(t), "--run-id", "er1",
+		"--settings-source", "profile", "--effort-source", "flag", "--model", "m1", "--effort", "low")
+
+	if r.code != 0 {
+		t.Fatalf("exit %d %s", r.code, r.stderr)
+	}
+	checkFields(t, "request", readJSONFile(t, filepath.Join(s.home, "runs", "er1", "request.json")), map[string]any{
+		"model_source": "profile", "effort": "low", "effort_source": "flag",
+	})
+}
+
+func TestEffortSourceWithoutAnEffortChangesNothing(t *testing.T) {
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok"))
+	repo := gitRepo(t)
+
+	if r := s.run("exec", "--run-id", "en1", "--settings-source", "profile", "--effort-source", "flag", "--model", "m1", "--cwd", repo, "q"); r.code != 0 {
+		t.Fatalf("exit %d %s", r.code, r.stderr)
+	}
+
+	checkFields(t, "request", readJSONFile(t, filepath.Join(s.home, "runs", "en1", "request.json")), map[string]any{
+		"model_source": "profile", "effort": nil, "effort_source": "provider-default",
+	})
+}
+
+func TestSendRecordsTheEffortSourceOfAnEffortItPasses(t *testing.T) {
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
+	conv := startConversation(t, s, "sf1", "--model", "m1", "--settings-source", "profile")
+	s.set("FAKECODEX_FIXTURE", fixture("resume-turn2"))
+
+	if r := s.run("send", conv, "--run-id", "sf2", "--settings-source", "profile", "--effort-source", "flag", "--effort", "x", "again"); r.code != 0 {
+		t.Fatalf("exit %d %s", r.code, r.stderr)
+	}
+
+	checkFields(t, "turn 2", lastRunRecord(t, s.home), map[string]any{
+		"model": "m1", "model_source": "profile", "effort": "x", "effort_source": "flag",
+	})
+}
+
 func TestSendKeepsTheSourcesOfTheConversation(t *testing.T) {
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
 	conv := startConversation(t, s, "sk1", "--purpose", "delegation", "--model", "m1", "--effort", "low",

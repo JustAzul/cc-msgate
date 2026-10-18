@@ -29,7 +29,7 @@ func runExec(ctx *Context, args []string) int {
 	if !ok {
 		return ctx.Fail(ExitUsage, "unknown provider %q (known: %v)", p.provider, provider.Names())
 	}
-	eff := settings.Resolve(settings.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox}, p.settingsSource)
+	eff := settings.Resolve(settings.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox, EffortSource: p.effortSource}, p.settingsSource)
 	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "exec", Sandbox: eff.Sandbox}); err != nil {
 		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
 	}
