@@ -315,9 +315,8 @@ export function register(on, options) {
     const answered = answeredText(e)
     if (answered !== null) return yield* answer(e, answered)
     yield* opening($, row)
-    const turn = { agentId: e.agentId, turnId: e.turnId, row, records: [] }
-    const text = yield* followTurn($, turn, next.signal)
-    return yield* deliver(e, text, turn.records)
+    const { text, records } = yield* followTurn($, { agentId: e.agentId, turnId: e.turnId, row }, next.signal)
+    return yield* deliver(e, text, records)
   }).catch(async function* ($, e, next) {
     if (next.called || !isKnownSubagent(e.agentId)) return yield* next(e)
     // Block 1 is free: the recorded summaries stream inside the hand-back or the
@@ -1351,35 +1350,38 @@ async function* hiddenStep($, e, next, row) {
 
   answeredHiddenRows.add(e.agentId)
   yield* opening($, row)
-  const turn = { agentId: e.agentId, row, records: [] }
-  const text = checked.error === undefined ? yield* followHidden($, bin, turn, runId, next.signal) : handoffFailure(checked.error)
+  const { text, records } =
+    checked.error === undefined ? yield* followHidden($, bin, { agentId: e.agentId, row }, runId, next.signal) : { text: handoffFailure(checked.error), records: [] }
   rememberAnswer(e, text)
-  return yield* answer(e, text, turn.records)
+  return yield* answer(e, text, records)
 }
 
 // followHidden shows a hidden row's run as it works and returns the text that
-// ends the turn. Stopping the row ends the turn and leaves the run going.
+// ends the turn, with the summaries recorded for the run. Stopping the row ends
+// the turn and leaves the run going.
 async function* followHidden($, bin, turn, runId, signal) {
   turnAgents.set(turn.agentId, { runId, type: turn.row.name })
+  let records = []
   try {
-    yield* watchRun($, bin, runId, signal, turn.records)
-    if (signal.aborted) return stoppedText(runId)
+    records = yield* watchRun($, bin, runId, signal)
+    if (signal.aborted) return { text: stoppedText(runId), records }
     const read = await readFinished($, bin, runId)
-    return read.failure === undefined ? endedText(read.run) : read.failure
+    return { text: read.failure === undefined ? endedText(read.run) : read.failure, records }
   } catch (error) {
-    return followFailureText(error, runId, signal)
+    return { text: followFailureText(error, runId, signal), records }
   } finally {
     turnAgents.delete(turn.agentId)
   }
 }
 
-// followTurn shows the turn's run as it works and returns the answer. `turn`
-// names the agent, the turn and the agent's row.
+// followTurn shows the turn's run as it works and returns the answer, with the
+// summaries recorded for the run. `turn` names the agent, the turn and the
+// agent's row.
 async function* followTurn($, turn, signal) {
   try {
     return yield* runSubagentTurn($, turn, signal)
   } catch (error) {
-    return handoffFailure(messageOf(error))
+    return { text: handoffFailure(messageOf(error)), records: [] }
   } finally {
     turnAgents.delete(turn.agentId)
   }
@@ -1387,22 +1389,32 @@ async function* followTurn($, turn, signal) {
 
 async function* runSubagentTurn($, turn, signal) {
   const rows = await $.session.messages({ agentId: turn.agentId })
-  if (!Array.isArray(rows)) return handoffFailure('could not read the prompt: ' + rows.deny)
+  if (!Array.isArray(rows)) return failedTurn('could not read the prompt: ' + rows.deny)
 
   const bin = shimPath($.plugin.root)
   const built = await subagentCommand($, bin, turn, rows)
-  if (built.error) return handoffFailure(built.error)
+  if (built.error) return failedTurn(built.error)
 
   const reply = await $.process.run(built.argv, { stdin: built.stdin, timeoutMs: ADMIT_TIMEOUT_MS })
-  if (reply.exitCode !== 0) return handoffFailure(failureText(reply))
+  if (reply.exitCode !== 0) return failedTurn(failureText(reply))
   const ids = admittedJob(reply.stdout)
-  if (ids === null) return handoffFailure('msgate printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500))
+  if (ids === null) return failedTurn('msgate printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500))
 
   startNotice($, () => notifyAdmitted($, bin, ids.run_id, turn.row.name, AGENT_SOURCE))
   turnAgents.set(turn.agentId, { runId: ids.run_id, type: turn.row.name })
   await recordConversation($, turn.agentId, ids.conversation_id)
-  yield* followOwnRun($, bin, ids.run_id, signal, turn.records)
-  return finalAnswer($, bin, ids.run_id)
+  const records = yield* followOwnRun($, bin, ids.run_id, signal)
+  try {
+    return { text: await finalAnswer($, bin, ids.run_id), records }
+  } catch (error) {
+    return { text: handoffFailure(messageOf(error)), records }
+  }
+}
+
+// failedTurn is the end of a turn that could not start its run: the hand-off
+// failure, with nothing recorded.
+function failedTurn(detail) {
+  return { text: handoffFailure(detail), records: [] }
 }
 
 // subagentCommand starts the conversation on the agent's first turn and
@@ -1433,18 +1445,18 @@ async function recordConversation($, agentId, conversationId) {
 // followOwnRun watches a run the agent itself started. Interrupting the turn
 // (Esc, or TaskStop on the agent) cancels the run, including one interrupted
 // before the wait began.
-async function* followOwnRun($, bin, runId, signal, records) {
+async function* followOwnRun($, bin, runId, signal) {
   const cancel = () => {
     $.process.run([bin, 'cancel', runId]).catch(() => {})
   }
   if (signal.aborted) {
     cancel()
-    return
+    return []
   }
 
   signal.addEventListener('abort', cancel, { once: true })
   try {
-    yield* watchRun($, bin, runId, signal, records)
+    return yield* watchRun($, bin, runId, signal)
   } finally {
     signal.removeEventListener('abort', cancel)
   }
@@ -1453,40 +1465,49 @@ async function* followOwnRun($, bin, runId, signal, records) {
 // watchRun waits for the run in short slices and, after each, streams what the
 // provider did since the last as thinking, or a heartbeat when it has been
 // quiet, until the run ends or the turn is interrupted. It never stops the run.
-// When it ends and the turn was not interrupted, the summaries recorded for the
-// run's windows are pushed onto `records`.
-async function* watchRun($, bin, runId, signal, records = []) {
-  const recorder = await recorderOf($, runId, await summaryConfig($))
+// It returns the summaries recorded for the run's windows when it ends and the
+// turn was not interrupted, and none otherwise.
+async function* watchRun($, bin, runId, signal) {
+  // The recorder while the follow still feeds it: it is let go of when the
+  // summaries are switched off, and a follow cut short lets go of it too.
+  let recording = await recorderOf($, runId, await summaryConfig($))
   const startedAt = await $.clock.now()
   let shownAt = startedAt
   let from = 0
   let reply
-  let isFinished = false
   try {
     do {
       reply = await $.process.run(sliceWaitCommand(bin, runId), { timeoutMs: SLICE_TIMEOUT_MS })
       const progress = await newProgress($, bin, runId, from)
       from = progress.next
-      if (recorder !== null && progress.text.length > 0) recorder.add(progress.text)
+      const config = await summaryConfig($)
+      if (recording !== null && !config.isEnabled) recording = abandon($, recording)
+      if (recording !== null && progress.text.length > 0) recording.add(progress.text)
       // With summaries active the row shows labels, not the entries.
       const lines = (await summaries.observe(summaryPorts($), runId, progress.text)) ? summaries.take(runId) : progress.text
       for (const line of lines) yield thinking(line)
 
       const now = await $.clock.now()
       if (lines.length > 0) shownAt = now
-      else if (now - shownAt >= HEARTBEAT_MS && (await summaryConfig($)).isEnabled) {
+      else if (now - shownAt >= HEARTBEAT_MS && config.isEnabled) {
         yield thinking(heartbeatLine(now - startedAt))
         shownAt = now
       }
     } while (isWaitTimeout(reply) && !signal.aborted)
-    isFinished = true
-    if (recorder !== null) records.push(...(await finishRecords($, runId, recorder, signal)))
+    const ending = recording
+    recording = null
+    return ending === null ? [] : await finishRecords($, runId, ending, signal)
   } finally {
     summaries.forget(runId)
-    // A follow cut short, by a stop at a chunk or by an error, starts no request
-    // after it.
-    if (recorder !== null && !isFinished) void recorder.finish({ isAborted: () => true, ports: summaryPorts($) }).catch(() => {})
+    if (recording !== null) abandon($, recording)
   }
+}
+
+// abandon tells a recorder that no more entries come and that it is to start no
+// request; the records it holds are not collected.
+function abandon($, recorder) {
+  void recorder.finish({ isAborted: () => true, ports: summaryPorts($) }).catch(() => {})
+  return null
 }
 
 // recorderOf is the recorder of one follow of a run, or null when the summaries

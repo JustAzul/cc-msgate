@@ -132,15 +132,17 @@ function recordsAtWaits(w: ReturnType<typeof world>) {
 
 test('a run of fewer entries than a window is recorded once, when it ends, and not while it runs', async ($, on) => {
   const w = world(on, { backed: BACKED })
+  await openHiddenRow($, w, [3, 2])
   const asked = recordsAtWaits(w)
-  const out = await hiddenRow($, w, [3, 2])
+  const out = await step($, 'ag-hidden')
 
   expect(textBlocks(out.chunks)).toEqual([
     { index: 1, text: '» 1–5: Covered entry 1 to entry 5.\n' },
     { index: 2, text: 'msgate run run-hook ended ok' },
   ])
   expect(w.modelRequests.filter(isRecordRequest)).toHaveLength(1)
-  expect(asked.every((count) => count === 0)).toBe(true)
+  // Two waits time out and the third finds the run done; none had a request out.
+  expect(asked).toEqual([0, 0, 0])
 })
 
 test('a run with no entries asks for no record and streams no block ahead of its text', async ($, on) => {
@@ -283,4 +285,21 @@ test('every record request is counted with the usage of the run, like the live l
   expect(w.modelRequests.filter(isRecordRequest)).toHaveLength(3)
   expect(adds).toHaveLength(w.modelRequests.length)
   expect(adds.every((add) => add.argv.includes('mod-summary') && add.argv.includes('run-hook'))).toBe(true)
+})
+
+test('a run whose summaries are switched off by the environment mid-run asks for no more records and streams none', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  await openHiddenRow($, w, [4, 4, 4, 4, 4])
+  const run = w.respond
+  let waits = 0
+  w.respond = (argv, init) => {
+    // The third slice is the first after the switch.
+    if (argv[1] === 'wait' && ++waits === 3) w.env.set('MSGATE_SUMMARIES', '0')
+    return run(argv, init)
+  }
+  const out = await step($, 'ag-hidden')
+
+  // The window of the first eight entries was out before the switch.
+  expect(w.modelRequests.filter(isRecordRequest)).toHaveLength(1)
+  expect(textBlocks(out.chunks)).toEqual([{ index: 1, text: 'msgate run run-hook ended ok' }])
 })
