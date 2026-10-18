@@ -332,7 +332,8 @@ Anthropic API. `register(on, options)` reads `options.summaries`.
 - Active when `options.summaries !== false` and
   `(await $.session.surfaces()).length > 0`, read at each summary. Otherwise the
   mod keeps its behaviour from before the summaries: raw entries in the row and
-  the band.
+  the band. The environment variable `MSGATE_SUMMARIES`, the intervals and the
+  off mode amend this in "Mod: recorded summaries" below.
 - While summaries are active, neither the agent row nor the band shows a raw
   progress entry. The row streams `» <label>` for each label that settles, and
   the band's last part is the newest label; before a run's first label the band
@@ -388,6 +389,69 @@ Previous label: <label> (say something NEW).
 ```
 
 The last paragraph is left out when there is no previous label.
+
+## Mod: recorded summaries
+
+The summaries above are the **live summaries**: a label streamed as `thinking`,
+which the host shows and does not record. The **recorded summaries** put the
+same progress in the history of the row that follows the run, as `text`, which
+the host records (`claude-code.d.ts`, the `turn.step` chunks).
+
+**Manifest.** `userConfig` gains two `number` options with no `min` or `max` (a
+value outside them stops the whole module from loading, so the module checks the
+range): `liveSummaryEvery`, default 3, and `recordedSummaryEvery`, default 8.
+`plugin/hooks/settings.js` (`summarySettings({ options, env })`) reads them with
+`MSGATE_SUMMARIES` and answers `{ isEnabled, liveEvery, recordedEvery, notes }`.
+- `liveSummaryEvery` is an integer from 1 to 10 (`WINDOW_ENTRIES`), else 3;
+  `recordedSummaryEvery` an integer from 1 to 24 (`RECORD_WINDOW_ENTRIES`), else
+  8, or 0 for none. A value out of range or not an integer falls back, with one
+  note per load in the debug log.
+- `MSGATE_SUMMARIES` is read with `$.env.get('MSGATE_SUMMARIES')` at each use,
+  so the name is listed by `claude plugin validate`. `0` turns the summaries
+  off, `1` on, over the `summaries` option; unset, or a read that throws, leaves
+  the option; any other value leaves the option, with one note.
+
+**The recorder.** One per follow of a run (`plugin/hooks/recorder.js`), created
+when the summaries are on, `recordedEvery` is above 0 and the session has a
+surface. `watchRun` feeds it the raw progress lines of every slice, whether or
+not the live summaries replace them on screen. Entries are numbered from 1.
+- Once `recordedEvery` entries are unrecorded, and none of the follow's own
+  requests is in flight, it asks for a record of all the unrecorded entries (the
+  newest 24 of them, each cut to 300 characters). When the run ends and the turn
+  was not interrupted, one more request covers what is left, awaited for at most
+  15 s; its failure or timeout skips it.
+- The call is `$.model.complete({ model: 'claude-haiku-5-5', effort: 'low',
+  system: RECORD_SYSTEM, prompt, maxTokens: 120, timeoutMs: 15000 })` inside
+  try/catch. `RECORD_SYSTEM` asks for one or two plain sentences in English, in
+  the past tense, naming the file, command or function, at most 400 characters,
+  with no markdown or quotes.
+- A reply is cleaned (ANSI and control characters out, whitespace runs to one
+  space); one over 400 characters is cut after its last whole sentence, else at
+  its last whole word, else at 400. An unanswered or empty reply is no record:
+  its window stays unrecorded, the failure is logged once for the run, and the
+  next request covers it.
+- Requests take their slots from the limiter shared with the live summaries
+  (`plugin/hooks/limiter.js`: 2 in flight for the session, and the 429 pause),
+  and their usage goes to `usage add` under the source `mod-summary`.
+
+**In the step.** The records go in the same step response as the live
+`thinking`, as `text` chunks at block indices 1 to *k*, one per record, whose
+text is `» <first>–<last>: <sentence>` and a newline (`<first>` alone when the
+record covers one entry). They come after the `thinking` blocks (index 0) and
+before the hand-back `tool` chunk of a row Claude called, or the final `text` of
+a hidden row, which sit at index *k* + 1. The step's `answer` is the streamed
+text. The hand-back message, the report that returns to Claude and every later
+step are unchanged, so they carry no record. A turn interrupted before the
+records are ready streams none, and no request is left running.
+
+**Off.** When the summaries are off the mod makes no summary request and builds no
+recorder, and it adds nothing of its own to the row: the `msgate · <type>` line
+that opened the row and the `still working · <elapsed>` line are not streamed.
+Codex's entries still stream as `thinking`, and reasoning the provider encrypts
+produces no entry. The spinner keeps its `msgate · <type>` message. Off with no
+surface (`claude -p`) is as before: that is "inactive", and the opener and the
+heartbeat stay. Switching the summaries off during a run lets go of its
+recorder, and its unrecorded entries are not recorded.
 
 ## Mod: spinner
 
@@ -526,7 +590,10 @@ agentcli · spawned <scenario> · trigger <source> · finished in 3s
   scripted replies) and `session.surfaces` (it answers `[]` by default, so the
   tests that existed before the summaries stay headless and unchanged; a test
   that wants summaries opts in with a surface). A test sets the plugin options
-  (`summaries`) that `register(on, options)` receives. The kit also keeps the
+  (`summaries`, `liveSummaryEvery`, `recordedSummaryEvery`) that
+  `register(on, options)` receives, and the value `$.env.get` answers for
+  `MSGATE_SUMMARIES` (or makes it throw). `readStep` reads a step chunk by chunk
+  and can stop the turn between two chunks. The kit also keeps the
   texts sent to the debug log apart (`debugLogs`), records every event name the
   plugin asks to redraw (`invalidations`), and draws the engine's `Spinner` as
   its `message`, else its `word`.

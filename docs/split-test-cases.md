@@ -59,6 +59,11 @@ Each case names the requirement it checks (FRn of the msgate split PRD). "mod" m
 - [ ] **Status line and jobs command (FR22, mod):** two `run` jobs running → the status line counts 2; `/msgate-jobs` prints both.
 - [ ] **Carried-over behaviour (FR25):** the engine's existing Go and plugin suites, renamed → all pass on the 1.0.0 build.
 - [ ] **Row cancel and progress (FR36, mod):** a backed row's run streams two progress entries as thinking; TaskStop on the row → `msgate cancel <run_id>`.
+- [ ] **Recorded summaries, hidden row (FR66, mod):** a hidden row follows a run of 20 progress entries, defaults, a surface → the first step streams `text` blocks `» 1–8: …`, `» 9–16: …`, `» 17–20: …` at block indices 1, 2 and 3 after the thinking, then the final text at index 4; one Haiku request per block.
+- [ ] **Recorded summaries, backed row (FR66, mod):** the same run followed by a row Claude called → the same three blocks precede the `SubagentHandback` call; its `message` and the answer of the next step hold no summary text.
+- [ ] **Summary intervals (FR66, mod):** `liveSummaryEvery: 2` → a live label is asked after every second entry; `recordedSummaryEvery: 0` → no recorded request and no block; `liveSummaryEvery: 99` → 3 applies and the debug log says so.
+- [ ] **Summaries switch (FR66, mod):** `MSGATE_SUMMARIES=0` with `summaries: true` → no summary request; `1` with `summaries: false` → summaries on; unset → the option; `abc` → the option, one debug note; an `env.get` that throws → the option.
+- [ ] **Summaries off (FR66, mod):** `MSGATE_SUMMARIES=0`, a run of 4 entries → the row streams the 4 entries as thinking and nothing else: no `msgate · <type>` line, no elapsed-time line, no request; a run with no entries streams no thinking at all.
 - [ ] **Dispatch skill (FR43):** the skill's trigger evals with renamed targets → pass; its CLI section shows `--model`, `--effort` and `--sandbox` for each purpose.
 - [ ] **Settings (FR50):** after the cutover, `settings.json` enables `msgate@cc-msgate` and `msgate-agents@msgate-agents`, knows both marketplaces, and names neither `agentcli@agentcli` nor the `agentcli` marketplace; the hook wiring is unchanged.
 - [ ] **Rollback documented (FR55):** before cutover step 1 → the rollback steps are written where the cutover is run: uninstall both plugins, rename the home back, the local marketplace manifest sourcing `agentcli` from `JustAzul/msgate-agents` at ref `v0.6.3`, the consumer revert; the local manifest is tried once against a scratch Claude Code config directory and installs agentcli 0.6.3.
@@ -100,6 +105,9 @@ Each case names the requirement it checks (FRn of the msgate split PRD). "mod" m
 - [ ] **Hidden row from another spawner (FR58, phase 3, mod):** a `msgate-agents:run` row whose spawn origin is not `msgate-agents`, or whose prompt names a run of another session → not answered by the engine; the step passes through.
 - [ ] **Hidden row in the auto mode (FR58, phase 3, mod):** the `agent.spawn` of a `msgate-agents:run` row from `msgate-agents` with `permissionMode` `auto` → the engine's hook returns `{ deny }`; no row opens; the run stays in the band. The same spawn in the default or bypass mode passes through.
 - [ ] **Stopped hidden row (FR58, phase 3, real):** TaskStop on a hidden row → the row disappears; the run keeps running and does not return to the band.
+- [ ] **Short run, recorded (FR66, mod):** a run of 5 entries → one block `» 1–5: …` after the run ends and no recorded request during it; a run of 0 entries → no request and no block.
+- [ ] **Summaries with no surface (FR66, mod):** summaries on and `session.surfaces` empty → the opener and the elapsed-time line stream as before and no request is made.
+- [ ] **Summaries switched off mid-run (FR66, mod):** a 20-entry run, `MSGATE_SUMMARIES` becomes `0` at the third slice → the request already out is the last, no block is streamed and nothing more is requested.
 
 ---
 
@@ -128,6 +136,8 @@ Each case names the requirement it checks (FRn of the msgate split PRD). "mod" m
 - [ ] **Report of a running run (FR44, CLI):** `msgate result <running run> --report` → exit 5.
 - [ ] **Report of an unknown run (FR44, CLI):** an unknown id or a path outside any run directory → exit 4.
 - [ ] **Hidden row spawn fails (FR57, phase 3, mod):** `$.agent.spawn` resolves `{ deny }` (no Agent tool, or the engine's refusal in the auto mode) → one debug-log line for that run; the run stays in the band, and the timer does not spawn it again.
+- [ ] **Recorded request fails (FR66, mod):** `model.complete` fails for the first window of a 20-entry run → the first block is missing, the debug log holds one line, and the block after it covers entries 1–16.
+- [ ] **Row stopped while recording (FR66, mod):** the row is stopped during a 20-entry run → no block is streamed and no request is left pending.
 
 ---
 

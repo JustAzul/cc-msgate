@@ -505,12 +505,31 @@ enters the conversation, and the caller that started it delivers its result.
 
 The summaries come from `claude-haiku-5-5` at low effort: the mod sends a
 run's newest steps, each cut to 300 characters, to the Anthropic API through
-the session's own sign-in, on the run's first step and then every three. They
-are skipped when nothing is on screen (`claude -p`), and the plugin's
-`summaries` option turns them off, back to the raw steps. While summaries are
-on, no raw step shows in a row or the band: a summary that fails leaves the
-last one in place, and before a run's first summary its band line ends after
-the cost.
+the session's own sign-in. There are two kinds, each with its own interval, and
+the plugin's `liveSummaryEvery` and `recordedSummaryEvery` options set them:
+- **Live summary.** A label of three to five words (`» Reading workerlog.go`),
+  asked on the run's first step and then every three (`liveSummaryEvery`, from
+  1 to 10). It is shown while the run works and not kept.
+- **Recorded summary.** One or two sentences about a window of steps
+  (`» 1–8: Read the worker and ran its tests.`), asked once eight steps have
+  gathered (`recordedSummaryEvery`, from 1 to 24; `0` asks none), with every
+  step not yet recorded in its window, and once more, at the end of the run,
+  for the steps left over (waiting at most 15 seconds). The sentences are stored in the history of the row that follows the run, an agent
+  row or a [hidden row](#hidden-rows), where the live labels are lost. A
+  sentence whose request fails is missing, and the next one covers what was
+  left. Nothing of them is in the report that returns to Claude.
+
+Both are skipped when nothing is on screen (`claude -p`). The plugin's
+`summaries` option turns them off, and so does the environment variable
+`MSGATE_SUMMARIES=0`; `MSGATE_SUMMARIES=1` turns them on where there is a
+screen. The variable wins over the option when it is set, and any other value
+leaves the option in force. With summaries off the mod makes no summary request and adds nothing of
+its own to a row: it shows only what the provider emits (commands, messages,
+and reasoning that arrives as text), with no `msgate · <type>` line and no
+elapsed-time line, and nothing for reasoning the provider encrypts. While
+summaries are on, no raw step shows in a row or the band: a summary that fails
+leaves the last one in place, and before a run's first summary its band line
+ends after the cost.
 
 While the turn of a row the engine answers runs, the mod sets the row's
 spinner message to the newest summary, or to `msgate · <type>` until there is
@@ -579,7 +598,8 @@ How a backed row behaves:
   answers that it cannot be resumed.
 - **Progress.** The row shows what the run is doing as a short summary every
   few steps (`» Reading workerlog.go`), with an elapsed-time line when it is
-  quiet; with summaries off, the raw steps.
+  quiet, and stores a sentence about every eight steps in the agent's history;
+  with summaries off, only what the provider emits.
 - **Answer.** The report is the output cut at 64 KiB, led by how the run ended
   when it did not deliver, and closed by a trailer:
   `[msgate run <run_id> · conversation <conversation_id> · <outcome>]`. It is
@@ -604,8 +624,9 @@ shown; any other row of the type passes to the model beneath.
 - **Registered.** The engine registers a row when it opens, with the run its
   prompt names. The run leaves the band then, and `flaggedRuns()` no longer
   lists it, whatever becomes of the row.
-- **Follow.** The row shows what the run is doing, as a backed row does. It
-  starts no run: the hook that started the run delivers its result.
+- **Follow.** The row shows what the run is doing, as a backed row does, and
+  stores the same recorded summaries in its history. It starts no run: the hook
+  that started the run delivers its result.
 - **Answer.** The turn ends with the plain text
   `msgate run <run_id> ended <outcome>`, never a hand-back, and a later step of
   the turn repeats it. Nothing of it reaches Claude.
@@ -829,7 +850,7 @@ with a usage error.
 - A plugin using the interface sees only the runs it started.
 - With summaries on, the mod sends a run's newest steps, cut short, to the
   Anthropic API (see [Inside Claude Code](#inside-claude-code)); the
-  `summaries` option turns that off.
+  `summaries` option and `MSGATE_SUMMARIES=0` turn that off.
 
 ## How it is built
 
