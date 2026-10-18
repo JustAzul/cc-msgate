@@ -24,3 +24,22 @@ jobs:
         run: go test ./...
       - name: PII scan of tracked files
         run: go run ./tools/piiscan --tracked .
+
+  plugin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # The version the plugin tests and the load check were run with; neither
+      # needs a login.
+      CLAUDE_CODE_VERSION: 2.1.300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Claude Code
+        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      - name: Plugin tests
+        run: claude plugin test plugin
+      - name: Plugin load check
+        run: scripts/verify-plugin.sh
