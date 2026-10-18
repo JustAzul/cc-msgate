@@ -16,7 +16,7 @@ import {
   wholeWithin,
 } from './summary.js'
 
-export const RECORD_CHARS = 240
+export const RECORD_CHARS = 400
 export const RECORD_MAX_TOKENS = 120
 // What one request carries: the newest entries not yet recorded.
 export const RECORD_WINDOW_ENTRIES = 24
@@ -31,9 +31,28 @@ export const RECORD_SYSTEM = [
   'At most ' + RECORD_CHARS + ' characters, no markdown, no quotes.',
 ].join('\n')
 
+// A sentence ends at . ! or ? that a space or the end of the text follows, so
+// the full stop of auth.go does not count.
+function lastSentenceEnd(text, limit) {
+  for (let i = limit - 1; i >= 0; i -= 1) {
+    if (/[.!?]/.test(text[i]) && (i + 1 === text.length || text[i + 1] === ' ')) return i + 1
+  }
+  return 0
+}
+
+// fitted cuts a text longer than RECORD_CHARS to the last whole sentence that
+// fits, else to the last whole word, else to the limit.
+function fitted(text) {
+  if (text.length <= RECORD_CHARS) return text
+  const sentenceEnd = lastSentenceEnd(text, RECORD_CHARS)
+  if (sentenceEnd > 0) return text.slice(0, sentenceEnd)
+  const wordEnd = text.lastIndexOf(' ', RECORD_CHARS)
+  return text.slice(0, wordEnd > 0 ? wordEnd : RECORD_CHARS)
+}
+
 // cleanRecord reads a completion as a record sentence, or null when it is not
-// one: unanswered, empty after cleaning, or longer than RECORD_CHARS. Runs of
-// whitespace become one space before control characters go, so a line break
+// one: unanswered, or empty after cleaning. A longer text is cut to fit. Runs
+// of whitespace become one space before control characters go, so a line break
 // does not glue two words.
 export function cleanRecord(result) {
   if (!result || result.isAnswered !== true) return null
@@ -42,7 +61,7 @@ export function cleanRecord(result) {
     .replace(/\s+/g, ' ')
     .replace(CONTROL, '')
     .trim()
-  return record === '' || record.length > RECORD_CHARS ? null : record
+  return record === '' ? null : fitted(record)
 }
 
 // recordOutcome is what a finished completion comes to: the sentence of a

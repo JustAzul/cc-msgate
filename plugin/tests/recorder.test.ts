@@ -107,15 +107,58 @@ test('a record is the reply with ANSI and control characters stripped and its wh
   expect(cleanRecord({ isAnswered: true, text: '  Read auth.go,\n\n then ran   the tests.\r\n' })).toBe('Read auth.go, then ran the tests.')
   expect(cleanRecord({ isAnswered: true, text: '\u001b[1;32mRan the store tests.\u001b[0m' })).toBe('Ran the store tests.')
   expect(cleanRecord({ isAnswered: true, text: '\u001b]0;title\u0007Read auth.go.\u0000' })).toBe('Read auth.go.')
-  expect(cleanRecord({ isAnswered: true, text: 'x'.repeat(240) })).toBe('x'.repeat(240))
 })
 
-test('a reply that is empty, over 240 characters or unanswered is no record', () => {
-  for (const text of ['', '  \n ', '\u001b[0m', 'x'.repeat(241)]) {
+test('a reply that is empty once cleaned, or unanswered, is no record', () => {
+  for (const text of ['', '  \n ', '\u001b[0m']) {
     expect(cleanRecord({ isAnswered: true, text })).toBeNull()
   }
   expect(cleanRecord({ isAnswered: false, reason: 'api-error', status: 500 })).toBeNull()
   expect(cleanRecord(undefined)).toBeNull()
+})
+
+// A reply longer than a record is cut, not refused.
+
+const WORD = 'abcdefgh'
+const words = (count: number) => Array(count).fill(WORD).join(' ')
+const sentence = (count: number) => words(count) + '.'
+const reply = (text: string) => ({ isAnswered: true, text })
+
+test('a reply that fits in 400 characters is kept whole', () => {
+  expect(cleanRecord(reply('x'.repeat(241)))).toBe('x'.repeat(241))
+  expect(cleanRecord(reply('x'.repeat(400)))).toBe('x'.repeat(400))
+})
+
+test('a reply over 400 characters is cut after the last whole sentence that fits', () => {
+  const text = [sentence(14), sentence(14), sentence(22)].join(' ')
+  expect(text.length).toBeGreaterThan(400)
+  expect(cleanRecord(reply(text))).toBe(sentence(14) + ' ' + sentence(14))
+
+  const question = words(20) + '? ' + words(20) + '! ' + words(20) + '! ' + words(20) + '!'
+  expect(cleanRecord(reply(question))).toBe(words(20) + '? ' + words(20) + '!')
+})
+
+test('a sentence that ends on the 400th character is kept, and the rest dropped', () => {
+  const first = 'x'.repeat(399) + '.'
+  expect(cleanRecord(reply(first + ' and then more'))).toBe(first)
+})
+
+test('a full stop inside a file name does not end a sentence', () => {
+  const text = 'Opened auth.go ' + words(50)
+  const cut = cleanRecord(reply(text))
+  expect(cut!.length).toBeLessThanOrEqual(400)
+  expect(cut!.endsWith(WORD)).toBe(true)
+  expect(cut!.startsWith('Opened auth.go ' + WORD)).toBe(true)
+})
+
+test('a reply over 400 characters with no sentence end is cut at the last whole word that fits', () => {
+  const text = words(50)
+  expect(text.length).toBeGreaterThan(400)
+  expect(cleanRecord(reply(text))).toBe(words(44))
+})
+
+test('a single unbroken token over 400 characters is cut at 400', () => {
+  expect(cleanRecord(reply('x'.repeat(450)))).toBe('x'.repeat(400))
 })
 
 // The recorder.
@@ -123,7 +166,7 @@ test('a reply that is empty, over 240 characters or unanswered is no record', ()
 const SYSTEM = [
   'You write one entry of the history of a coding agent\'s run, from the newest activity of the agent.',
   'Reply with one or two plain sentences in English, in the past tense, saying what it did. Name the file, command or function.',
-  'At most 240 characters, no markdown, no quotes.',
+  'At most 400 characters, no markdown, no quotes.',
 ].join('\n')
 
 const entries = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => 'entry ' + (from + i))
@@ -227,7 +270,7 @@ test('an entry is cut to 300 characters when sent', async () => {
 const FAILURES: Record<string, (world: ReturnType<typeof fakePorts>) => Promise<void>> = {
   'an api error': (world) => world.answer(apiError(500)),
   'an empty reply': (world) => world.answer(emptyReply()),
-  'a reply over 240 characters': (world) => world.answer(answered('x'.repeat(241))),
+  'a reply that is empty once cleaned': (world) => world.answer(answered('\u001b[0m  ')),
   'a request that throws': (world) => world.refuse(new Error('the engine refused the model')),
 }
 
@@ -347,7 +390,7 @@ test('a completion that used tokens is handed to the usage record for its run, a
   await world.answer(answered('Read auth.go.'))
   recorder.add(entries(9, 16))
   await flush()
-  await world.answer({ ...answered('x'.repeat(241)) })
+  await world.answer(answered('  '))
   recorder.add(entries(17, 17))
   await flush()
   await world.answer(apiError(500))
@@ -669,6 +712,27 @@ test('entries added once finish has started are ignored, so no request runs besi
 
   expect(world.requests).toHaveLength(1)
   expect(end.result).toEqual([{ from: 1, to: 3, text: '» 1–3: Read the files.\n' }])
+})
+
+test('a reply that is too long becomes a record cut to fit, and no block outgrows its limit', async () => {
+  const world = fakePorts()
+  const recorder = recorderOf(world)
+
+  recorder.add(entries(1, 8))
+  await flush()
+  await world.answer(answered(sentence(14) + ' ' + sentence(14) + ' ' + sentence(22)))
+  recorder.add(entries(9, 16))
+  await flush()
+  await world.answer(answered('x'.repeat(450)))
+
+  expect(world.logs).toEqual([])
+  expect(recorder.records().map((r) => r.text)).toEqual([
+    '» 1–8: ' + sentence(14) + ' ' + sentence(14) + '\n',
+    '» 9–16: ' + 'x'.repeat(400) + '\n',
+  ])
+  for (const { from, to, text } of recorder.records()) {
+    expect(text.length).toBeLessThanOrEqual(('» ' + from + '–' + to + ': ').length + 400 + 1)
+  }
 })
 
 // A cadence the buffers cannot reach.
