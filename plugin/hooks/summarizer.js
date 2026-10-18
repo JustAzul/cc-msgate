@@ -2,9 +2,10 @@
 // it keeps each run's entries since its last request and asks for a label when
 // one is due. A display reads what it settled and never waits for a request.
 
+import { createLimiter } from './limiter.js'
 import {
-  RATE_LIMIT_PAUSE_MS,
-  SESSION_IN_FLIGHT_MAX,
+  ENTRIES_PER_REQUEST,
+  WINDOW_ENTRIES,
   isBilled,
   isDue,
   isRateLimited,
@@ -13,16 +14,18 @@ import {
   newestEntries,
   outcomeOf,
   summaryRequest,
+  wholeWithin,
 } from './summary.js'
 
-// createSummarizer is one load's summaries; `options` is the plugin's config.
-// What it needs of the engine arrives as `ports`, because a hooks module may
-// not hand `$` to another module: surfaces(), now(), complete(request),
+// createSummarizer is one load's summaries; `options` is the plugin's config
+// and `limiter` the session's request limit, shared with whatever else asks the
+// model. What it needs of the engine arrives as `ports`, because a hooks module
+// may not hand `$` to another module: surfaces(), now(), complete(request),
 // record(usage, runId), log(text) and labelSettled(runId).
-export function createSummarizer(options) {
+export function createSummarizer(options, limiter = createLimiter()) {
   const runs = new Map()
-  let inFlight = 0
-  let pausedUntil = 0
+  // A cadence beyond the window could never be reached.
+  const every = wholeWithin(options.liveEvery, 1, WINDOW_ENTRIES, ENTRIES_PER_REQUEST)
 
   // observe takes the entries a display has just read of a run and starts a
   // request when one is due. It answers whether summaries are active, read each
@@ -42,11 +45,10 @@ export function createSummarizer(options) {
   // The checks that decide a start and the claim of a slot follow the last await,
   // so two runs cannot both take the last slot.
   async function startIfDue(ports, runId, run) {
-    if (!isDue(run)) return
+    if (!isDue(run, every)) return
     const now = await ports.now()
-    if (!isDue(run) || inFlight >= SESSION_IN_FLIGHT_MAX || now < pausedUntil) return
+    if (!isDue(run, every) || !limiter.tryTake(now)) return
 
-    inFlight += 1
     run.isInFlight = true
     run.hasRequested = true
     const sent = run.entries
@@ -61,11 +63,11 @@ export function createSummarizer(options) {
       // Recorded whether or not the reply is a label, and never waited for.
       if (isBilled(result)) void ports.record(result.usage, runId).catch(() => {})
       outcome = outcomeOf(result)
-      if (isRateLimited(result)) pausedUntil = (await ports.now()) + RATE_LIMIT_PAUSE_MS
+      if (isRateLimited(result)) limiter.pause(await ports.now())
     } catch (error) {
       outcome = { failure: 'the request failed: ' + String(error && error.message ? error.message : error) }
     } finally {
-      inFlight -= 1
+      limiter.release()
       run.isInFlight = false
     }
 

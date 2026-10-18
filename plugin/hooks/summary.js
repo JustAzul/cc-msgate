@@ -39,8 +39,14 @@ export const SYSTEM = [
 // The reply starts with a character that markdown reads as formatting.
 const MARKDOWN_MARKER = /^[#`*>-]/
 const NEWLINE = /[\r\n]/
-const ANSI = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[@-Z\\-_])/g
-const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g
+export const ANSI = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[@-Z\\-_])/g
+export const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g
+
+// wholeWithin reads a cadence: the whole number `value`, held between `min` and
+// `max`, or `fallback` when it is not a whole number.
+export function wholeWithin(value, min, max, fallback) {
+  return Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback
+}
 
 // newestEntries keeps the entries one request can carry.
 export function newestEntries(entries) {
@@ -116,8 +122,8 @@ export function newRun() {
 }
 
 // isDue tells that a run asks for a label now: its first entry has arrived, or
-// ENTRIES_PER_REQUEST have since the last request, and none is in flight.
-export function isDue(run) {
+// `every` have since the last request, and none is in flight.
+export function isDue(run, every = ENTRIES_PER_REQUEST) {
   if (run.isInFlight || run.entries.length === 0) return false
-  return !run.hasRequested || run.entries.length >= ENTRIES_PER_REQUEST
+  return !run.hasRequested || run.entries.length >= every
 }

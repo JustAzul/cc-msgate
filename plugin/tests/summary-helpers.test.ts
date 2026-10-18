@@ -50,6 +50,17 @@ test('a run asks for a label on its first entry, then at every third new entry, 
   expect(isDue(run)).toBe(false)
 })
 
+test('a run asks again after the number of entries given, one at a time', () => {
+  const run = newRun()
+  run.hasRequested = true
+  run.entries = ['a', 'b', 'c', 'd']
+  expect(isDue(run, 5)).toBe(false)
+  expect(isDue(run, 4)).toBe(true)
+  expect(isDue(run, 1)).toBe(true)
+  run.isInFlight = true
+  expect(isDue(run, 1)).toBe(false)
+})
+
 test('an outcome is the label, or why there is none', () => {
   expect(outcomeOf({ isAnswered: true, text: ' Reading a.go ' })).toEqual({ label: 'Reading a.go' })
   expect(outcomeOf({ isAnswered: true, text: '# x' })).toEqual({ failure: 'the reply is not a label' })
