@@ -778,6 +778,42 @@ test('a first turn gives up waiting for a spawn after the bound and admits with 
   expect(admissions(w)[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), ...READ_ONLY_HIGH, '-'])
 })
 
+test('a first turn that gives up waiting for a spawn says so in the debug log', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  slowSpawn(w, 'ag-slow')
+  const call = await agentCall($, w, AGENTS + ':second-opinion', { effort: 'xhigh' })
+  void call.spawn()
+  await until(() => w.agents.length > 0)
+
+  const turn = step($, 'ag-slow')
+  await until(() => w.effortReads.length > 0)
+  await w.clock.advance(SPAWN_WAIT_MS)
+  await turn
+
+  expect(w.debugLogs.filter((line) => line.includes('ag-slow') && line.includes(SPAWN_WAIT_MS + ' ms'))).toHaveLength(1)
+})
+
+test('a first turn whose spawn answers in time logs no wait', async ($, on) => {
+  const w = world(on)
+  w.respond = codex('done')
+  await $.session.start(START)
+  const release = slowSpawn(w, 'ag-slow')
+  const call = await agentCall($, w, AGENTS + ':second-opinion', { effort: 'xhigh' })
+  const spawning = call.spawn()
+  await until(() => w.agents.length > 0)
+
+  const turn = step($, 'ag-slow')
+  await until(() => w.effortReads.length > 0)
+  release()
+  await spawning
+  await call.end()
+  await turn
+
+  expect(w.debugLogs.filter((line) => line.includes(SPAWN_WAIT_MS + ' ms'))).toEqual([])
+})
+
 test('a type backed again is run with its new data from the next row on', async ($, on) => {
   const w = world(on)
   w.respond = codex('done')

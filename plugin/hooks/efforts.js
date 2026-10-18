@@ -99,11 +99,16 @@ async function keepQuietly($, agentId, effort) {
 // spawn's: the turn waits for the spawns, for no longer than SPAWN_WAIT_MS.
 export async function takeEffort($, agentId) {
   let effort = await readEffort($, agentId)
-  if (effort === undefined && spawning.size > 0) await spawnsAnswered($)
+  const isAnswered = effort !== undefined || spawning.size === 0 || (await spawnsAnswered($))
   // A spawn of this load sets `bound` before it leaves `spawning`, whenever the
   // state read above returned; a spawn of an earlier load is in that read.
   effort ??= bound.get(agentId)
-  if (effort === undefined) return undefined
+  if (effort === undefined) {
+    // The spawn still out may be this agent's, so the type's effort may not be
+    // the one asked for.
+    if (!isAnswered) await $.ui.log('agent ' + agentId + ' waited ' + SPAWN_WAIT_MS + ' ms for the spawns of Agent calls with an effort, and runs with its type\'s effort', { to: 'debug' })
+    return undefined
+  }
 
   bound.delete(agentId)
   await dropQuietly($, agentId)
@@ -114,13 +119,16 @@ async function readEffort($, agentId) {
   return bound.get(agentId) ?? (await keptEffort($, agentId))
 }
 
+// spawnsAnswered waits for the spawns in flight and tells whether they all
+// answered before SPAWN_WAIT_MS ran out.
 async function spawnsAnswered($) {
   let timer
   const timeout = new Promise((resolve) => {
-    timer = $.clock.after(SPAWN_WAIT_MS, resolve)
+    timer = $.clock.after(SPAWN_WAIT_MS, () => resolve(false))
   })
-  await Promise.race([Promise.all([...spawning]), timeout])
+  const isAnswered = await Promise.race([Promise.all([...spawning]).then(() => true), timeout])
   timer.cancel()
+  return isAnswered
 }
 
 async function keptEffort($, agentId) {
