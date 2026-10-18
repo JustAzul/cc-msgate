@@ -60,7 +60,10 @@ async function row($: any, w: ReturnType<typeof world>, slices: { kind: string; 
 
 const entry = (text: string) => ({ kind: 'message', text })
 
-test('an answered reply is recorded with its usage on standard input', async ($, on) => {
+// The tests below count the model's requests to prove the live summaries alone.
+const LIVE_ONLY = { options: { recordedSummaryEvery: 0 } }
+
+test('an answered reply is recorded with its usage on standard input', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.respondModel = () => answered('Reading auth.go')
   await row($, w, [[entry('e1')], []])
@@ -75,7 +78,7 @@ test('an answered reply is recorded with its usage on standard input', async ($,
   expect(recorded!.stdin).toBe(JSON.stringify(BILLED))
 })
 
-test('an empty reply that was billed is recorded', async ($, on) => {
+test('an empty reply that was billed is recorded', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.respondModel = () => emptyReply()
   await row($, w, [[entry('e1')], []])
@@ -84,7 +87,7 @@ test('an empty reply that was billed is recorded', async ($, on) => {
   expect(usageRuns(w)[0]!.stdin).toBe(JSON.stringify({ ...NO_USAGE, input_tokens: 458, output_tokens: 2 }))
 })
 
-test('an answered reply whose label is rejected is recorded', async ($, on) => {
+test('an answered reply whose label is rejected is recorded', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.respondModel = () => answered('# Reading auth.go')
   await row($, w, [[entry('e1')], []])
@@ -104,7 +107,7 @@ const UNBILLED = {
 }
 
 for (const [name, reply] of Object.entries(UNBILLED)) {
-  test(name + ' is not recorded', async ($, on) => {
+  test(name + ' is not recorded', LIVE_ONLY, async ($, on) => {
     const w = world(on)
     w.respondModel = reply
     await row($, w, [[entry('e1')], []])
@@ -114,7 +117,7 @@ for (const [name, reply] of Object.entries(UNBILLED)) {
   })
 }
 
-test('the label is shown while the recording is still held', async ($, on) => {
+test('the label is shown while the recording is still held', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.respondModel = () => answered('Reading auth.go')
   const held = deferred<Reply>()
@@ -126,7 +129,7 @@ test('the label is shown while the recording is still held', async ($, on) => {
   held.release(ok(''))
 })
 
-test('a recording that fails is logged once, until one succeeds', async ($, on) => {
+test('a recording that fails is logged once, until one succeeds', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.respondModel = () => answered('Reading auth.go')
   const replies: (Reply | Error)[] = [

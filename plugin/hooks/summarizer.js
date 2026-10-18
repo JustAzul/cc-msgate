@@ -21,7 +21,8 @@ import {
 // and `limiter` the session's request limit, shared with whatever else asks the
 // model. What it needs of the engine arrives as `ports`, because a hooks module
 // may not hand `$` to another module: surfaces(), now(), complete(request),
-// record(usage, runId), log(text) and labelSettled(runId).
+// record(usage, runId), log(text) and labelSettled(runId), and optionally
+// isEnabled(), which overrides the summaries option.
 export function createSummarizer(options, limiter = createLimiter()) {
   const runs = new Map()
   // A cadence beyond the window could never be reached.
@@ -31,7 +32,7 @@ export function createSummarizer(options, limiter = createLimiter()) {
   // request when one is due. It answers whether summaries are active, read each
   // time: the config allows them and the session draws on some surface.
   async function observe(ports, runId, lines) {
-    if (options.summaries === false || (await ports.surfaces()).length === 0) return false
+    if (!(await isAllowed(ports)) || (await ports.surfaces()).length === 0) return false
     let run = runs.get(runId)
     if (run === undefined) {
       run = newRun()
@@ -40,6 +41,10 @@ export function createSummarizer(options, limiter = createLimiter()) {
     run.entries = newestEntries(run.entries.concat(lines))
     await startIfDue(ports, runId, run)
     return true
+  }
+
+  async function isAllowed(ports) {
+    return ports.isEnabled === undefined ? options.summaries !== false : ports.isEnabled()
   }
 
   // The checks that decide a start and the claim of a slot follow the last await,

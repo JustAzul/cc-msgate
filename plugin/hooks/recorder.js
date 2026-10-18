@@ -225,3 +225,25 @@ export function createRecorder({ runId, every: asked, limiter, ports }) {
 
   return { add, finish, records: () => settled.slice() }
 }
+
+// finishOnStop ends a follow's recorder and returns the records it settled: none
+// when the turn was stopped, which cuts the wait short whatever the recorder is
+// still waiting for, and none when the end failed, since the run's answer does
+// not depend on them. `signal` is the turn's abort signal; the listener it was
+// given is always removed.
+export async function finishOnStop({ recorder, runId, signal, ports }) {
+  let onStop
+  const stopped = new Promise((resolve) => {
+    onStop = () => resolve([])
+    if (signal.aborted) onStop()
+    else signal.addEventListener('abort', onStop, { once: true })
+  })
+  try {
+    return await Promise.race([recorder.finish({ isAborted: () => signal.aborted, ports }), stopped])
+  } catch (error) {
+    ports.log('could not finish the record of run ' + runId + ': ' + String(error && error.message ? error.message : error))
+    return []
+  } finally {
+    signal.removeEventListener('abort', onStop)
+  }
+}

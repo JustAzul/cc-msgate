@@ -338,7 +338,7 @@ test('a hidden row the engine answers runs no tools', async ($, on) => {
   expect(call.deny).toContain('msgate agents run no tools')
 })
 
-test('a run that gets a hidden row keeps its summary across the polls that follow', async ($, on) => {
+test('a run that gets a hidden row keeps its summary across the polls that follow', { options: { recordedSummaryEvery: 0 } }, async ($, on) => {
   const w = world(on, { backed: BACKED })
   w.surfaces = ['terminal']
   w.respondModel = () => ({ isAnswered: true, text: 'Reading auth.go', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } })

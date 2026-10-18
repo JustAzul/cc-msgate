@@ -72,7 +72,7 @@ async function spinnerText($: any, requestId: string, props: any = SPINNER_PROPS
   return texts
 }
 
-test('the spinner of an msgate agent says its type until a label settles', async ($, on) => {
+test('the spinner of an msgate agent says its type until a label settles', { options: { recordedSummaryEvery: 0 } }, async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
   w.respondModel = () => new Promise(() => {})

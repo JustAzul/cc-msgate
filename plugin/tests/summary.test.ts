@@ -1,9 +1,11 @@
 import { expect, test } from 'claude-code/testing'
 import { BAND_REFRESH_MS } from '../hooks/band.js'
-import { POLL_MS, answered, apiError, emptyReply, job, listing, ok, step, world } from './kit'
+import { POLL_MS, answered, apiError, cmd, codex, emptyReply, job, listing, msg, ok, step, world } from './kit'
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
-const WAIT_TIMEOUT = { exitCode: 5, stdout: JSON.stringify({ sdk_status: 'wait_timeout', exit_code: 5 }), stderr: '' }
+
+// The tests below count the model's requests to prove the live summaries alone.
+const LIVE_ONLY = { options: { recordedSummaryEvery: 0 } }
 
 const SYSTEM = [
   'You label what a coding agent is doing right now, for a one-line status row that truncates around 40 characters.',
@@ -17,35 +19,6 @@ const SYSTEM = [
   'Bad (too vague): "Investigating the issue"',
   'Bad (too long): "Reviewing the full branch diff and the store package integration"',
 ].join('\n')
-
-const msg = (text: string) => ({ kind: 'message', text })
-const cmd = (text: string) => ({ kind: 'command', text })
-
-// codex is a run that works through `slices`: each wait times out and the
-// progress read after it answers the next slice's entries; the wait after the
-// last slice finds the run done.
-function codex(slices: { kind: string; text: string }[][]) {
-  let waits = 0
-  let reads = 0
-  let next = 0
-  return (argv: string[]) => {
-    switch (argv[1]) {
-      case 'exec':
-        return ok(JSON.stringify({ conversation_id: 'conv-1', run_id: 'run-1' }))
-      case 'wait':
-        return ++waits <= slices.length ? WAIT_TIMEOUT : ok(JSON.stringify({ run_id: 'run-1', state: 'done', outcome: 'ok' }))
-      case 'progress': {
-        const entries = slices[reads++] ?? []
-        next += entries.length
-        return ok(JSON.stringify({ run_id: 'run-1', state: 'running', next, entries: entries.map((e, i) => ({ seq: next - entries.length + i, at: 't', ...e })) }))
-      }
-      case 'status':
-        return ok(JSON.stringify({ run_id: 'run-1', conversation_id: 'conv-1', state: 'done', outcome: 'ok', output_path: '/o' }))
-      default:
-        return ok('Codex: done.')
-    }
-  }
-}
 
 function thinkingOf(chunks: any[]) {
   return chunks.filter((c) => c.kind === 'thinking').map((c) => c.text.trim())
@@ -74,10 +47,10 @@ test('with summaries turned off in the config the row shows the raw lines', { op
   const out = await row($, w, [[msg('I will read auth.go')], []])
 
   expect(w.modelRequests).toEqual([])
-  expect(thinkingOf(out.chunks)).toEqual(['msgate · second-opinion', 'I will read auth.go'])
+  expect(thinkingOf(out.chunks)).toEqual(['I will read auth.go'])
 })
 
-test('the first entry of a run asks for one label with the measured request', async ($, on) => {
+test('the first entry of a run asks for one label with the measured request', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
   await row($, w, [[msg('I will read auth.go')], []])
@@ -105,7 +78,7 @@ test('the row streams the label as thinking and no raw entry', async ($, on) => 
 
 // The window a request carries.
 
-test('the next label is asked for only after three more entries, with the previous label in the prompt', async ($, on) => {
+test('the next label is asked for only after three more entries, with the previous label in the prompt', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
   w.respondModel = () => answered('Reading auth.go')
@@ -128,7 +101,7 @@ test('the next label is asked for only after three more entries, with the previo
   ])
 })
 
-test('a request carries the newest ten entries, each cut to 300 characters', async ($, on) => {
+test('a request carries the newest ten entries, each cut to 300 characters', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
   const entries = Array.from({ length: 12 }, (_, i) => msg(i === 11 ? 'n'.repeat(400) : 'entry ' + (i + 1)))
@@ -156,7 +129,7 @@ function deferred() {
   return { promise, release }
 }
 
-test('a run has at most one request in flight', async ($, on) => {
+test('a run has at most one request in flight', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
   const slow = deferred()
@@ -167,7 +140,7 @@ test('a run has at most one request in flight', async ($, on) => {
   slow.release(answered('Reading auth.go'))
 })
 
-test('the session has at most two requests in flight', async ($, on) => {
+test('the session has at most two requests in flight', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
   const slow = deferred()
@@ -431,7 +404,7 @@ test('a quiet row still shows the heartbeat while summaries are active', async (
   ])
 })
 
-test('a request due while one is in flight is deferred, then made with the window as it stands', async ($, on) => {
+test('a request due while one is in flight is deferred, then made with the window as it stands', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
   const slow = deferred()

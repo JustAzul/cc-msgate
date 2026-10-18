@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cleanRecord, createRecorder } from '../hooks/recorder.js'
+import { cleanRecord, createRecorder, finishOnStop } from '../hooks/recorder.js'
 import { summarySettings } from '../hooks/settings.js'
 import { createSummarizer } from '../hooks/summarizer.js'
 import { createLimiter } from '../hooks/limiter.js'
@@ -789,4 +789,86 @@ test('a clock that fails when a window is due is logged once, and the next add a
   recorder.add(entries(10, 10))
   await flush()
   expect(world.requests[0].prompt.split('\n').slice(1)).toEqual(entries(1, 10).map((e) => '- ' + e))
+})
+
+// Ending a follow with a stop that can come at any time.
+
+// fakeSignal is an abort signal that keeps the listeners it was given.
+function fakeSignal(isAborted = false) {
+  const listeners = new Set<() => void>()
+  const signal = {
+    aborted: isAborted,
+    addEventListener: (_type: string, listener: () => void) => void listeners.add(listener),
+    removeEventListener: (_type: string, listener: () => void) => void listeners.delete(listener),
+  }
+  return {
+    signal,
+    listeners,
+    abort: () => {
+      signal.aborted = true
+      for (const listener of [...listeners]) listener()
+    },
+  }
+}
+
+// A recorder whose finish the test settles.
+function fakeRecorder() {
+  const finishes: { resolve: (records: unknown[]) => void; reject: (error: Error) => void }[] = []
+  return {
+    finishes,
+    recorder: { finish: () => new Promise<unknown[]>((resolve, reject) => finishes.push({ resolve, reject })) },
+  }
+}
+
+const RECORDS = [{ from: 1, to: 8, text: '» 1–8: Read the files.\n' }]
+
+test('a run that ends is finished to the records its recorder settled, and the stop listener is gone', async () => {
+  const { signal, listeners } = fakeSignal()
+  const { recorder, finishes } = fakeRecorder()
+  const logs: string[] = []
+
+  const pending = finishOnStop({ recorder, runId: 'run-1', signal, ports: { log: (text: string) => logs.push(text) } })
+  expect(listeners.size).toBe(1)
+  finishes[0]!.resolve(RECORDS)
+
+  expect(await pending).toEqual(RECORDS)
+  expect(listeners.size).toBe(0)
+  expect(logs).toEqual([])
+})
+
+test('a stop while the recorder is finishing resolves to no records at once, and a later finish changes nothing', async () => {
+  const { signal, listeners, abort } = fakeSignal()
+  const { recorder, finishes } = fakeRecorder()
+
+  const pending = finishOnStop({ recorder, runId: 'run-1', signal, ports: { log: () => {} } })
+  abort()
+
+  expect(await pending).toEqual([])
+  expect(listeners.size).toBe(0)
+  finishes[0]!.resolve(RECORDS)
+  await flush()
+  expect(await pending).toEqual([])
+})
+
+test('a signal that is aborted already resolves to no records without waiting for the recorder', async () => {
+  const { signal, listeners } = fakeSignal(true)
+  const { recorder } = fakeRecorder()
+
+  expect(await finishOnStop({ recorder, runId: 'run-1', signal, ports: { log: () => {} } })).toEqual([])
+  expect(listeners.size).toBe(0)
+})
+
+test('a recorder that fails to finish resolves to no records with one line in the log that names the run', async () => {
+  const { signal, listeners } = fakeSignal()
+  const { recorder, finishes } = fakeRecorder()
+  const logs: string[] = []
+
+  const pending = finishOnStop({ recorder, runId: 'run-1', signal, ports: { log: (text: string) => logs.push(text) } })
+  finishes[0]!.reject(new Error('the engine is gone'))
+
+  expect(await pending).toEqual([])
+  expect(listeners.size).toBe(0)
+  expect(logs).toHaveLength(1)
+  expect(logs[0]).toContain('run-1')
+  expect(logs[0]).toContain('the engine is gone')
 })

@@ -164,6 +164,11 @@ export function world(on: any, opts: { store?: Record<string, unknown>; backed?:
     modelRequests: [] as any[],
     // What a completion answers; by default a label.
     respondModel: ((): any => answered('Reading auth.go')) as (request: any) => any,
+    // The environment variables the session has set, by name; an unset name reads
+    // as undefined.
+    env: new Map<string, string>(),
+    // While set, reading the environment throws.
+    envFails: false,
   }
   w.state.set('backedTypes', { value: opts.backed ?? PROFILES, version: 1 })
   on('session.start', () => ({ cwd: '/work' }))
@@ -254,6 +259,10 @@ export function world(on: any, opts: { store?: Record<string, unknown>; backed?:
   // The engine's own turn start: it opens the turn the steps then run in.
   on('turn.start', (_$: any, e: any) => ({ turnId: e.turnId }))
   on('session.surfaces', () => ({ value: w.surfaces }))
+  on('env.get', (_$: any, e: any) => {
+    if (w.envFails) throw new Error('the environment is unavailable')
+    return { value: w.env.get(e.name) }
+  })
   on('model.complete', async (_$: any, e: any) => {
     w.modelRequests.push(e)
     return { value: await w.respondModel(e) }
@@ -295,6 +304,19 @@ export async function step($: any, agentId?: string, { turnId = 'turn-1', index 
   return { chunks, result, text: answerText(chunks, result) }
 }
 
+// readStep raises a model request as step does but hands the stream to the
+// test: it reads one chunk at a time and can stop the step between two, as the
+// host does when the turn is interrupted. The host's abort signal reaches the
+// hook only when the stream is next at a chunk, so a stop cannot land while the
+// hook awaits something.
+export function readStep($: any, agentId?: string, { turnId = 'turn-1', index = 0 }: { turnId?: string; index?: number } = {}) {
+  const stream = $.turn.step({ turnId, index, model: 'claude-haiku-4-5', messageCount: 1, agentId })
+  return {
+    next: async (): Promise<{ done: boolean; value: any }> => stream.next(),
+    stop: async () => void (await stream.return(undefined)),
+  }
+}
+
 // agentCall raises an Agent call for `type` and holds it open, as the engine does
 // while the agent it spawns runs. `spawn` raises the `agent.spawn` the engine
 // nests in the call, carrying the call's id; `end` ends the call.
@@ -334,12 +356,45 @@ async function drain(stream: any) {
   return { chunks, result: next.value }
 }
 
-// The answer as the caller reads it: streamed text, or else the message of the
-// SubagentHandback call that delivers an msgate subagent's answer.
+// The answer as the caller reads it: the message of the SubagentHandback call
+// that delivers an msgate subagent's answer, or else the streamed text of the
+// last block, since the recorded summaries stream as text ahead of the answer.
 function answerText(chunks: any[], result: any): string {
-  const streamed = chunks.filter((c) => c.kind === 'text').map((c) => c.text).join('')
   const handback = result?.toolUses?.find((use: any) => use.name === 'SubagentHandback')
-  return streamed === '' && handback ? String(handback.input.message) : streamed
+  if (handback) return String(handback.input.message)
+  const texts = chunks.filter((c) => c.kind === 'text')
+  return texts.length === 0 ? '' : texts.at(-1).text
+}
+
+export const WAIT_TIMEOUT = { exitCode: 5, stdout: JSON.stringify({ sdk_status: 'wait_timeout', exit_code: 5 }), stderr: '' }
+
+export const msg = (text: string) => ({ kind: 'message', text })
+export const cmd = (text: string) => ({ kind: 'command', text })
+
+// codex is a run that works through `slices`: each wait times out and the
+// progress read after it answers the next slice's entries; the wait after the
+// last slice finds the run done.
+export function codex(slices: { kind: string; text: string }[][]) {
+  let waits = 0
+  let reads = 0
+  let next = 0
+  return (argv: string[]) => {
+    switch (argv[1]) {
+      case 'exec':
+        return ok(JSON.stringify({ conversation_id: 'conv-1', run_id: 'run-1' }))
+      case 'wait':
+        return ++waits <= slices.length ? WAIT_TIMEOUT : ok(JSON.stringify({ run_id: 'run-1', state: 'done', outcome: 'ok' }))
+      case 'progress': {
+        const entries = slices[reads++] ?? []
+        next += entries.length
+        return ok(JSON.stringify({ run_id: 'run-1', state: 'running', next, entries: entries.map((e, i) => ({ seq: next - entries.length + i, at: 't', ...e })) }))
+      }
+      case 'status':
+        return ok(JSON.stringify({ run_id: 'run-1', conversation_id: 'conv-1', state: 'done', outcome: 'ok', output_path: '/o' }))
+      default:
+        return ok('Codex: done.')
+    }
+  }
 }
 
 // The toasts that are not spawn notices.
