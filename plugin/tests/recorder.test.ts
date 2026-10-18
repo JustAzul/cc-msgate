@@ -769,3 +769,24 @@ test('a request that was about to start when a stopped run finished is not made'
   expect(world.requests).toEqual([])
   expect(recorder.records()).toEqual([])
 })
+
+test('a clock that fails when a window is due is logged once, and the next add asks for the entries of both', async () => {
+  const world = fakePorts()
+  let isBroken = true
+  const clock = { ...world.ports, now: () => (isBroken ? Promise.reject(new Error('the clock is gone')) : Promise.resolve(0)) }
+  const recorder = createRecorder({ runId: 'run-1', every: 8, limiter: createLimiter(), ports: clock })
+
+  recorder.add(entries(1, 8))
+  await flush()
+  recorder.add(entries(9, 9))
+  await flush()
+  expect(world.requests).toEqual([])
+  expect(world.logs).toHaveLength(1)
+  expect(world.logs[0]).toContain('run-1')
+  expect(world.logs[0]).toContain('the clock is gone')
+
+  isBroken = false
+  recorder.add(entries(10, 10))
+  await flush()
+  expect(world.requests[0].prompt.split('\n').slice(1)).toEqual(entries(1, 10).map((e) => '- ' + e))
+})

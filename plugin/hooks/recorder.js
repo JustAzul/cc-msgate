@@ -101,7 +101,9 @@ export function createRecorder({ runId, every: asked, limiter, ports }) {
 
     for (const text of lines) unrecorded.push({ number: ++count, text })
     unrecorded = unrecorded.slice(-RECORD_WINDOW_ENTRIES)
-    void startIfDue().catch(() => {})
+    void startIfDue().catch((error) => {
+      logFailure(ports, 'could not schedule a record: ' + String(error && error.message ? error.message : error))
+    })
   }
 
   const isDue = () => every > 0 && !isInFlight && unrecorded.length >= every
