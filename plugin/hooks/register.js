@@ -1470,14 +1470,14 @@ async function* followOwnRun($, bin, runId, signal) {
 // quiet, until the run ends or the turn is interrupted. It never stops the run.
 // It returns the summaries recorded for the run's windows when it ends and the
 // turn was not interrupted, and none otherwise.
-async function* watchRun($, bin, runId, signal) {
+export async function* watchRun($, bin, runId, signal) {
   const follow = await createFollow($, bin, runId, signal)
   try {
     let step
     do {
       step = await follow.advance()
       for (const line of step.lines) yield thinking(line)
-    } while (!step.isDone)
+    } while (!step.isDone && !signal.aborted)
     return await follow.finish()
   } finally {
     follow.release()

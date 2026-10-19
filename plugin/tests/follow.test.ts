@@ -1,10 +1,11 @@
 import { expect, test } from 'claude-code/testing'
 import { WAIT_TIMEOUT, answered, engineOf, job, ok, world } from './kit'
-import { createFollow } from '../hooks/register.js'
+import { RECORD_MAX_TOKENS } from '../hooks/recorder.js'
+import { createFollow, watchRun } from '../hooks/register.js'
 
 const RUN = 'run-1'
 const BIN = '/plugin/bin/msgate'
-const isRecordRequest = (request: any) => request.maxTokens === 120
+const isRecordRequest = (request: any) => request.maxTokens === RECORD_MAX_TOKENS
 const finished = () => job({ run_id: RUN, state: 'done', outcome: 'ok' })
 
 // The world a follow runs in: `timeouts` waits that give up, then a wait that
@@ -118,4 +119,19 @@ test('finish returns no records when the turn was interrupted', async ($, on) =>
   const records = await follow.finish()
 
   expect(records).toEqual([])
+})
+
+test('a turn stopped while the lines of a slice are shown starts no further wait', async ($, on) => {
+  const w = world(on)
+  followed(w, { timeouts: 5, entries: [1] })
+  const abort = new AbortController()
+  const watching = watchRun(engine(w).$, BIN, RUN, abort.signal)
+
+  const shown = await watching.next()
+  abort.abort()
+  const ended = await watching.next()
+
+  expect(shown.done).toBe(false)
+  expect(ended).toEqual({ done: true, value: [] })
+  expect(w.runs.filter((r) => r.argv[1] === 'wait')).toHaveLength(1)
 })
