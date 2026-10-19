@@ -728,7 +728,11 @@ shown.
   In `auto`, Claude Code does not accept a row that ends with plain text: it
   calls for the step three more times and raises `SubagentStop` four times for
   the row, and the model still receives nothing from it (see
-  [`docs/hidden-rows-proof.md`](docs/hidden-rows-proof.md)). `MSGATE_ROW_MODE=auto`
+  [`docs/hidden-rows-proof.md`](docs/hidden-rows-proof.md)). Claude Code also
+  runs its auto-mode classifier once per row, with the main model, when the
+  row's turn ends: a request of about 139 thousand characters whose size does
+  not depend on the run's prompt (measured with prompts of 5 kB and 1 MiB), and
+  nothing of it enters the main session's transcript. `MSGATE_ROW_MODE=auto`
   restores the refusal: the spawn is then refused
   (`msgate: a hidden row does not open, since MSGATE_ROW_MODE=auto refuses it`)
   and the run stays in the band. The variable is read at each spawn (see
