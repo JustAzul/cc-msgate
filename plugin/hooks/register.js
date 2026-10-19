@@ -86,6 +86,7 @@ import { createSummarizer } from './summarizer.js'
 import { backedTypeOf } from './backed.js'
 import { forgetEfforts, holdEffort, takeEffort } from './efforts.js'
 import { FOLLOW, admitSpawn, checkRun, endedText, followFailureText, hiddenRunIds, hiddenRunOf, stoppedText } from './hidden.js'
+import { PROGRESS_SPEC, PROGRESS_TOOL, onProgressTool } from './progress.js'
 import { createService } from './service.js'
 import { INTERFACE, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveRun, serveVersion } from './iface.js'
 import { summaryRecording } from './summary.js'
@@ -117,6 +118,8 @@ const TURN_PROPERTIES = {
 // evaluates this file again and starts from scratch.
 let timer = null
 let isPolling = false
+// Whether the progress tool registered in this load; false until it does.
+let isProgressToolRegistered = false
 // The flagged runs the band follows, what was read of each, and the lines it
 // last wrote (null until this load writes). Until this load's first poll has
 // read the session's runs, the band keeps what an earlier load wrote.
@@ -325,13 +328,18 @@ export function register(on, options) {
     return yield* deliver(e, handoffFailure('the plugin hook failed: ' + failureOf(next.error)))
   })
 
-  // The hand-back call is the one tool they may make: it is how their answer
-  // reaches the caller. An Agent call that names an effort is held with it, for
-  // the spawn beneath that its row's first turn admits.
+  // The hand-back call and the progress marker are the only tools they may make:
+  // the first is how their answer reaches the caller, the second ends a step.
+  // An Agent call that names an effort is held with it, for the spawn beneath
+  // that its row's first turn admits.
   on('tool.call', async ($, e, next) => {
-    if (e.tool === HANDBACK_TOOL || !(await isAnsweredRow($, e.agentId))) return holdEffort(e, next)
+    if (isRowTool(e.tool) || !(await isAnsweredRow($, e.agentId))) return holdEffort(e, next)
     return { deny: NO_TOOLS }
-  }).catch(($, e, next) => (next.called || e.tool === HANDBACK_TOOL || !isKnownSubagent(e.agentId) ? next(e) : { deny: NO_TOOLS }))
+  }).catch(($, e, next) => (next.called || isRowTool(e.tool) || !isKnownSubagent(e.agentId) ? next(e) : { deny: NO_TOOLS }))
+
+  // Registered after the hook above, which resolves a call first: it must let the
+  // marker through for a row it answers.
+  onProgressTool(on)
 
   // The spinner of a msgate agent's turn says what its run is doing.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
@@ -361,7 +369,7 @@ export function register(on, options) {
   }).catch(($, e, next) => next(e))
 }
 
-async function registerTools($) {
+export async function registerTools($) {
   const tools = [
     {
       name: 'run',
@@ -395,14 +403,23 @@ async function registerTools($) {
         required: ['action'],
       },
     },
+    PROGRESS_SPEC,
   ]
+  isProgressToolRegistered = false
   for (const tool of tools) {
     try {
       await $.tool.register(tool)
+      if (tool === PROGRESS_SPEC) isProgressToolRegistered = true
     } catch {
       // A tool that fails to register must not keep the others or the poll from starting.
     }
   }
+}
+
+// isProgressRegistered tells whether the progress tool is registered in this load
+// of the module; a step is ended with it only when it is.
+export function isProgressRegistered() {
+  return isProgressToolRegistered
 }
 
 // startTurn serves the run tool.
@@ -1267,6 +1284,12 @@ function thinking(line) {
 // The tool that delivers a subagent's final report to its caller. In the auto
 // permission mode plain text is not delivered, and the call ends the subagent.
 const HANDBACK_TOOL = 'SubagentHandback'
+
+// isRowTool tells the tools a row whose turns the engine answers may call: the
+// hand-back, and the marker that ends a step.
+function isRowTool(tool) {
+  return tool === HANDBACK_TOOL || tool === PROGRESS_TOOL
+}
 
 // deliver remembers the text a turn answered with, then hands it back, behind
 // the recorded summaries of the turn's run.
