@@ -15,7 +15,7 @@ export const SPAWN_READ_TIMEOUT_MS = 5000
 // The most bytes of a run's prompt a row shows whole. The model a row runs on
 // has a context window the host measures against the prompt, and the turn of a
 // row whose prompt is over it fails at once without a word; 1 MiB is far under
-// the size at which that was seen with the haiku row of msgate-agents.
+// the size at which that was measured with a haiku row.
 export const SHOWN_PROMPT_MAX_BYTES = 1024 * 1024
 // What the spawn of a hidden row answers when MSGATE_ROW_MODE=auto refuses it.
 export const AUTO_DENIAL = 'msgate: a hidden row does not open, since MSGATE_ROW_MODE=auto refuses it'
