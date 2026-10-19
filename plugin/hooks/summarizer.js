@@ -58,7 +58,7 @@ export function createSummarizer(options, limiter = createLimiter()) {
     run.hasRequested = true
     const sent = run.entries
     run.entries = []
-    void settle(ports, runId, run, sent).catch(() => {})
+    run.settling = settle(ports, runId, run, sent).catch(() => {})
   }
 
   async function settle(ports, runId, run, sent) {
@@ -97,6 +97,12 @@ export function createSummarizer(options, limiter = createLimiter()) {
     return [labelLine(run.label)]
   }
 
+  // settled resolves when the request in flight for the run, if any, has come
+  // back: a display that must show the label of a window waits for it here.
+  function settled(runId) {
+    return runs.get(runId)?.settling ?? Promise.resolve()
+  }
+
   // shown is what the band shows of a run in place of its newest raw step, or
   // null until a label has settled.
   function shown(runId) {
@@ -107,5 +113,5 @@ export function createSummarizer(options, limiter = createLimiter()) {
     runs.delete(runId)
   }
 
-  return { observe, take, shown, forget }
+  return { observe, take, settled, shown, forget }
 }

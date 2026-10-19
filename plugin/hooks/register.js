@@ -226,6 +226,7 @@ export function register(on, options) {
   rowAgents.clear()
   answeredHiddenRows.clear()
   stepCounts.clear()
+  steppedTurns.clear()
   startTexts.clear()
   forgetEfforts()
   isLossToastShown = false
@@ -311,17 +312,22 @@ export function register(on, options) {
     return next(e)
   }).catch(($, e, next) => next(e))
 
+  onTurnComplete(on)
+
   on('turn.step', async function* ($, e, next) {
     const row = await rowOf($, e.agentId)
     if (row === null) return yield* next(e)
     if (row.backed.command === FOLLOW) return yield* hiddenStep($, e, next, row)
-    if (await isOverStepLimit($, e)) return yield* next(e)
+    // The steps that end in the progress marker do not count: they are the
+    // engine's own, and would hand the rest of the turn to the model beneath.
+    if (heldTurn(e.agentId, e.turnId) === null && (await isOverStepLimit($, e))) return yield* next(e)
     // A later step of a turn that has answered (the tool is missing in the
     // default permission mode, or the request repeats) needs no new run.
     const answered = answeredText(e)
     if (answered !== null) return yield* answer(e, answered)
     yield* opening($, row)
-    const { text, records } = yield* followTurn($, { agentId: e.agentId, turnId: e.turnId, row }, next.signal)
+    const { text, records, progress } = yield* followTurn($, { agentId: e.agentId, turnId: e.turnId, index: e.index, row }, next.signal)
+    if (progress !== undefined) return yield* progressStep(e, progress)
     return yield* deliver(e, text, records)
   }).catch(async function* ($, e, next) {
     if (next.called || !isKnownSubagent(e.agentId)) return yield* next(e)
@@ -370,6 +376,24 @@ export function register(on, options) {
     const lines = rows.map((row) => h(Text, { dimColor: true, wrap: 'truncate-end' }, row.text))
     return h(Box, { flexDirection: 'column' }, ...lines, ...(below ? [below] : []))
   }).catch(($, e, next) => next(e))
+}
+
+// onTurnComplete lets go of what a stepped turn kept between its steps when the
+// turn ends: the steps of an interrupted turn stop coming, and the run that a
+// row started itself is cancelled then, as an interrupt in a step would.
+function onTurnComplete(on) {
+  on('turn.complete', async ($, e, next) => {
+    await endSteppedTurn($, e)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+}
+
+async function endSteppedTurn($, e) {
+  const held = e.agentId === undefined ? null : heldTurn(e.agentId, e.turnId)
+  if (held === null) return
+  dropTurn(e.agentId, e.turnId)
+  if (!e.isAborted || !held.isOwn) return
+  await $.process.run([shimPath($.plugin.root), 'cancel', held.runId]).catch(() => {})
 }
 
 export async function registerTools($) {
@@ -1383,8 +1407,11 @@ async function* hiddenStep($, e, next, row) {
 
   answeredHiddenRows.add(e.agentId)
   yield* opening($, row)
-  const { text, records } =
-    checked.error === undefined ? yield* followHidden($, bin, { agentId: e.agentId, row }, runId, next.signal) : { text: handoffFailure(checked.error), records: [] }
+  const { text, records, progress } =
+    checked.error === undefined
+      ? yield* followHidden($, bin, { agentId: e.agentId, turnId: e.turnId, index: e.index, row }, runId, next.signal)
+      : { text: handoffFailure(checked.error), records: [] }
+  if (progress !== undefined) return yield* progressStep(e, progress)
   rememberAnswer(e, text)
   return yield* answer(e, text, records)
 }
@@ -1396,14 +1423,17 @@ async function* followHidden($, bin, turn, runId, signal) {
   turnAgents.set(turn.agentId, { runId, type: turn.row.name })
   let records = []
   try {
-    records = yield* watchRun($, bin, runId, signal)
+    const watched = yield* watching($, bin, turn, runId, signal)
+    if (watched.progress !== undefined) return { progress: watched.progress }
+    records = watched.records
     if (signal.aborted) return { text: stoppedText(runId), records }
     const read = await readFinished($, bin, runId)
     return { text: read.failure === undefined ? endedText(read.run) : read.failure, records }
   } catch (error) {
     return { text: followFailureText(error, runId, signal), records }
   } finally {
-    turnAgents.delete(turn.agentId)
+    // A stepped turn keeps its spinner message while it waits for its next step.
+    if (heldTurn(turn.agentId, turn.turnId) === null) turnAgents.delete(turn.agentId)
   }
 }
 
@@ -1416,32 +1446,49 @@ async function* followTurn($, turn, signal) {
   } catch (error) {
     return { text: handoffFailure(messageOf(error)), records: [] }
   } finally {
-    turnAgents.delete(turn.agentId)
+    // A stepped turn keeps its spinner message while it waits for its next step.
+    if (heldTurn(turn.agentId, turn.turnId) === null) turnAgents.delete(turn.agentId)
   }
 }
 
-async function* runSubagentTurn($, turn, signal) {
-  const rows = await $.session.messages({ agentId: turn.agentId })
-  if (!Array.isArray(rows)) return failedTurn('could not read the prompt: ' + rows.deny)
+// The step of a stepped turn that finds no follow kept for it, after the first,
+// belongs to a run this load did not start and cannot name.
+const LOST_RUN = 'the plugin loaded again during the turn, so the run it started is no longer followed; read it with the msgate jobs tool.'
 
+async function* runSubagentTurn($, turn, signal) {
   const bin = shimPath($.plugin.root)
+  const held = heldTurn(turn.agentId, turn.turnId)
+  if (held === null && turn.index > 0 && turn.row.backed.stepped === true) return failedTurn(LOST_RUN)
+
+  const admitted = held === null ? await admitTurn($, bin, turn) : { runId: held.runId }
+  if (admitted.failure !== undefined) return admitted.failure
+  const watched = yield* followOwnRun($, bin, turn, admitted.runId, signal)
+  if (watched.progress !== undefined) return { progress: watched.progress }
+  try {
+    return { text: await finalAnswer($, bin, admitted.runId), records: watched.records }
+  } catch (error) {
+    return { text: handoffFailure(messageOf(error)), records: watched.records }
+  }
+}
+
+// admitTurn starts the turn's run: { runId }, or { failure } with the failed
+// turn's end.
+async function admitTurn($, bin, turn) {
+  const rows = await $.session.messages({ agentId: turn.agentId })
+  if (!Array.isArray(rows)) return { failure: failedTurn('could not read the prompt: ' + rows.deny) }
+
   const built = await subagentCommand($, bin, turn, rows)
-  if (built.error) return failedTurn(built.error)
+  if (built.error) return { failure: failedTurn(built.error) }
 
   const reply = await $.process.run(built.argv, { stdin: built.stdin, timeoutMs: ADMIT_TIMEOUT_MS })
-  if (reply.exitCode !== 0) return failedTurn(failureText(reply))
+  if (reply.exitCode !== 0) return { failure: failedTurn(failureText(reply)) }
   const ids = admittedJob(reply.stdout)
-  if (ids === null) return failedTurn('msgate printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500))
+  if (ids === null) return { failure: failedTurn('msgate printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500)) }
 
   startNotice($, () => notifyAdmitted($, bin, ids.run_id, turn.row.backed.purpose ?? turn.row.name, AGENT_SOURCE))
   turnAgents.set(turn.agentId, { runId: ids.run_id, type: turn.row.name })
   await recordConversation($, turn.agentId, ids.conversation_id)
-  const records = yield* followOwnRun($, bin, ids.run_id, signal)
-  try {
-    return { text: await finalAnswer($, bin, ids.run_id), records }
-  } catch (error) {
-    return { text: handoffFailure(messageOf(error)), records }
-  }
+  return { runId: ids.run_id }
 }
 
 // failedTurn is the end of a turn that could not start its run: the hand-off
@@ -1478,18 +1525,18 @@ async function recordConversation($, agentId, conversationId) {
 // followOwnRun watches a run the agent itself started. Interrupting the turn
 // (Esc, or TaskStop on the agent) cancels the run, including one interrupted
 // before the wait began.
-async function* followOwnRun($, bin, runId, signal) {
+async function* followOwnRun($, bin, turn, runId, signal) {
   const cancel = () => {
     $.process.run([bin, 'cancel', runId]).catch(() => {})
   }
   if (signal.aborted) {
     cancel()
-    return []
+    return { records: [] }
   }
 
   signal.addEventListener('abort', cancel, { once: true })
   try {
-    return yield* watchRun($, bin, runId, signal)
+    return yield* watching($, bin, turn, runId, signal)
   } finally {
     signal.removeEventListener('abort', cancel)
   }
@@ -1514,16 +1561,117 @@ export async function* watchRun($, bin, runId, signal) {
   }
 }
 
+// The follow of each stepped turn, kept between its steps, by agent id. A new
+// turn of the agent replaces the entry, and the end of the turn clears it.
+const steppedTurns = new Map()
+
+// heldTurn is what the agent's turn keeps between its steps, or null.
+function heldTurn(agentId, turnId) {
+  const held = steppedTurns.get(agentId)
+  return held !== undefined && held.turnId === turnId ? held : null
+}
+
+// dropTurn lets go of what the agent's turn kept between its steps.
+function dropTurn(agentId, turnId) {
+  const held = heldTurn(agentId, turnId)
+  if (held === null) return
+  steppedTurns.delete(agentId)
+  held.follow.release()
+  turnAgents.delete(agentId)
+}
+
+// stepWindow is how many entries one step of the turn covers, or 0 when the
+// turn is followed in one step: the type is stepped, the progress tool is
+// registered in this load, and the summaries are on with a screen to draw on.
+// A turn already in steps finishes in the step it is in when those stop holding.
+async function stepWindow($, row, isHeld) {
+  const config = await summaryConfig($)
+  const isStepping = row.backed.stepped === true && isProgressRegistered() && config.isEnabled && (await $.session.surfaces()).length > 0
+  if (isStepping) return config.liveEvery
+  return isHeld ? Infinity : 0
+}
+
+// holdTurn starts the follow a stepped turn keeps between its steps. A later
+// step that finds none (the module loaded again) starts a new one, which reads
+// the entries over from the first.
+async function holdTurn($, bin, turn, runId, signal) {
+  if (turn.index > 0) {
+    await $.ui.log('agent ' + turn.agentId + ' found no follow at step ' + turn.index + ' of turn ' + turn.turnId + ': a new one starts', { to: 'debug' })
+  }
+  const earlier = steppedTurns.get(turn.agentId)
+  if (earlier !== undefined) dropTurn(turn.agentId, earlier.turnId)
+  const follow = await createFollow($, bin, runId, signal)
+  const held = { turnId: turn.turnId, runId, isOwn: turn.row.backed.command !== FOLLOW, follow }
+  steppedTurns.set(turn.agentId, held)
+  return held
+}
+
+// watching follows the turn's run for one step. A stepped turn returns
+// { progress } when the step ends before the run does, the texts to show, and
+// { records } when the run is over; any other turn is followed to the end.
+async function* watching($, bin, turn, runId, signal) {
+  const held = heldTurn(turn.agentId, turn.turnId)
+  const window = await stepWindow($, turn.row, held !== null)
+  if (window === 0) return { records: yield* watchRun($, bin, runId, signal) }
+
+  const kept = held ?? (await holdTurn($, bin, turn, runId, signal))
+  kept.follow.rebind(signal)
+  let isKept = false
+  try {
+    const watched = yield* watchSlice(kept.follow, signal, window)
+    isKept = watched.progress !== undefined
+    return watched
+  } finally {
+    if (!isKept) dropTurn(turn.agentId, turn.turnId)
+  }
+}
+
+// watchSlice waits slice after slice until `window` entries have arrived, the
+// run ends or the turn is interrupted. A step that ends before the run does
+// waits for the label of its window, and shows it with the records that settled.
+async function* watchSlice(follow, signal, window) {
+  const labels = []
+  let entries = 0
+  let step
+  do {
+    step = await follow.advance()
+    entries += step.entries
+    for (const line of step.lines) yield thinking(line)
+    labels.push(...step.labels)
+  } while (!step.isDone && !signal.aborted && entries < window)
+  if (step.isDone || signal.aborted) return { records: await follow.finish() }
+
+  labels.push(...(await follow.label()))
+  return { progress: [...labels.map((label) => label + '\n'), ...follow.fresh().map((record) => record.text)] }
+}
+
+// progressStep ends a step before its run does: the texts that came ready, then
+// a call of the progress tool, which the engine answers and so asks for the next
+// step. The answer remembered for the turn is left to the step that ends it.
+async function* progressStep(e, texts) {
+  for (const [i, text] of texts.entries()) yield { kind: 'text', index: ANSWER_BLOCK + i, text }
+  const block = ANSWER_BLOCK + texts.length
+  yield { kind: 'tool', index: block, id: 'msgate-progress-' + e.turnId + '-' + e.index, name: PROGRESS_TOOL }
+  yield { kind: 'input', index: block, json: '{}' }
+  yield { kind: 'stop', stopReason: 'tool_use', usage: null }
+  return { turnId: e.turnId, index: e.index, answer: texts.join(''), toolUses: [{ name: PROGRESS_TOOL, input: {} }], stopReason: 'tool_use', usage: null }
+}
+
 // createFollow is the follow of one run, kept between its slices: `advance`
 // waits one slice and returns what to show for it, and `finish` ends the follow
 // with the records. A follow that ends any other way is let go with `release`.
+// A follow that spans the steps of a turn is handed the signal of each step with
+// `rebind`: the signal of a step ends with the step.
 export async function createFollow($, bin, runId, signal) {
+  let current = signal
   // The recorder while the follow still feeds it: it is let go of when the
   // summaries are switched off, and a follow cut short lets go of it too.
   let recording = await recorderOf($, runId, await summaryConfig($))
   const startedAt = await $.clock.now()
   let shownAt = startedAt
   let from = 0
+  // How many of the recorder's records `fresh` and `finish` have handed over.
+  let handed = 0
 
   async function advance() {
     const reply = await $.process.run(sliceWaitCommand(bin, runId), { timeoutMs: SLICE_TIMEOUT_MS })
@@ -1533,7 +1681,9 @@ export async function createFollow($, bin, runId, signal) {
     if (recording !== null && !config.isEnabled) recording = abandon($, recording)
     if (recording !== null && progress.text.length > 0) recording.add(progress.text)
     // With summaries active the row shows labels, not the entries.
-    const lines = (await summaries.observe(summaryPorts($), runId, progress.text)) ? summaries.take(runId) : progress.text
+    const isLive = await summaries.observe(summaryPorts($), runId, progress.text)
+    const labels = isLive ? summaries.take(runId) : []
+    const lines = isLive ? labels : progress.text
 
     const now = await $.clock.now()
     const shown = [...lines]
@@ -1542,14 +1692,29 @@ export async function createFollow($, bin, runId, signal) {
       shown.push(heartbeatLine(now - startedAt))
       shownAt = now
     }
-    return { lines: shown, isDone: !(isWaitTimeout(reply) && !signal.aborted) }
+    return { lines: shown, labels, entries: progress.text.length, isDone: !(isWaitTimeout(reply) && !current.aborted) }
+  }
+
+  // label waits for the label request in flight, if any, and returns the label
+  // that settled and has not been shown.
+  async function label() {
+    await summaries.settled(runId)
+    return summaries.take(runId)
+  }
+
+  // fresh returns the records that settled since the last call.
+  function fresh() {
+    const settled = recording === null ? [] : recording.records()
+    const records = settled.slice(handed)
+    handed = settled.length
+    return records
   }
 
   async function finish() {
     const ending = recording
     recording = null
     try {
-      return ending === null ? [] : await finishRecords($, runId, ending, signal)
+      return ending === null ? [] : (await finishRecords($, runId, ending, current)).slice(handed)
     } finally {
       release()
     }
@@ -1560,7 +1725,11 @@ export async function createFollow($, bin, runId, signal) {
     if (recording !== null) recording = abandon($, recording)
   }
 
-  return { advance, finish, release }
+  function rebind(nextSignal) {
+    current = nextSignal
+  }
+
+  return { advance, label, fresh, finish, release, rebind }
 }
 
 // abandon tells a recorder that no more entries come and that it is to start no
