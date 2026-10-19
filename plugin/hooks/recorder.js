@@ -99,7 +99,9 @@ function recordText(from, to, sentence) {
 // them have accumulated, asks for a record of them. `every` is a whole number
 // up to that buffer, 8 when it is not; 0 never asks.
 // `limiter` is the session's, shared with the live summaries. `ports` serve the
-// requests add starts; finish takes its own for the ones it makes.
+// requests add starts when the call names none; a follow that outlives the step
+// it was made in names the current step's with each add, as finish takes its own
+// for the ones it makes.
 export function createRecorder({ runId, every: asked, limiter, ports }) {
   // A cadence beyond the buffer could never be reached.
   const every = wholeWithin(asked, 0, RECORD_WINDOW_ENTRIES, DEFAULT_RECORDED_EVERY)
@@ -115,26 +117,26 @@ export function createRecorder({ runId, every: asked, limiter, ports }) {
   // add takes the progress lines a display has just read, oldest first. It
   // starts a request when one is due and never waits for it. Once finish has
   // been called it ignores them.
-  function add(lines) {
+  function add(lines, through = ports) {
     if (isFinishing) return
 
     for (const text of lines) unrecorded.push({ number: ++count, text })
     unrecorded = unrecorded.slice(-RECORD_WINDOW_ENTRIES)
-    void startIfDue().catch((error) => {
-      logFailure(ports, 'could not schedule a record: ' + String(error && error.message ? error.message : error))
+    void startIfDue(through).catch((error) => {
+      logFailure(through, 'could not schedule a record: ' + String(error && error.message ? error.message : error))
     })
   }
 
   const isDue = () => every > 0 && !isInFlight && unrecorded.length >= every
 
   // The checks that decide a start and the claim of a slot follow the last await.
-  async function startIfDue() {
+  async function startIfDue(through) {
     if (!isDue()) return
-    const now = await ports.now()
+    const now = await through.now()
     // A finish that began during the await starts the last window itself.
     if (isFinishing || !isDue() || !limiter.tryTake(now)) return
 
-    start(ports)
+    start(through)
   }
 
   // start sends everything unrecorded; the caller holds a slot of the limiter.

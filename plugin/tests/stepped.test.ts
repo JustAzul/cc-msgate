@@ -36,14 +36,18 @@ function follower(slices: number[]) {
   }
 }
 
-// A model that labels each window in turn and, unless `isRecording` is false,
-// records a sentence for each recorded window.
-function labelling(isRecording = true) {
+// A model that labels each window in turn and records a sentence for each
+// recorded window.
+function labelling() {
   let labels = 0
-  return (request: any) => {
-    if (!isRecordRequest(request)) return answered('Label ' + ++labels)
-    return isRecording ? answered('Covered a window.') : apiError(500)
-  }
+  return (request: any) => (isRecordRequest(request) ? answered('Covered a window.') : answered('Label ' + ++labels))
+}
+
+// A model that labels each window in turn and records nothing: its record
+// requests fail.
+function labellingWithoutRecords() {
+  let labels = 0
+  return (request: any) => (isRecordRequest(request) ? apiError(500) : answered('Label ' + ++labels))
 }
 
 async function openRow($: any, w: ReturnType<typeof world>, slices: number[], model: (request: any) => any = labelling()) {
@@ -66,7 +70,7 @@ const blocksOf = (chunks: any[]) => chunks.filter((c) => c.kind === 'text' || c.
 
 test('a stepped row follows a run of nine entries in three steps that end in the progress marker, then answers', async ($, on) => {
   const w = world(on, { backed: STEPPED })
-  await openRow($, w, [3, 3, 3], labelling(false))
+  await openRow($, w, [3, 3, 3], labellingWithoutRecords())
 
   const steps = [await stepAt($, 0), await stepAt($, 1), await stepAt($, 2)]
   const last = await stepAt($, 3)
@@ -132,6 +136,20 @@ test('with the summaries off a stepped row answers in one step and shows the raw
   expect(toolsOf(out.chunks)).toEqual([])
   expect(out.chunks.filter((c) => c.kind === 'thinking').map((c) => c.text)).toEqual(['entry 1\n', 'entry 2\n', 'entry 3\n', 'entry 4\n', 'entry 5\n', 'entry 6\n', 'entry 7\n', 'entry 8\n', 'entry 9\n'])
   expect(textsOf(out.chunks).at(-1)).toBe('msgate run run-hook ended ok')
+})
+
+test('a turn already in steps finishes in the step it is in when the summaries are switched off', async ($, on) => {
+  const w = world(on, { backed: STEPPED })
+  await openRow($, w, [3, 3, 3])
+  const first = await stepAt($, 0)
+
+  w.env.set('MSGATE_SUMMARIES', '0')
+  const second = await stepAt($, 1)
+
+  expect(toolsOf(first.chunks)).toHaveLength(1)
+  expect(toolsOf(second.chunks)).toEqual([])
+  expect(textsOf(second.chunks).at(-1)).toBe('msgate run run-hook ended ok')
+  expect(debugOf(w)).toEqual([])
 })
 
 test('a headless session answers a stepped row in one step', async ($, on) => {
@@ -210,7 +228,7 @@ const OWN = { [OWN_TYPE]: { command: 'exec', promptMode: 'free', stepped: true }
 // `windows` windows of three entries.
 async function openOwnRow($: any, w: ReturnType<typeof world>, windows: number) {
   w.surfaces = ['terminal']
-  w.respondModel = labelling(false)
+  w.respondModel = labellingWithoutRecords()
   w.respond = codex(Array.from({ length: windows }, (_, i) => [msg('entry ' + (3 * i + 1)), msg('entry ' + (3 * i + 2)), msg('entry ' + (3 * i + 3))]))
   w.agents.push({ id: 'ag-own', type: OWN_TYPE })
   w.messages['ag-own'] = [{ role: 'user', text: 'Review the cache.' }]

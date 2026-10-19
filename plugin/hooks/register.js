@@ -1583,12 +1583,10 @@ function dropTurn($, agentId, turnId) {
 // stepWindow is how many entries one step of the turn covers, or 0 when the
 // turn is followed in one step: the type is stepped, the progress tool is
 // registered in this load, and the summaries are on with a screen to draw on.
-// A turn already in steps finishes in the step it is in when those stop holding.
-async function stepWindow($, row, isHeld) {
+async function stepWindow($, row) {
   const config = await summaryConfig($)
   const isStepping = row.backed.stepped === true && isProgressRegistered() && config.isEnabled && (await $.session.surfaces()).length > 0
-  if (isStepping) return config.liveEvery
-  return isHeld ? Infinity : 0
+  return isStepping ? config.liveEvery : 0
 }
 
 // holdTurn starts the follow a stepped turn keeps between its steps. A later
@@ -1611,8 +1609,10 @@ async function holdTurn($, bin, turn, runId, signal) {
 // { records } when the run is over; any other turn is followed to the end.
 async function* watching($, bin, turn, runId, signal) {
   const held = heldTurn(turn.agentId, turn.turnId)
-  const window = await stepWindow($, turn.row, held !== null)
-  if (window === 0) return { records: yield* watchRun($, bin, runId, signal) }
+  const configured = await stepWindow($, turn.row)
+  if (configured === 0 && held === null) return { records: yield* watchRun($, bin, runId, signal) }
+  // A turn already in steps finishes in the step it is in when stepping stops holding.
+  const window = configured === 0 ? Infinity : configured
 
   const kept = held ?? (await holdTurn($, bin, turn, runId, signal))
   rebindFollow(kept.follow, signal)
@@ -1693,12 +1693,17 @@ export async function advanceFollow($, follow) {
   follow.from = progress.next
   const config = await summaryConfig($)
   if (follow.recording !== null && !config.isEnabled) follow.recording = abandon($, follow.recording)
-  if (follow.recording !== null && progress.text.length > 0) follow.recording.add(progress.text)
+  if (follow.recording !== null && progress.text.length > 0) follow.recording.add(progress.text, summaryPorts($))
   // With summaries active the row shows labels, not the entries.
   const isLive = await summaries.observe(summaryPorts($), runId, progress.text)
   const labels = isLive ? summaries.take(runId) : []
-  const lines = isLive ? labels : progress.text
+  const lines = await withHeartbeat($, follow, isLive ? labels : progress.text, config)
+  return { lines, labels, entries: progress.text.length, isDone: !(isWaitTimeout(reply) && !follow.signal.aborted) }
+}
 
+// withHeartbeat is what a slice shows: its lines, or a heartbeat when none has
+// been shown for HEARTBEAT_MS and the summaries are on.
+async function withHeartbeat($, follow, lines, config) {
   const now = await $.clock.now()
   const shown = [...lines]
   if (lines.length > 0) follow.shownAt = now
@@ -1706,7 +1711,7 @@ export async function advanceFollow($, follow) {
     shown.push(heartbeatLine(now - follow.startedAt))
     follow.shownAt = now
   }
-  return { lines: shown, labels, entries: progress.text.length, isDone: !(isWaitTimeout(reply) && !follow.signal.aborted) }
+  return shown
 }
 
 // followLabels waits for the label request in flight, if any, and returns the
@@ -1750,7 +1755,7 @@ function abandon($, recorder) {
 // are off, record nothing, or have no surface to draw on.
 async function recorderOf($, runId, config) {
   if (!config.isEnabled || config.recordedEvery === 0 || (await $.session.surfaces()).length === 0) return null
-  return createRecorder({ runId, every: config.recordedEvery, limiter, ports: summaryPorts($) })
+  return createRecorder({ runId, every: config.recordedEvery, limiter })
 }
 
 // finishRecords ends a follow's recorder, handing it the engine ports its last

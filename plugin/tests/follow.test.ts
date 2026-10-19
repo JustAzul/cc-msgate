@@ -156,3 +156,28 @@ test('advance waits through the engine of the step it runs in, not the one the f
 
   expect(waitedThrough).toEqual(['wait', 'progress'])
 })
+
+test('a record requested at a later step goes through the engine of that step, not the one the follow was made with', async ($, on) => {
+  const w = world(on)
+  followed(w, { timeouts: 2, entries: [0, 8] })
+  const requestedThrough: string[] = []
+  const engineNamed = (name: string) => {
+    const named = engine(w, { surfaces: ['terminal'] }).$
+    named.model = {
+      complete: async (request: any) => {
+        if (isRecordRequest(request)) requestedThrough.push(name)
+        return isRecordRequest(request) ? answered('Covered the window.') : answered('Reading auth.go')
+      },
+    }
+    return named
+  }
+  const first = engineNamed('first')
+  const second = engineNamed('second')
+  const follow = await createFollow(first, BIN, RUN, new AbortController().signal)
+
+  await advanceFollow(first, follow)
+  await advanceFollow(second, follow)
+  await finishFollow(second, follow)
+
+  expect(requestedThrough).toEqual(['second'])
+})
