@@ -1471,39 +1471,66 @@ async function* followOwnRun($, bin, runId, signal) {
 // It returns the summaries recorded for the run's windows when it ends and the
 // turn was not interrupted, and none otherwise.
 async function* watchRun($, bin, runId, signal) {
+  const follow = await createFollow($, bin, runId, signal)
+  try {
+    let step
+    do {
+      step = await follow.advance()
+      for (const line of step.lines) yield thinking(line)
+    } while (!step.isDone)
+    return await follow.finish()
+  } finally {
+    follow.release()
+  }
+}
+
+// createFollow is the follow of one run, kept between its slices: `advance`
+// waits one slice and returns what to show for it, and `finish` ends the follow
+// with the records. A follow that ends any other way is let go with `release`.
+export async function createFollow($, bin, runId, signal) {
   // The recorder while the follow still feeds it: it is let go of when the
   // summaries are switched off, and a follow cut short lets go of it too.
   let recording = await recorderOf($, runId, await summaryConfig($))
   const startedAt = await $.clock.now()
   let shownAt = startedAt
   let from = 0
-  let reply
-  try {
-    do {
-      reply = await $.process.run(sliceWaitCommand(bin, runId), { timeoutMs: SLICE_TIMEOUT_MS })
-      const progress = await newProgress($, bin, runId, from)
-      from = progress.next
-      const config = await summaryConfig($)
-      if (recording !== null && !config.isEnabled) recording = abandon($, recording)
-      if (recording !== null && progress.text.length > 0) recording.add(progress.text)
-      // With summaries active the row shows labels, not the entries.
-      const lines = (await summaries.observe(summaryPorts($), runId, progress.text)) ? summaries.take(runId) : progress.text
-      for (const line of lines) yield thinking(line)
 
-      const now = await $.clock.now()
-      if (lines.length > 0) shownAt = now
-      else if (now - shownAt >= HEARTBEAT_MS && config.isEnabled) {
-        yield thinking(heartbeatLine(now - startedAt))
-        shownAt = now
-      }
-    } while (isWaitTimeout(reply) && !signal.aborted)
+  async function advance() {
+    const reply = await $.process.run(sliceWaitCommand(bin, runId), { timeoutMs: SLICE_TIMEOUT_MS })
+    const progress = await newProgress($, bin, runId, from)
+    from = progress.next
+    const config = await summaryConfig($)
+    if (recording !== null && !config.isEnabled) recording = abandon($, recording)
+    if (recording !== null && progress.text.length > 0) recording.add(progress.text)
+    // With summaries active the row shows labels, not the entries.
+    const lines = (await summaries.observe(summaryPorts($), runId, progress.text)) ? summaries.take(runId) : progress.text
+
+    const now = await $.clock.now()
+    const shown = [...lines]
+    if (lines.length > 0) shownAt = now
+    else if (now - shownAt >= HEARTBEAT_MS && config.isEnabled) {
+      shown.push(heartbeatLine(now - startedAt))
+      shownAt = now
+    }
+    return { lines: shown, isDone: !(isWaitTimeout(reply) && !signal.aborted) }
+  }
+
+  async function finish() {
     const ending = recording
     recording = null
-    return ending === null ? [] : await finishRecords($, runId, ending, signal)
-  } finally {
-    summaries.forget(runId)
-    if (recording !== null) abandon($, recording)
+    try {
+      return ending === null ? [] : await finishRecords($, runId, ending, signal)
+    } finally {
+      release()
+    }
   }
+
+  function release() {
+    summaries.forget(runId)
+    if (recording !== null) recording = abandon($, recording)
+  }
+
+  return { advance, finish, release }
 }
 
 // abandon tells a recorder that no more entries come and that it is to start no
