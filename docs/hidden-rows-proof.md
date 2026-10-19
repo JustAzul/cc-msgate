@@ -41,7 +41,13 @@ Two variants were measured in the auto mode:
 
 ## Consequences for FR58
 
-- **Auto mode:** the engine refuses the spawn of a hidden row (`{ deny }`). No row opens, and the run stays in the band.
+- **Auto mode:** the proof first concluded that the engine should refuse the spawn of a hidden row (`{ deny }`), so that no row opens and the run stays in the band. That is no longer the default (see "Later change").
 - **Other modes:** the row ends with plain text, never with a hand-back.
 - **Who spawned the row:** the engine reads the spawner as the origin plugin of the spawn, in its `agent.spawn` hook. `$.agent.list()` does not report who spawned a row that a plugin's own timer started.
 - **Timer chain:** a row spawned in a chain that a plugin's own timer started does not reach that plugin's turn hooks, but it does reach another plugin's. This is why the spawner (the agents plugin) and the answerer (the engine) must be different plugins.
+
+## Later change
+
+The engine now opens a hidden row in every permission mode, `auto` included. The first table above still holds for what Claude Code does: in the auto mode it prompts the row for a hand-back three more times and raises four `SubagentStop` events for one row, and the model still receives nothing from the row. The engine answers those extra steps with a stop and no text, so the row's transcript does not repeat its answer.
+
+The refusal remains available: with the environment variable `MSGATE_ROW_MODE=auto` set, the `agent.spawn` hook of the engine returns `{ deny }` for a hidden row, no row opens and the run stays in the band, as measured above. The variable is read at each spawn.

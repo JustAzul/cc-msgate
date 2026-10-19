@@ -23,8 +23,9 @@ interface and the state directory are all called `msgate`.
 `msgate` is:
 - a command line, `msgate`, that runs agent CLIs and reads back their runs,
   telemetry, cost and ETA;
-- a Claude Code plugin whose mod adds two tools (`run` and `jobs`), finish and
-  spawn notices, a band and a status line, and the `/msgate-jobs` command;
+- a Claude Code plugin whose mod adds the tools `run` and `jobs` (and an
+  internal `progress` marker the model never calls), finish and spawn notices, a
+  band and a status line, and the `/msgate-jobs` command;
 - the answerer of every agent row that a plugin backs with a run (see
   [Rows the engine answers](#rows-the-engine-answers));
 - an interface for other plugins: model-call recording, runs and jobs (see
@@ -93,6 +94,12 @@ claude plugin update msgate@cc-msgate
 
 Restart Claude Code to load the new version. The launcher follows it at the
 next session start.
+
+Engine 1.4.0 is the first version with the `models` method of the
+[interface](#for-plugin-authors-the-msgate-interface) and with `purpose` and
+`stepped` in `backType`. A plugin that registers agent types per model, or that
+asks for rows that follow a run [in steps](#rows-the-engine-answers), needs
+that version or a later one.
 
 Versions follow [Semantic Versioning](https://semver.org), and the public API
 is the documented contract: commands, flags, exit codes, JSON outputs,
@@ -235,6 +242,8 @@ The commands:
 | `cancel` | asks a run to stop |
 | `conversations` | lists conversations with provider, turns, status and last activity |
 | `progress` | prints what a run's provider has done so far |
+| `prompt` | prints the prompt a run was started with, byte for byte |
+| `models` | prints the models a provider offers, as the provider lists them |
 | `runs` | prints the folded telemetry runs as JSONL |
 | `annotate` | attaches attributes to a finished run's telemetry |
 | `stats` | summarizes telemetry: volume, durations, usage and cost, and runs by purpose and origin |
@@ -244,6 +253,19 @@ The commands:
 | `prune` | removes the run directories of old finished runs |
 | `link` | puts the `msgate` launcher on the PATH (`~/.local/bin`) |
 | `version` | prints version, source commit, build sequence and platform |
+
+`msgate prompt <run_id>` writes the run's `prompt.md` to standard output exactly
+as stored: no added newline and no `--json` form. An unknown run exits 4, a
+prompt that cannot be read exits 70, and a missing or extra argument exits 2.
+
+`msgate models [--provider <name>] [--json]` asks the provider for its model
+catalog (`codex debug models` for Codex, stopped after 10 seconds) and prints it
+unfiltered, in the provider's order. Each line holds `id`, `name` and
+`visibility` separated by tabs; with `--json` it prints
+`{"provider":"codex","models":[{"id":"…","name":"…","visibility":"…"}]}`.
+`--provider` defaults to `codex`, the only provider that ships, and any other
+name exits 2. A provider CLI that is not on the `PATH` exits 127, and a catalog
+that cannot be read exits 70.
 
 ## Conversations and jobs
 
@@ -448,19 +470,30 @@ msgate stats --session-id "$CLAUDE_CODE_SESSION_ID" --all --json | jq .usage_by_
 The plugin adds a mod. It has no skill and no agent type of its own; for those,
 install [`msgate-agents`](https://github.com/JustAzul/msgate-agents).
 
-The mod adds two tools that start and read background jobs, for work Claude
-wants to run directly:
+The mod registers three tools. Two start and read background jobs, for work
+Claude wants to run directly; the third is internal:
 
 | Tool | Does |
 |---|---|
 | `mcp__msgate__run` | starts a job: `prompt` (required), and optionally `conversation_id`, `purpose`, `provider`, `model`, `effort`, `sandbox`, `cwd` |
 | `mcp__msgate__jobs` | `action` is `list`, `status`, `result` or `cancel`; `run_id` names the run for the last three |
+| `mcp__msgate__progress` | takes no arguments and returns nothing: the marker that ends a step of an agent row, which Claude never calls |
 
 `run` without a `conversation_id` starts a conversation (`exec`); with one it
 continues that conversation (`send`). It returns at once with
 `{conversation_id, run_id, continued}`, `continued` being true when it continued
-the conversation it was given. Its runs carry the source `mod`. `jobs` with
+the conversation it was given. Its runs carry the source `mod`, and they are
+started with `--agent-feedback`: each is a [flagged run](#the-band-the-spinner-and-the-status-line),
+so a plugin that opens agent rows for flagged runs shows it as a row until it
+ends, and with none it shows in the band. The tool's description asks Claude to
+start an agent type of an installed plugin instead when one exists for the
+purpose and the model it wants, and to keep `run` for what the Agent tool
+cannot set: `sandbox`, `cwd`, `provider` or `conversation_id`. `jobs` with
 `result` returns the output cut at 64 KiB.
+
+`progress` is for the [rows the engine answers](#rows-the-engine-answers): a
+call from the main loop is refused, and the call and result lines of a row are
+drawn as nothing, so the person sees neither.
 
 ### Finish notices
 
@@ -493,43 +526,51 @@ get no entry and no notice: that plugin reads them with `jobs`.
 
 ### The band, the spinner and the status line
 
-A run any other caller starts with `--agent-feedback` (see
-[below](#using-it-from-hooks-and-scripts)), such as a hook's review, is a
-**flagged run**. While it works it shows in a band above the prompt: one line
-that starts `msgate · ` with its purpose, its source, how long it has run, what
-it has cost so far and a short summary of what it is doing, gone once it ends.
-The band shows the flagged runs whose source is not `agent`, since the rows the
-engine answers show their own runs, and not those that have a
-[hidden row](#hidden-rows). Only you see the band: nothing about the run
-enters the conversation, and the caller that started it delivers its result.
+A run that asks to be shown with `--agent-feedback` (see
+[below](#using-it-from-hooks-and-scripts)) is a **flagged run**: a hook's
+review, for example, or a job started through the `run` tool. While it works it
+shows in a band above the prompt: one line that starts `msgate · ` with its
+purpose, its source, how long it has run, what it has cost so far and a short
+summary of what it is doing, gone once it ends. The band shows the flagged runs
+whose source is not `agent`, since the rows the engine answers show their own
+runs, and not those that have a [hidden row](#hidden-rows). Only you see the
+band: nothing about the run enters the conversation, and the caller that started
+it delivers its result.
 
-The summaries come from `claude-haiku-5-5` at low effort: the mod sends a
-run's newest steps, each cut to 300 characters, to the Anthropic API through
-the session's own sign-in. There are two kinds, each with its own interval, and
-the plugin's `liveSummaryEvery` and `recordedSummaryEvery` options set them:
+The summaries come from `claude-haiku-5-5` at low effort: the mod sends a run's
+newest entries, each cut to 300 characters, to the Anthropic API through the
+session's own sign-in. An **entry** is one item of a run's progress: a command
+the provider ran, a message, a reasoning step. (A **step**, below, is a request
+Claude Code makes to an agent row within a turn.) There are two kinds, each with
+its own interval, and the plugin's `liveSummaryEvery` and `recordedSummaryEvery`
+options set them:
 - **Live summary.** A label of three to five words (`» Reading workerlog.go`),
-  asked on the run's first step and then every three (`liveSummaryEvery`, from
-  1 to 10). It is shown while the run works and not kept.
-- **Recorded summary.** One or two sentences about a window of steps
-  (`» 1–8: Read the worker and ran its tests.`), asked once eight steps have
+  asked on the run's first entry and then every three (`liveSummaryEvery`, from
+  1 to 10). It is shown while the run works. A row whose type is backed with
+  `stepped` also writes each window's label into the row's history, as the text
+  that ends the window's step (see [Steps](#rows-the-engine-answers)); anywhere
+  else the label is not kept.
+- **Recorded summary.** One or two sentences about a window of entries
+  (`» 1–8: Read the worker and ran its tests.`), asked once eight entries have
   gathered (`recordedSummaryEvery`, from 1 to 24; `0` asks none), with every
-  step not yet recorded in its window, and once more, at the end of the run,
-  for the steps left over (waiting at most 15 seconds). The sentences are stored in the history of the row that follows the run, an agent
-  row or a [hidden row](#hidden-rows), where the live labels are lost. A
-  sentence whose request fails is missing, and the next one covers what was
-  left. Nothing of them is in the report that returns to Claude.
+  entry not yet recorded in its window, and once more, at the end of the run,
+  for the entries left over (waiting at most 15 seconds). The sentences are
+  stored in the history of the row that follows the run, an agent row or a
+  [hidden row](#hidden-rows). A sentence whose request fails is missing, and the
+  next one covers what was left. Nothing of them is in the report that returns
+  to Claude.
 
 Both are skipped when nothing is on screen (`claude -p`). The plugin's
 `summaries` option turns them off, and so does the environment variable
 `MSGATE_SUMMARIES=0`; `MSGATE_SUMMARIES=1` turns them on where there is a
 screen. The variable wins over the option when it is set, and any other value
-leaves the option in force. With summaries off the mod makes no summary request and adds nothing of
-its own to a row: it shows only what the provider emits (commands, messages,
-and reasoning that arrives as text), with no `msgate · <type>` line and no
-elapsed-time line, and nothing for reasoning the provider encrypts. While
-summaries are on, no raw step shows in a row or the band: a summary that fails
-leaves the last one in place, and before a run's first summary its band line
-ends after the cost.
+leaves the option in force. With summaries off the mod makes no summary request
+and adds nothing of its own to a row: it shows only what the provider emits
+(commands, messages, and reasoning that arrives as text), with no
+`msgate · <type>` line and no elapsed-time line, and nothing for reasoning the
+provider encrypts. While summaries are on, no raw entry shows in a row or the
+band: a summary that fails leaves the last one in place, and before a run's
+first summary its band line ends after the cost.
 
 While the turn of a row the engine answers runs, the mod sets the row's
 spinner message to the newest summary, or to `msgate · <type>` until there is
@@ -572,7 +613,7 @@ it with runs, by **backing** the type through the interface (see
 agent of that type in the session, whoever spawned it, usually Claude. No Claude
 model runs inside such an agent; a dispatch that fails says so in its answer
 instead of falling back to a Claude reply. Every other agent passes through
-untouched. This is how `msgate-agents` offers its six agents.
+untouched. This is how `msgate-agents` offers its agents.
 
 How a backed row behaves:
 - **Prompt.** The prompt of a turn is the newest user message of the agent's
@@ -597,9 +638,36 @@ How a backed row behaves:
   An agent whose earlier answer is saved but whose conversation is not recorded
   answers that it cannot be resumed.
 - **Progress.** The row shows what the run is doing as a short summary every
-  few steps (`» Reading workerlog.go`), with an elapsed-time line when it is
-  quiet, and stores a sentence about every eight steps in the agent's history;
-  with summaries off, only what the provider emits.
+  few entries (`» Reading workerlog.go`), with an elapsed-time line when it is
+  quiet, and stores a sentence about every eight entries in the agent's
+  history; with summaries off, only what the provider emits. A type backed with
+  `stepped` shows it in steps (see Steps).
+- **Steps.** A type backed with `stepped: true` is followed in several steps
+  instead of one. Each step covers a window of `liveSummaryEvery` entries and
+  waits for the label of that window. It ends with the label as text, then the
+  recorded sentences that have settled since the last step, then a call of the
+  internal `progress` tool, which the engine answers so that Claude Code asks
+  for the next step. The label stays in the row's history as text, where in one
+  step it is only drawn while the run works. The step in which the run ends
+  carries the recorded sentences not yet written and the answer. The rules:
+  - A row answers in one step, as it did before, when its type is not backed
+    with `stepped`, when summaries are off, when the session has no screen
+    (`claude -p`), and when the `progress` tool did not register in this load of
+    the mod. A turn that is already in steps when the summaries are switched off
+    ends in the step it is in.
+  - The steps that end in `progress`, and the one that ends the turn, do not
+    count toward the step limit below, so a run of any length is followed to its
+    end. Only the first step of a stepped turn counts.
+  - The engine keeps what a stepped turn needs between its steps (the run and
+    how far it has been read) and lets go of it when the turn ends. When
+    Claude Code reports the turn complete between two steps because the row was
+    stopped, a row that started its own run cancels it, as stopping inside a
+    step does; a cancel that fails goes to the debug log with the run id.
+  - When the engine reloads in the middle of a stepped run, a hidden row goes
+    on with a new follow that reads the run's entries again, with one line in
+    the debug log. A row that started its own run ends its turn with the
+    hand-off failure, which says to read the run with the `jobs` tool; the run
+    goes on to its end and the engine delivers nothing for it.
 - **Answer.** The report is the output cut at 64 KiB, led by how the run ended
   when it did not deliver, and closed by a trailer:
   `[msgate run <run_id> · conversation <conversation_id> · <outcome>]`. It is
@@ -611,7 +679,8 @@ How a backed row behaves:
 - **Stop.** Stopping the agent (Esc, TaskStop) cancels its run.
 - **Step limit.** The engine answers at most eight steps of a turn. From the
   ninth on it passes the step down, so the fallback model the agent type
-  registered ends the turn, and it writes one line to the debug log.
+  registered ends the turn, and it writes one line to the debug log. A stepped
+  turn counts only its first step.
 
 ### Hidden rows
 
@@ -620,29 +689,60 @@ A plugin can show a flagged run as a row of its own. It backs a type with
 [`flaggedRuns()`](#flaggedruns) and spawns one row per run, with the prompt
 `msgate run <run_id>`. The engine answers such a row only when the plugin that
 backed its type spawned it, and only for a run of the session that asks to be
-shown; any other row of the type passes to the model beneath.
+shown.
+- **Prompt.** The engine opens the row with the whole prompt of its run below
+  the run id: `msgate run <run_id>`, a blank line, then the output of
+  `msgate prompt <run_id>`, with no cap of its own. It makes two reads for that,
+  `msgate status` and `msgate prompt`, each limited to 5 seconds. A read that
+  fails, a run that is not one the engine answers for, an empty prompt, or
+  output that reached the 4 MiB the mod reads from a command (`$.process.run`
+  keeps no more and marks the rest as truncated) leaves the row opening with the
+  plain prompt, one line in the debug log saying why: a prompt larger than 4 MiB
+  therefore shows only the run id. A host that refuses the whole prompt is
+  asked once more with the plain one.
+- **Where the prompt is kept.** The whole prompt enters the transcript of the
+  row's session, which Claude Code keeps on disk, where before only
+  `msgate run <run_id>` did.
 - **Registered.** The engine registers a row when it opens, with the run its
   prompt names. The run leaves the band then, and `flaggedRuns()` no longer
   lists it, whatever becomes of the row.
 - **Follow.** The row shows what the run is doing, as a backed row does, and
-  stores the same recorded summaries in its history. It starts no run: the hook
-  that started the run delivers its result.
+  stores the same recorded summaries in its history, in steps when its type is
+  backed with `stepped`. It starts no run: the hook that started the run
+  delivers its result.
 - **Answer.** The turn ends with the plain text
-  `msgate run <run_id> ended <outcome>`, never a hand-back, and a later step of
-  the turn repeats it. Nothing of it reaches Claude.
+  `msgate run <run_id> ended <outcome>`, never a hand-back. When Claude Code
+  calls for another step of the turn after that text, as it does in the auto
+  permission mode, the step ends with a stop and no text, so the transcript does
+  not repeat it. Nothing of it reaches Claude.
 - **Stop.** Stopping the row hides it and does not cancel the run, and the band
   does not show that run again.
-- **Auto permission mode.** There Claude Code does not let a row end with plain
-  text, and a hand-back would deliver the row's text to Claude, so the spawn is
-  refused (`msgate: a hidden row does not open in the auto permission mode`)
-  and the run stays in the band.
+- **Permission modes.** The row opens in every permission mode, `auto` included.
+  In `auto`, Claude Code does not accept a row that ends with plain text: it
+  calls for the step three more times and raises `SubagentStop` four times for
+  the row, and the model still receives nothing from it (see
+  [`docs/hidden-rows-proof.md`](docs/hidden-rows-proof.md)). `MSGATE_ROW_MODE=auto`
+  restores the refusal: the spawn is then refused
+  (`msgate: a hidden row does not open, since MSGATE_ROW_MODE=auto refuses it`)
+  and the run stays in the band. The variable is read at each spawn (see
+  [Environment variables](#environment-variables)).
+- **Guard.** A hidden row never reaches the model beneath with a prompt it
+  shows whole, since that prompt can be megabytes. A registered row whose run the
+  engine does not answer for (the run is unknown, belongs to another session or
+  does not ask to be shown) ends its turn with the text
+  `msgate run <run_id> is not available to this row` and runs no tools; so does
+  a row that is not registered but carries a whole prompt, such as one whose
+  registration could not be written. Only a row that is not registered and
+  carries the plain prompt, or whose prompt cannot be read, passes to the model
+  beneath, as does any other row of the type that the plugin that backed it did
+  not spawn.
 
 ## For plugin authors: the msgate interface
 
 The mod adds the interface `msgate` to Claude Code, so another plugin's mod
 reaches the engine as `$.msgate`, with no binary to run and no agent type to
-install. It is an object of six functions:
-`{ complete, backType, version, run, jobs, flaggedRuns }`. The engine knows its caller from
+install. It is an object of seven functions:
+`{ complete, backType, version, run, jobs, flaggedRuns, models }`. The engine knows its caller from
 the plugin name Claude Code stamps on the call, never from an argument. A
 refusal reaches the caller as an error whose message starts
 `msgate:<method>:`. Where `msgate` is not installed, `$.msgate` is undefined
@@ -683,7 +783,7 @@ Makes a model completion for the caller and records it, so its cost shows in
   that reaches the interface's own body because no hook answered it throws
   `msgate:unserved`.
 
-### `backType({ type, command, promptMode, model?, effort?, sandbox? })`
+### `backType({ type, command, promptMode, model?, effort?, sandbox?, purpose?, stepped? })`
 
 Marks the caller's agent type `<caller>:<type>` as backed, so the engine answers
 its rows (see [Rows the engine answers](#rows-the-engine-answers)). It resolves
@@ -700,7 +800,15 @@ full type takes the caller's name.
   data: the engine passes them to the run as flags with the settings source
   `profile`. An `effort` in the Agent call that spawns a row replaces the
   profile's for that row.
-- Anything else is refused with `msgate:backType:<field>`, naming the field.
+- `purpose` is optional non-empty text: the purpose the type's runs are
+  recorded with (`--purpose`), the type's own name when it is left out. It sets
+  nothing else, as for any purpose.
+- `stepped` is an optional boolean. `true` asks for the type's rows to be
+  followed [in steps](#rows-the-engine-answers); left out or `false`, a row is
+  followed in one step.
+- Anything else is refused with `msgate:backType:<field>`, naming the field
+  (`type`, `command`, `promptMode`, `model`, `effort`, `sandbox`, `purpose` or
+  `stepped`).
 - The backed types live in the engine's session state, keyed by full type, so an
   engine reload keeps them. A later call for the same type replaces its data.
   A plugin calls `backType` at every session start.
@@ -719,6 +827,19 @@ A plugin sees only its own runs: `list` returns the session's runs whose source
 is `plugin:<caller>`, and `status`, `result` and `cancel` refuse a run whose
 source is not, with `msgate:jobs:not-yours`. A plugin cannot read or cancel the
 runs of Claude or of another plugin.
+
+### `models({ provider? })`
+
+Resolves `{ provider, models: [{ id, name, visibility }] }`: the catalog
+`msgate models --json` prints for the provider, which is `codex` when none is
+named, in the provider's order and unfiltered. Any plugin can call it.
+- The engine reads a catalog once per load for each provider asked for and
+  keeps it, since the read can take up to 10 seconds. A read that failed is not
+  kept: the next call makes it again.
+- It is refused with `msgate:models:failed` when `provider` is given and is not
+  non-empty text, when the binary fails (a provider CLI that is not installed
+  included), and when what it prints is not a catalog (`id` must be non-empty
+  text, `name` and `visibility` text). The reason goes to the debug log.
 
 ### `flaggedRuns()`
 
@@ -807,6 +928,8 @@ msgate prune --older-than 14      # remove finished runs that ended over 14 days
 | `MSGATE_NO_PRUNE` | `1` stops the daily automatic prune |
 | `MSGATE_RETENTION_DAYS` | how old a finished run must be to be pruned (default 30) |
 | `MSGATE_PRICES_URL` | another copy of the price list; `off` never goes to the network |
+| `MSGATE_SUMMARIES` | the mod's summaries: `0` off, `1` on where there is a screen; it wins over the `summaries` option, and any other value leaves the option in force |
+| `MSGATE_ROW_MODE` | read by the mod at each spawn of a hidden row. Empty or unset: no override. `auto`: the spawn is refused (see [Hidden rows](#hidden-rows)). Any other value is accepted and refuses nothing, and one that is not the name of a permission mode (`default`, `acceptEdits`, `bypassPermissions`, `plan`, `dontAsk`, `auto`; exact spelling) adds a note to the debug log |
 | `MSGATE_TEST_*` | switches for the test suites; not for use |
 
 No `AGENTCLI_*` variable is read.
@@ -845,10 +968,12 @@ with a usage error.
   config profile, `--dangerously-*`, `--ephemeral`, and `-c` overrides of
   model, effort, profile or sandbox keys. Other native flags pass through after
   `--`.
-- Prompts go to the provider on stdin and are stored only in the run directory
-  (mode 0600, directories 0700). Telemetry never holds the prompt.
+- Prompts go to the provider on stdin and are stored in the run directory
+  (mode 0600, directories 0700). Telemetry never holds the prompt. The prompt of
+  a run shown as a [hidden row](#hidden-rows) is also in the transcript of that
+  row's session, which Claude Code keeps on disk.
 - A plugin using the interface sees only the runs it started.
-- With summaries on, the mod sends a run's newest steps, cut short, to the
+- With summaries on, the mod sends a run's newest entries, cut short, to the
   Anthropic API (see [Inside Claude Code](#inside-claude-code)); the
   `summaries` option and `MSGATE_SUMMARIES=0` turn that off.
 
@@ -873,7 +998,7 @@ with a usage error.
   that build, with notes listing the commits since the previous version.
 - The plugin's mod is plain JavaScript, tested with `claude plugin test plugin`.
   `make verify-plugin` loads the plugin in a model-free `claude -p` and fails
-  unless the `msgate` interface is mounted with its six methods; run it before
+  unless the `msgate` interface is mounted with its seven methods; run it before
   every push that changes `plugin/` (see [`AGENTS.md`](AGENTS.md)).
 - [`docs/split-PRD.md`](docs/split-PRD.md) and
   [`docs/split-test-cases.md`](docs/split-test-cases.md) hold the requirements

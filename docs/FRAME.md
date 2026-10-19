@@ -89,6 +89,7 @@ type Provider interface {
 type ModelCatalog interface {
     PriceNamespace() string                         // codex: "openai"
     CatalogModels(env []string) ([]string, error)  // codex: `codex debug models`, models[].slug
+    CatalogEntries(env []string) ([]CatalogEntry, error) // every model in the provider's order: ID, Name, Visibility
 }
 
 // Optional: a provider that can tell what a run has used so far, from its own
@@ -332,8 +333,9 @@ Anthropic API. `register(on, options)` reads `options.summaries`.
 - Active when `options.summaries !== false` and
   `(await $.session.surfaces()).length > 0`, read at each summary. Otherwise the
   mod keeps its behaviour from before the summaries: raw entries in the row and
-  the band. The environment variable `MSGATE_SUMMARIES`, the intervals and the
-  off mode amend this in "Mod: recorded summaries" below.
+  the band. The environment variable `MSGATE_SUMMARIES`, the intervals, the off
+  mode and the steps of a stepped row amend this in "Mod: recorded summaries"
+  below.
 - While summaries are active, neither the agent row nor the band shows a raw
   progress entry. The row streams `» <label>` for each label that settles, and
   the band's last part is the newest label; before a run's first label the band
@@ -434,15 +436,60 @@ not the live summaries replace them on screen. Entries are numbered from 1.
   (`plugin/hooks/limiter.js`: 2 in flight for the session, and the 429 pause),
   and their usage goes to `usage add` under the source `mod-summary`.
 
-**In the step.** The records go in the same step response as the live
-`thinking`, as `text` chunks at block indices 1 to *k*, one per record, whose
-text is `» <first>–<last>: <sentence>` and a newline (`<first>` alone when the
-record covers one entry). They come after the `thinking` blocks (index 0) and
-before the hand-back `tool` chunk of a row Claude called, or the final `text` of
-a hidden row, which sit at index *k* + 1. The step's `answer` is the streamed
-text. The hand-back message, the report that returns to Claude and every later
-step are unchanged, so they carry no record. A turn interrupted before the
-records are ready streams none, and no request is left running.
+**In one step.** A row followed in one step (a type not backed with `stepped`,
+or one of the cases under "In steps" that fall back to it) puts the records in
+the same step response as the live `thinking`, as `text` chunks at block indices
+1 to *k*, one per record, whose text is `» <first>–<last>: <sentence>` and a
+newline (`<first>` alone when the record covers one entry). They come after the
+`thinking` blocks (index 0) and before the hand-back `tool` chunk of a row
+Claude called, or the final `text` of a hidden row, which sit at index *k* + 1.
+The step's `answer` is the streamed text. The hand-back message, the report that
+returns to Claude and every later step are unchanged, so they carry no record. A
+turn interrupted before the records are ready streams none, and no request is
+left running.
+
+**In steps.** For a type backed with `stepped: true`, the records stay in the
+progress steps and the answer in the final step. The turn is followed in steps
+when the type is stepped, `isProgressRegistered()` says the `progress` tool
+registered in this load, the summaries are on and `$.session.surfaces()` is not
+empty; each is read at every step, and a turn that is already in steps when the
+summaries go off finishes in the step it is in. A step covers
+at least `liveEvery` entries of the run (a slice can bring more), or ends
+with the run.
+- A step that ends before the run does waits for the label request of its
+  window (`settled` in `plugin/hooks/summarizer.js`), then streams `text`
+  chunks from block index 1: the labels that settled (`» <label>` and a
+  newline), then the records that settled since the previous step (the form
+  above). The `thinking` blocks at index 0 come before them, as in one step. The
+  step ends with a `tool` chunk named `mcp__msgate__progress`, with the id
+  `msgate-progress-<turnId>-<index>`, an `input` chunk of `{}` and a `stop` of
+  `tool_use`. The `tool.call` hook answers the marker with an empty result, for
+  a call that carries an `agentId`, and the host asks for the next step. The
+  step's `answer` is the streamed text, and the turn's remembered answer is left
+  to the step that ends it.
+- The step in which the run ends, or the turn is interrupted, streams the
+  records not yet written (`finishFollow`), then the answer as in one step: the
+  final `text` of a hidden row, the hand-back call of a row Claude called. A
+  label that settles in this step is drawn as `thinking` only.
+- A follow is the state of one run's reading: the next entry to read, the labels
+  and the recorder. It is kept in `steppedTurns` by agent id, with the turn id,
+  the run id and whether the row started the run, from the first step of a
+  turn to its end. It is dropped when the run ends, on an error, when the
+  generator closes, when the agent starts a new turn, and by the `turn.complete`
+  hook, which also cancels a run the row started itself when the turn was
+  aborted (a cancel that fails is logged with the run id). The map is cleared
+  by `register()`. Each step hands the follow its own `$` and its own signal,
+  because the follow outlives the dispatch it was made in; only a recorder
+  request already in flight keeps the `$` of the step that started it.
+- `isOverStepLimit` counts a step only while no state is kept for its turn, so
+  a stepped turn counts its first step and no other.
+- A later step that finds no state for a turn with `index` above 0 means the
+  module loaded again. A hidden row starts a new follow, which reads the run's
+  entries again, and logs one debug line. A row that started its own run cannot
+  name that run, so its step ends with the hand-off failure that says to read
+  the run with the `jobs` tool; the run goes on and nothing delivers it.
+- A step waits with `$.process.run` calls (`msgate wait`, one slice at a time)
+  and on the request of a label, and calls no `$.clock.sleep`.
 
 **Off.** When the summaries are off the mod makes no summary request and builds no
 recorder, and it adds nothing of its own to the row: the `msgate · <type>` line
