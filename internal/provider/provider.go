@@ -2,6 +2,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -140,11 +141,27 @@ type LiveUsageReporter interface {
 
 // ModelCatalog is a provider that can list the models it offers and names the
 // namespace (the price list's litellm_provider) their entries use.
-// CatalogModels runs with the caller's environment; an error means the catalog
-// could not be read, which leaves the models seen in the telemetry.
+// CatalogModels and CatalogEntries run with the caller's environment; an error
+// means the catalog could not be read, which leaves the models seen in the
+// telemetry. CatalogModels lists the distinct non-empty ids; CatalogEntries
+// lists every entry in the order the provider gives it.
 type ModelCatalog interface {
 	PriceNamespace() string
 	CatalogModels(env []string) ([]string, error)
+	CatalogEntries(env []string) ([]CatalogEntry, error)
+}
+
+// ErrBinaryMissing is what a catalog read wraps when the provider's binary is
+// not on the PATH it was given, so a caller can tell a missing install from a
+// catalog it could not read.
+var ErrBinaryMissing = errors.New("not found on PATH")
+
+// CatalogEntry is one model a provider's catalog lists, as the provider
+// reports it.
+type CatalogEntry struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Visibility string `json:"visibility"`
 }
 
 // ImplicitCaching is a provider that caches prompts without being asked and
