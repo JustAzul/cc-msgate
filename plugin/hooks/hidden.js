@@ -6,13 +6,12 @@
 import { backedTypeOf } from './backed.js'
 import { asksEffort, bindEffort } from './efforts.js'
 import { EXIT_RUN_NOT_FOUND, failureText, messageOf } from './lib.js'
+import { rowModeSettings } from './rowmode.js'
 import { finishedRun, handoffFailure } from './subagent.js'
 
 export const FOLLOW = 'follow'
-export const AUTO_MODE = 'auto'
-// What the spawn of a hidden row answers in the auto permission mode, where a
-// row cannot end with plain text and a hand-back would deliver its text to Claude.
-export const AUTO_DENIAL = 'msgate: a hidden row does not open in the auto permission mode'
+// What the spawn of a hidden row answers when MSGATE_ROW_MODE=auto refuses it.
+export const AUTO_DENIAL = 'msgate: a hidden row does not open, since MSGATE_ROW_MODE=auto refuses it'
 // A hidden row's prompt names its run.
 const PROMPT_PATTERN = /^msgate run ([A-Za-z0-9_][A-Za-z0-9._-]{0,127})$/
 
@@ -79,12 +78,34 @@ export async function admitSpawn($, e, spawner, next) {
   const backed = typeof fullType === 'string' ? await backedTypeOf($, fullType) : null
   if (isEngineRow(backed) && asksEffort(e)) return bindEffort($, e, next)
   if (backed === null || backed.command !== FOLLOW || spawner !== pluginOfType(fullType)) return next(e)
-  if (e.permissionMode === AUTO_MODE) return { deny: AUTO_DENIAL }
+  if ((await rowModeConfig($)).isRefused) return { deny: AUTO_DENIAL }
 
   const spawned = await next(e)
   const runId = runIdOfPrompt(e.prompt)
   if (spawned.agentId !== undefined && runId !== null) await registerQuietly($, spawned.agentId, runId)
   return spawned
+}
+
+// The notes of MSGATE_ROW_MODE already logged by this load.
+const loggedNotes = new Set()
+
+// rowModeConfig is what MSGATE_ROW_MODE says of the row, read at each use so the
+// variable can change while a session runs; a note is logged once per load. A
+// variable that cannot be read forces nothing.
+async function rowModeConfig($) {
+  let env
+  try {
+    env = await $.env.get('MSGATE_ROW_MODE')
+  } catch {
+    env = undefined
+  }
+  const settings = rowModeSettings({ env })
+  for (const note of settings.notes) {
+    if (loggedNotes.has(note)) continue
+    loggedNotes.add(note)
+    await $.ui.log(note, { to: 'debug' })
+  }
+  return settings
 }
 
 // registerQuietly registers a row that has opened. The row is open already, so a

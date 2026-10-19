@@ -6,7 +6,7 @@ import { admitSpawn, followFailureText } from '../hooks/hidden.js'
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 const ROW_TYPE = AGENTS + ':run'
 const BACKED = { ...{ [ROW_TYPE]: { command: 'follow', promptMode: 'run-id' } } }
-const AUTO_DENIAL = 'msgate: a hidden row does not open in the auto permission mode'
+const AUTO_DENIAL = 'msgate: a hidden row does not open, since MSGATE_ROW_MODE=auto refuses it'
 const WAIT_TIMEOUT = { exitCode: 5, stdout: JSON.stringify({ sdk_status: 'wait_timeout', exit_code: 5 }), stderr: '' }
 const BAND_PROPS = { hasSurvey: false } as any
 
@@ -18,6 +18,17 @@ const finished = (over: Record<string, unknown> = {}) => flagged({ state: 'done'
 const hiddenRows = (w: ReturnType<typeof world>) => w.state.get('hiddenRows')?.value
 const hide = (w: ReturnType<typeof world>, rows: Record<string, string>) => w.state.set('hiddenRows', { value: rows, version: 1 })
 
+// The engine's `$` with the environment of the world, which `engineOf` does not carry.
+const withEnv = (w: ReturnType<typeof world>) => ({
+  ...engineOf(w),
+  env: {
+    get: async (name: string) => {
+      if (w.envFails) throw new Error('the environment is unavailable')
+      return w.env.get(name)
+    },
+  },
+})
+
 // The engine's hook for an `agent.spawn` that `spawner` made, over a spawn that
 // starts the agent `ag-hidden`. `calls` counts how many times the spawn went on.
 function spawnAs(w: ReturnType<typeof world>, spawner: string, over: Record<string, unknown> = {}) {
@@ -27,7 +38,7 @@ function spawnAs(w: ReturnType<typeof world>, spawner: string, over: Record<stri
     calls.next += 1
     return { model: 'claude-haiku-4-5', agentId: 'ag-hidden' }
   }
-  return { calls, result: admitSpawn(engineOf(w), e, spawner, next) }
+  return { calls, result: admitSpawn(withEnv(w), e, spawner, next) }
 }
 
 // A hidden row whose run the binary reports: `runs` lists the states it goes
@@ -71,15 +82,65 @@ for (const mode of ['default', 'bypassPermissions', 'acceptEdits', undefined]) {
   })
 }
 
-test('the spawn of a hidden row in the auto permission mode is refused, so no row opens and none is registered', async ($, on) => {
+test('a hidden row opens in the auto permission mode when MSGATE_ROW_MODE is not set, and is registered', async ($, on) => {
   const w = world(on, { backed: BACKED })
   await $.session.start(START)
 
   const { calls, result } = spawnAs(w, AGENTS, { permissionMode: 'auto' })
 
+  expect(await result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(calls.next).toBe(1)
+  expect(hiddenRows(w)).toEqual({ 'ag-hidden': 'run-hook' })
+})
+
+test('MSGATE_ROW_MODE=auto refuses the spawn of a hidden row in any permission mode, so no row opens and none is registered', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.env.set('MSGATE_ROW_MODE', 'auto')
+  await $.session.start(START)
+
+  const { calls, result } = spawnAs(w, AGENTS, { permissionMode: 'default' })
+
   expect(await result).toEqual({ deny: AUTO_DENIAL })
   expect(calls.next).toBe(0)
   expect(hiddenRows(w)).toBeUndefined()
+})
+
+test('MSGATE_ROW_MODE=default does not refuse a hidden row in the auto permission mode', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.env.set('MSGATE_ROW_MODE', 'default')
+  await $.session.start(START)
+
+  const { calls, result } = spawnAs(w, AGENTS, { permissionMode: 'auto' })
+
+  expect(await result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(calls.next).toBe(1)
+  expect(w.debugLogs.filter((text) => text.includes('MSGATE_ROW_MODE'))).toEqual([])
+})
+
+test('a MSGATE_ROW_MODE that names no permission mode opens the row and is noted once', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.env.set('MSGATE_ROW_MODE', 'banana')
+  await $.session.start(START)
+
+  const first = spawnAs(w, AGENTS, { permissionMode: 'auto' })
+  const second = spawnAs(w, AGENTS, { permissionMode: 'auto' })
+
+  expect(await first.result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(await second.result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(w.debugLogs.filter((text) => text.includes('MSGATE_ROW_MODE'))).toEqual([
+    'MSGATE_ROW_MODE=banana is not a permission mode the host knows; only auto refuses the row',
+  ])
+})
+
+test('an environment that cannot be read counts as MSGATE_ROW_MODE not set', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.envFails = true
+  await $.session.start(START)
+
+  const { calls, result } = spawnAs(w, AGENTS, { permissionMode: 'auto' })
+
+  expect(await result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(calls.next).toBe(1)
 })
 
 test('a spawn of a hidden row by another plugin goes on, and the row is not registered', async ($, on) => {
@@ -200,7 +261,7 @@ test('a row ends with the outcome of the run, whatever it was', async ($, on) =>
   expect((await step($, 'ag-hidden')).text).toBe('msgate run run-hook ended error')
 })
 
-test('a later step of the same turn repeats the text without reading the run again', async ($, on) => {
+test('a later step of the same turn ends with the stop alone and no text, without reading the run again', async ($, on) => {
   const w = world(on, { backed: BACKED })
   w.respond = follower()
   hiddenRow(w)
@@ -211,8 +272,8 @@ test('a later step of the same turn repeats the text without reading the run aga
   const second = await step($, 'ag-hidden', { turnId: 'turn-1', index: 1 })
 
   expect(first.text).toBe('msgate run run-hook ended ok')
-  expect(second.text).toBe(first.text)
-  expect(second.result.toolUses).toEqual([])
+  expect(second.chunks).toEqual([{ kind: 'stop', stopReason: 'end_turn', usage: null }])
+  expect(second.result).toEqual({ turnId: 'turn-1', index: 1, answer: '', toolUses: [], stopReason: 'end_turn', usage: null })
   expect(w.runs.length).toBe(reads)
   expect(w.modelSteps).toEqual([])
 })

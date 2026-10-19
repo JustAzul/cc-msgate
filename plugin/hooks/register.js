@@ -1337,11 +1337,15 @@ async function* answer(e, text, records = []) {
 
 // hiddenStep answers a step of a hidden row: it follows the run the row was
 // registered with and ends the turn with plain text, without admitting a run. A
-// later step of the turn repeats the text. A row that is not registered, or whose
-// run the engine does not answer for, passes to the model beneath.
+// later step of the turn, which the host calls again after plain text in the
+// auto permission mode, ends with the stop alone so the transcript does not
+// repeat the answer. A row that is not registered, or whose run the engine does
+// not answer for, passes to the model beneath.
 async function* hiddenStep($, e, next, row) {
-  const answered = answeredText(e)
-  if (answered !== null) return yield* answer(e, answered)
+  if (answeredText(e) !== null) {
+    yield { kind: 'stop', stopReason: 'end_turn', usage: null }
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+  }
 
   const runId = await hiddenRunOf($, e.agentId)
   const bin = shimPath($.plugin.root)
