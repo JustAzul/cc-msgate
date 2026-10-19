@@ -513,6 +513,27 @@ test('a row of a type backed with a purpose records that purpose, not the type\'
   expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), '-'])
 })
 
+const SPAWN_PURPOSES: [string, Record<string, unknown>, string][] = [
+  ['a purpose different from its name', { purpose: 'second-opinion' }, 'second-opinion'],
+  ['no purpose', {}, 'second-opinion-gpt-6-astra'],
+]
+
+for (const [name, extra, purpose] of SPAWN_PURPOSES) {
+  test(`the spawn notice and the ETA lookup of a row of a type backed with ${name} use ${purpose}`, async ($, on) => {
+    const w = world(on, { backed: { 'p2:second-opinion-gpt-6-astra': { command: 'exec', promptMode: 'free', ...extra } } })
+    w.respond = codex('done')
+    subagent(w, 'ag-1', 'p2:second-opinion-gpt-6-astra', [{ role: 'user', text: 'q' }])
+    await $.session.start(START)
+
+    await step($, 'ag-1')
+    await w.clock.advance(0)
+
+    const lookups =w.runs.filter((r) => r.argv[1] === 'eta').map((r) => r.argv.slice(1, 4))
+    expect(lookups).toEqual([['eta', '--purpose', purpose]])
+    expect(w.toasts.filter((text) => text.includes('spawned'))).toEqual([expect.stringContaining('spawned ' + purpose + ' ')])
+  })
+}
+
 const SETTINGS: [string, string[]][] = [
   ['adhoc', []],
   ['delegation', ['--model', 'gpt-6.1-sol', '--effort', 'medium', '--sandbox', 'workspace-write']],

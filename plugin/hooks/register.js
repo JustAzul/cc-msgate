@@ -1433,7 +1433,7 @@ async function* runSubagentTurn($, turn, signal) {
   const ids = admittedJob(reply.stdout)
   if (ids === null) return failedTurn('msgate printed an unexpected admission result: ' + reply.stdout.trim().slice(0, 500))
 
-  startNotice($, () => notifyAdmitted($, bin, ids.run_id, turn.row.name, AGENT_SOURCE))
+  startNotice($, () => notifyAdmitted($, bin, ids.run_id, turn.row.backed.purpose ?? turn.row.name, AGENT_SOURCE))
   turnAgents.set(turn.agentId, { runId: ids.run_id, type: turn.row.name })
   await recordConversation($, turn.agentId, ids.conversation_id)
   const records = yield* followOwnRun($, bin, ids.run_id, signal)
