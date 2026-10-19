@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { AGENTS, POLL_MS, SESSION, engineOf, job, listing, ok, startTurn, step, world } from './kit'
 import { BAND_REFRESH_MS } from '../hooks/band.js'
-import { admitSpawn, followFailureText } from '../hooks/hidden.js'
+import { admitSpawn, followFailureText, isRewrittenPrompt, runIdOfPrompt } from '../hooks/hidden.js'
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 const ROW_TYPE = AGENTS + ':run'
@@ -32,10 +32,11 @@ const withEnv = (w: ReturnType<typeof world>) => ({
 // The engine's hook for an `agent.spawn` that `spawner` made, over a spawn that
 // starts the agent `ag-hidden`. `calls` counts how many times the spawn went on.
 function spawnAs(w: ReturnType<typeof world>, spawner: string, over: Record<string, unknown> = {}) {
-  const calls = { next: 0 }
+  const calls = { next: 0, sent: [] as any[] }
   const e = { subagentType: ROW_TYPE, prompt: 'msgate run run-hook', permissionMode: 'default', ...over }
-  const next = async () => {
+  const next = async (sent: any) => {
     calls.next += 1
+    calls.sent.push(sent)
     return { model: 'claude-haiku-4-5', agentId: 'ag-hidden' }
   }
   return { calls, result: admitSpawn(withEnv(w), e, spawner, next) }
@@ -50,6 +51,27 @@ function follower(final: Record<string, unknown> = finished(), waits = 1) {
     if (argv[1] === 'status') return argv[2] === 'run-hook' ? ok(JSON.stringify(final)) : { exitCode: 4, stdout: '', stderr: 'msgate: run not found\n' }
     if (argv[1] === 'progress') return ok(JSON.stringify({ run_id: argv[2], state: 'running', next: Number(argv[4]), entries: [] }))
     return ok('')
+  }
+}
+
+// What the binary answers for the run `run-hook` of this session: its status,
+// and its prompt as `prompt` prints it.
+function promptServer(text: string, status: Record<string, unknown> = flagged()) {
+  return (argv: string[]) => {
+    if (argv[1] === 'status') return ok(JSON.stringify(status))
+    if (argv[1] === 'prompt') return ok(text)
+    throw new Error('unexpected msgate call: ' + argv.join(' '))
+  }
+}
+
+// promptServer with some of its answers replaced, by command; an answer that is
+// a function is called as the command runs.
+function promptServerOf(over: Record<string, any>) {
+  const normal = promptServer('a prompt')
+  return (argv: string[]) => {
+    const answer = over[argv[1]!]
+    if (answer === undefined) return normal(argv)
+    return typeof answer === 'function' ? answer(argv) : answer
   }
 }
 
@@ -296,13 +318,41 @@ test('a hidden row that is not registered passes to the model beneath', async ($
   expect(w.runs.filter((r) => r.argv[1] === 'wait')).toEqual([])
 })
 
+test('a row that is not registered and carries the plain prompt of a run passes to the model beneath', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = follower()
+  w.agents.push({ id: 'ag-hidden', type: ROW_TYPE })
+  w.messages['ag-hidden'] = [{ role: 'user', text: 'msgate run run-hook' }]
+  await $.session.start(START)
+
+  const out = await step($, 'ag-hidden')
+
+  expect(out.text).toBe('a Claude model answered')
+  expect(w.modelSteps).toEqual(['ag-hidden'])
+})
+
+test('a row that is not registered and carries the rewritten prompt ends in plain text and never passes to the model beneath', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = follower()
+  w.agents.push({ id: 'ag-hidden', type: ROW_TYPE })
+  w.messages['ag-hidden'] = [{ role: 'user', text: 'msgate run run-hook\n\nlinha 1\nlinha 2' }]
+  await $.session.start(START)
+
+  const out = await step($, 'ag-hidden')
+
+  expect(out.text).toBe('msgate run run-hook is not available to this row')
+  expect(out.result.toolUses).toEqual([])
+  expect(w.modelSteps).toEqual([])
+  expect(w.runs).toEqual([])
+})
+
 const NOT_ANSWERED: [string, (argv: string[]) => any][] = [
   ['a run the engine does not know', () => ({ exitCode: 4, stdout: '', stderr: 'msgate: run not found\n' })],
   ['a run of another session', () => ok(JSON.stringify(flagged({ session_id: 'sess-other' })))],
   ['a run that does not ask to be shown', () => ok(JSON.stringify(flagged({ agent_feedback: false })))],
 ]
 for (const [name, status] of NOT_ANSWERED) {
-  test(`a registered row that names ${name} passes to the model beneath`, async ($, on) => {
+  test(`a registered row that names ${name} ends in plain text saying so and never passes to the model beneath`, async ($, on) => {
     const w = world(on, { backed: BACKED })
     w.respond = (argv) => status(argv)
     hiddenRow(w)
@@ -310,8 +360,10 @@ for (const [name, status] of NOT_ANSWERED) {
 
     const out = await step($, 'ag-hidden')
 
-    expect(w.modelSteps).toEqual(['ag-hidden'])
-    expect(out.text).toBe('a Claude model answered')
+    expect(w.modelSteps).toEqual([])
+    expect(out.text).toBe('msgate run run-hook is not available to this row')
+    expect(out.result.toolUses).toEqual([])
+    expect(out.result.stopReason).toBe('end_turn')
     expect(w.runs.filter((r) => r.argv[1] === 'wait')).toEqual([])
   })
 }
@@ -380,7 +432,7 @@ test('the model beneath keeps its tools in a hidden row the engine passed to it'
   expect(call.deny).toBeUndefined()
 })
 
-test('the model beneath keeps its tools in a registered row whose run the engine does not answer for', async ($, on) => {
+test('a registered row whose run the engine does not answer for runs no tools, since no model answers it', async ($, on) => {
   const w = world(on, { backed: BACKED })
   w.respond = () => ({ exitCode: 4, stdout: '', stderr: 'msgate: run not found\n' })
   hiddenRow(w)
@@ -389,7 +441,7 @@ test('the model beneath keeps its tools in a registered row whose run the engine
 
   const call: any = await bash($)
 
-  expect(call.deny).toBeUndefined()
+  expect(call.deny).toContain('msgate agents run no tools')
 })
 
 test('a hidden row the engine answers runs no tools', async ($, on) => {
@@ -431,3 +483,174 @@ test('a run that gets a hidden row keeps its summary across the polls that follo
   expect(out.chunks.filter((c) => c.kind === 'thinking').map((c) => c.text.trim())).toContain('» Reading auth.go')
   expect(w.modelRequests).toHaveLength(1)
 })
+
+test('the run a hidden row names is read from the first line of its prompt, with a body after it or without', () => {
+  expect(runIdOfPrompt('msgate run r-1')).toBe('r-1')
+  expect(runIdOfPrompt('msgate run r-1\n\ncorpo')).toBe('r-1')
+  expect(runIdOfPrompt('outra coisa\nmsgate run r-1')).toBeNull()
+  expect(runIdOfPrompt('msgate run r-1 and more')).toBeNull()
+  expect(runIdOfPrompt(undefined)).toBeNull()
+})
+
+test('a prompt is the rewritten form when its first line is followed by a blank line and a body that is not empty', () => {
+  expect(isRewrittenPrompt('msgate run r-1\n\nlinha 1\nlinha 2')).toBe(true)
+  expect(isRewrittenPrompt('msgate run r-1')).toBe(false)
+  expect(isRewrittenPrompt('msgate run r-1\n\n')).toBe(false)
+  expect(isRewrittenPrompt('msgate run r-1\n\n  \n')).toBe(false)
+  expect(isRewrittenPrompt('msgate run r-1\ncorpo')).toBe(false)
+  expect(isRewrittenPrompt('outra coisa\n\ncorpo')).toBe(false)
+  expect(isRewrittenPrompt(undefined)).toBe(false)
+})
+
+test('the spawn of a hidden row shows the prompt of its run whole below the run id, and the rest of the call goes on intact', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = promptServer('linha 1\nlinha 2')
+  await $.session.start(START)
+
+  const { calls, result } = spawnAs(w, AGENTS, { description: 'review the diff', mode: 'acceptEdits' })
+
+  expect(await result).toEqual({ model: 'claude-haiku-4-5', agentId: 'ag-hidden' })
+  expect(calls.sent).toEqual([
+    { subagentType: ROW_TYPE, prompt: 'msgate run run-hook\n\nlinha 1\nlinha 2', permissionMode: 'default', description: 'review the diff', mode: 'acceptEdits' },
+  ])
+  expect(hiddenRows(w)).toEqual({ 'ag-hidden': 'run-hook' })
+})
+
+for (const [name, size] of [['5 kB', 5 * 1024], ['3 MiB', 3 * 1024 * 1024]] as const) {
+  test(`a prompt of ${name} reaches the row whole`, async ($, on) => {
+    const w = world(on, { backed: BACKED })
+    const prompt = 'x'.repeat(size - 1) + '\n'
+    w.respond = promptServer(prompt)
+    await $.session.start(START)
+
+    const { calls, result } = spawnAs(w, AGENTS)
+    await result
+
+    // Compared as a flag and a length: a failing diff of megabytes ends the run unreported.
+    const sent: string = calls.sent[0].prompt
+    expect(sent.length).toBe(prompt.length + 'msgate run run-hook\n\n'.length)
+    expect(sent === 'msgate run run-hook\n\n' + prompt).toBe(true)
+  })
+}
+
+test('a prompt the binary could not return whole is not shown, and the row opens with the plain prompt', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = (argv) => (argv[1] === 'prompt' ? ({ ...ok('the first 4 MiB of it'), isStdoutTruncated: true } as any) : promptServer('')(argv))
+  await $.session.start(START)
+
+  const { calls, result } = spawnAs(w, AGENTS)
+
+  expect(await result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(calls.sent.map((sent) => sent.prompt)).toEqual(['msgate run run-hook'])
+  expect(w.debugLogs.join('\n')).toContain('the row of run-hook opens without the prompt of its run: the prompt is longer than the output msgate can return')
+  expect(hiddenRows(w)).toEqual({ 'ag-hidden': 'run-hook' })
+})
+
+test('the spawn of another plugin\'s hidden row, of a row that is not hidden, and of one MSGATE_ROW_MODE=auto refuses read no prompt', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = promptServer('linha 1')
+  w.env.set('MSGATE_ROW_MODE', 'auto')
+  await $.session.start(START)
+  const refused = spawnAs(w, AGENTS)
+  expect(await refused.result).toEqual({ deny: AUTO_DENIAL })
+  w.env.set('MSGATE_ROW_MODE', '')
+  const other = spawnAs(w, 'p3')
+  const notHidden = spawnAs(w, AGENTS, { subagentType: AGENTS + ':adhoc' })
+
+  expect(await other.result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(await notHidden.result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(w.runs).toEqual([])
+  expect([...other.calls.sent, ...notHidden.calls.sent].map((sent) => sent.prompt)).toEqual(['msgate run run-hook', 'msgate run run-hook'])
+})
+
+// The text a hidden row's turn started with can be megabytes and no step of the
+// row reads it, so the engine keeps none: a start text kept for the row would
+// answer once the same agent id is a row the engine runs a job for.
+test('the prompt a hidden row\'s turn started with is not kept', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.agents.push({ id: 'ag-hidden', type: ROW_TYPE })
+  w.messages['ag-hidden'] = []
+  await $.session.start(START)
+  await startTurn($, 'ag-hidden', 'msgate run run-hook\n\n' + 'x'.repeat(4096))
+  w.state.set('backedTypes', { value: { [ROW_TYPE]: { command: 'exec', promptMode: 'free' } }, version: 2 })
+
+  const out = await step($, 'ag-hidden')
+
+  expect(out.result.toolUses[0].input.message).toContain('the prompt is empty')
+  expect(w.runs).toEqual([])
+})
+
+// The host refuses a prompt that has a body, the way `refuse` says: it throws or answers with a denial.
+const REFUSALS: [string, () => any][] = [
+  ['throws', () => { throw new Error('the prompt is too long') }],
+  ['denies it', () => ({ deny: 'the prompt is too long' })],
+]
+for (const [how, refuse] of REFUSALS) {
+  test(`a host that ${how} the full prompt gets the plain prompt once, the row opens and is registered, and the reason is logged`, async ($, on) => {
+    const w = world(on, { backed: BACKED })
+    w.respond = promptServer('linha 1')
+    await $.session.start(START)
+    const sent: string[] = []
+    const next = async (call: any) => {
+      sent.push(call.prompt)
+      return call.prompt.includes('\n') ? refuse() : { model: 'claude-haiku-4-5', agentId: 'ag-hidden' }
+    }
+
+    const result = await admitSpawn(withEnv(w), { subagentType: ROW_TYPE, prompt: 'msgate run run-hook', permissionMode: 'default' }, AGENTS, next)
+
+    expect(result).toEqual({ model: 'claude-haiku-4-5', agentId: 'ag-hidden' })
+    expect(sent).toEqual(['msgate run run-hook\n\nlinha 1', 'msgate run run-hook'])
+    expect(w.debugLogs.join('\n')).toContain('the host refused the full prompt of a hidden row, which opens with the plain one: the prompt is too long')
+    expect(hiddenRows(w)).toEqual({ 'ag-hidden': 'run-hook' })
+  })
+}
+
+test('a host that refuses the plain prompt too is not asked a third time, and its answer is the answer of the spawn', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = promptServer('linha 1')
+  await $.session.start(START)
+  const sent: string[] = []
+  const next = async (call: any) => {
+    sent.push(call.prompt)
+    return { deny: 'no agents now' }
+  }
+
+  const result = await admitSpawn(withEnv(w), { subagentType: ROW_TYPE, prompt: 'msgate run run-hook', permissionMode: 'default' }, AGENTS, next)
+
+  expect(result).toEqual({ deny: 'no agents now' })
+  expect(sent).toHaveLength(2)
+  expect(hiddenRows(w)).toBeUndefined()
+})
+
+const PROMPT_UNREAD: [string, (argv: string[]) => any, string][] = [
+  ['the run is of another session', promptServerOf({ status: ok(JSON.stringify(flagged({ session_id: 'sess-other' }))) }), 'the engine does not answer for the run'],
+  ['the run is unknown', promptServerOf({ status: { exitCode: 4, stdout: '', stderr: 'msgate: run not found\n' } }), 'the engine does not answer for the run'],
+  ['the status cannot be read', promptServerOf({ status: { exitCode: 1, stdout: '', stderr: 'msgate: store is locked\n' } }), 'store is locked'],
+  ['the prompt command fails', promptServerOf({ prompt: { exitCode: 70, stdout: '', stderr: 'msgate: prompt unreadable\n' } }), 'prompt unreadable'],
+  ['the prompt is empty', promptServerOf({ prompt: ok('') }), 'the prompt is empty'],
+  ['the prompt is blank', promptServerOf({ prompt: ok(' \n\n') }), 'the prompt is empty'],
+  [
+    'the prompt command cannot run',
+    promptServerOf({
+      prompt: () => {
+        throw new Error('spawn failed')
+      },
+    }),
+    'spawn failed',
+  ],
+]
+for (const [name, respond, reason] of PROMPT_UNREAD) {
+  test(`when ${name}, the row opens with the plain prompt, is registered, and the reason is logged`, async ($, on) => {
+    const w = world(on, { backed: BACKED })
+    w.respond = respond
+    await $.session.start(START)
+
+    const { calls, result } = spawnAs(w, AGENTS)
+
+    expect(await result).toMatchObject({ agentId: 'ag-hidden' })
+    expect(calls.sent.map((sent) => sent.prompt)).toEqual(['msgate run run-hook'])
+    expect(w.debugLogs.join('\n')).toContain('the row of run-hook opens without the prompt of its run: ')
+    expect(w.debugLogs.join('\n')).toContain(reason)
+    expect(hiddenRows(w)).toEqual({ 'ag-hidden': 'run-hook' })
+  })
+}

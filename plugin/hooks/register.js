@@ -85,7 +85,7 @@ import { summarySettings } from './settings.js'
 import { createSummarizer } from './summarizer.js'
 import { backedTypeOf } from './backed.js'
 import { forgetEfforts, holdEffort, takeEffort } from './efforts.js'
-import { FOLLOW, admitSpawn, checkRun, endedText, followFailureText, hiddenRunIds, hiddenRunOf, stoppedText } from './hidden.js'
+import { FOLLOW, admitSpawn, checkHiddenRow, endedText, followFailureText, hiddenRunIds, hiddenRunOf, stoppedText } from './hidden.js'
 import { PROGRESS_SPEC, PROGRESS_TOOL, onProgressTool } from './progress.js'
 import { createService } from './service.js'
 import { INTERFACE, createModelsCache, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveModels, serveRun, serveVersion } from './iface.js'
@@ -306,9 +306,11 @@ export function register(on, options) {
   // Every way the hooks below can fail ends in an answer that says the
   // hand-off failed, never in a Claude model's answer.
   // The text a row's turn started with: its prompt when a session that saves no
-  // transcript has no rows to read it from.
+  // transcript has no rows to read it from. A hidden row keeps none: its prompt
+  // can be megabytes and no step of it reads the text.
   on('turn.start', async ($, e, next) => {
-    if ((await rowOf($, e.agentId)) !== null) startTexts.set(e.agentId, { turnId: e.turnId, text: e.text })
+    const row = await rowOf($, e.agentId)
+    if (row !== null && row.backed.command !== FOLLOW) startTexts.set(e.agentId, { turnId: e.turnId, text: e.text })
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -1402,8 +1404,10 @@ async function* answer(e, text, records = []) {
 // registered with and ends the turn with plain text, without admitting a run. A
 // later step of the turn, which the host calls again after plain text in the
 // auto permission mode, ends with the stop alone so the transcript does not
-// repeat the answer. A row that is not registered, or whose run the engine does
-// not answer for, passes to the model beneath.
+// repeat the answer. A registered row never passes to the model beneath: when
+// the engine does not answer for its run, the turn ends in plain text saying so.
+// A row that is not registered passes to it only with the plain prompt of a run;
+// one that carries the prompt the engine shows whole ends the same way.
 async function* hiddenStep($, e, next, row) {
   if (answeredText(e) !== null) {
     yield { kind: 'stop', stopReason: 'end_turn', usage: null }
@@ -1412,13 +1416,17 @@ async function* hiddenStep($, e, next, row) {
 
   const runId = await hiddenRunOf($, e.agentId)
   const bin = shimPath($.plugin.root)
-  const checked = runId === null ? { isPassed: true } : await checkRun($, bin, runId)
+  const checked = await checkHiddenRow($, bin, e.agentId, runId)
   if (checked.isPassed) {
     answeredHiddenRows.delete(e.agentId)
     return yield* next(e)
   }
 
   answeredHiddenRows.add(e.agentId)
+  if (checked.failure !== undefined) {
+    rememberAnswer(e, checked.failure)
+    return yield* answer(e, checked.failure)
+  }
   yield* opening($, row)
   const { text, records, progress } =
     checked.error === undefined
