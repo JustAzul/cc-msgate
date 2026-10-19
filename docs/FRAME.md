@@ -727,6 +727,12 @@ agentcli · spawned <scenario> · trigger <source> · finished in 3s
   `cost:` line stay runs-only. `usage_by_model`, `unpriced_models` and
   `missing_prices` include the models of model calls, and so do the per-model
   `cost <model>:` text lines.
+- The mod reads the binary through `$.process.run`, which keeps the first
+  4194304 bytes (4 MiB) of standard output and as many of standard error, reads
+  the rest and drops it, and sets `isStdoutTruncated` or `isStderrTruncated`
+  (`claude-code.d.ts`, `ProcessRunResult`; the limit counts bytes, not
+  characters). A command whose output the mod must have whole stays under 4 MiB,
+  and a read that must be whole checks the flag before it uses the text.
 
 ## Rules for every slice
 
