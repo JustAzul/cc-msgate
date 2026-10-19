@@ -132,15 +132,20 @@ test('a MSGATE_ROW_MODE that names no permission mode opens the row and is noted
   ])
 })
 
-test('an environment that cannot be read counts as MSGATE_ROW_MODE not set', async ($, on) => {
+test('an environment that cannot be read counts as MSGATE_ROW_MODE not set, and the failure is logged once', async ($, on) => {
   const w = world(on, { backed: BACKED })
   w.envFails = true
   await $.session.start(START)
 
-  const { calls, result } = spawnAs(w, AGENTS, { permissionMode: 'auto' })
+  const first = spawnAs(w, AGENTS, { permissionMode: 'auto' })
+  const second = spawnAs(w, AGENTS, { permissionMode: 'auto' })
 
-  expect(await result).toMatchObject({ agentId: 'ag-hidden' })
-  expect(calls.next).toBe(1)
+  expect(await first.result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(await second.result).toMatchObject({ agentId: 'ag-hidden' })
+  expect([first.calls.next, second.calls.next]).toEqual([1, 1])
+  expect(w.debugLogs.filter((text) => text.includes('MSGATE_ROW_MODE'))).toEqual([
+    'MSGATE_ROW_MODE could not be read: the environment is unavailable; it counts as not set',
+  ])
 })
 
 test('a spawn of a hidden row by another plugin goes on, and the row is not registered', async ($, on) => {

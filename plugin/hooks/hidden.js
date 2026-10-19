@@ -89,22 +89,26 @@ export async function admitSpawn($, e, spawner, next) {
 // The notes of MSGATE_ROW_MODE already logged by this load.
 const loggedNotes = new Set()
 
+// noteOnce logs a note to the debug log the first time this load meets it.
+async function noteOnce($, note) {
+  if (loggedNotes.has(note)) return
+  loggedNotes.add(note)
+  await $.ui.log(note, { to: 'debug' })
+}
+
 // rowModeConfig is what MSGATE_ROW_MODE says of the row, read at each use so the
 // variable can change while a session runs; a note is logged once per load. A
-// variable that cannot be read forces nothing.
+// variable that cannot be read forces nothing, and the failure is noted.
 async function rowModeConfig($) {
   let env
   try {
     env = await $.env.get('MSGATE_ROW_MODE')
-  } catch {
+  } catch (error) {
+    await noteOnce($, 'MSGATE_ROW_MODE could not be read: ' + messageOf(error) + '; it counts as not set')
     env = undefined
   }
   const settings = rowModeSettings({ env })
-  for (const note of settings.notes) {
-    if (loggedNotes.has(note)) continue
-    loggedNotes.add(note)
-    await $.ui.log(note, { to: 'debug' })
-  }
+  for (const note of settings.notes) await noteOnce($, note)
   return settings
 }
 
