@@ -86,6 +86,22 @@ test('a finished job shows a toast and submits a notice with its output inline',
   expect(w.store.has(queueKey())).toBe(false)
 })
 
+test('a run the tool admitted, whose status says it asks for an agent row, still gets its finish notice', async ($, on) => {
+  const w = world(on)
+  const read = deliveries({ 'run-1': finished({ source: 'mod', agent_feedback: true }) }, 'Two findings.\n')
+  w.respond = (argv, init) => (argv[1] === 'exec' ? ok(JSON.stringify(ADMITTED)) : read(argv, init))
+  await $.session.start(START)
+  await $.tool.call({ tool: TOOL('run'), prompt: 'review', purpose: 'code-review' })
+
+  await w.clock.advance(POLL_MS)
+
+  expect(w.runs.find((r) => r.argv[1] === 'exec')!.argv).toContain('--agent-feedback')
+  expect(w.submits.length).toBe(1)
+  expect(w.submits[0]!.startsWith('msgate job run-1 (code-review, conversation conv-1) finished: ok\n')).toBe(true)
+  expect(w.submits[0]).toContain('Two findings.')
+  expect(w.store.has(queueKey())).toBe(false)
+})
+
 test('the notice of a failed job names its state when there is no outcome', async ($, on) => {
   const w = queuedWorld(on, { 'run-1': finished({ state: 'failed', outcome: null }) }, '')
   await $.session.start(START)
