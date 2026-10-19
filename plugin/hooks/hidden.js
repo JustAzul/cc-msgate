@@ -7,7 +7,7 @@ import { backedTypeOf } from './backed.js'
 import { asksEffort, bindEffort } from './efforts.js'
 import { EXIT_RUN_NOT_FOUND, failureText, messageOf, shimPath } from './lib.js'
 import { rowModeSettings } from './rowmode.js'
-import { finishedRun, handoffFailure, turnPrompt } from './subagent.js'
+import { finishedRun, handoffFailure } from './subagent.js'
 
 export const FOLLOW = 'follow'
 // How long each of the two reads that fetch a run's prompt at a spawn may take.
@@ -214,31 +214,19 @@ export function unavailableText(runId) {
   return 'msgate run ' + runId + ' is not available to this row'
 }
 
-// rewrittenRunOf is the run named by the prompt of an agent that is not a
-// registered row when that prompt is the rewritten form, or null: the plain
-// prompt, a prompt that cannot be read, or one that names no run.
-async function rewrittenRunOf($, agentId) {
-  const rows = await $.session.messages({ agentId })
-  if (!Array.isArray(rows)) {
-    await $.ui.log('could not read the prompt of agent ' + agentId + ': ' + rows.deny, { to: 'debug' })
-    return null
-  }
-  const prompt = turnPrompt(rows, '')
-  return isRewrittenPrompt(prompt) ? runIdOfPrompt(prompt) : null
-}
-
 // checkHiddenRow tells how a hidden row's step goes on: { run } for a registered
 // row whose run the engine answers for, { error } when that run could not be
 // read, { failure } with the text that ends the turn when the row may not reach
 // the model beneath, or { isPassed: true } for a row that was never registered
 // and carries the plain prompt, which the spawner's check already vouched for.
-export async function checkHiddenRow($, bin, agentId, runId) {
+// `markedRunId` is the run that the prompt the row's turn started with names
+// when that prompt is the rewritten form, or null.
+export async function checkHiddenRow($, bin, runId, markedRunId) {
   if (runId !== null) {
     const checked = await checkRun($, bin, runId)
     return checked.isPassed ? { failure: unavailableText(runId) } : checked
   }
-  const named = await rewrittenRunOf($, agentId)
-  return named === null ? { isPassed: true } : { failure: unavailableText(named) }
+  return markedRunId === null ? { isPassed: true } : { failure: unavailableText(markedRunId) }
 }
 
 // endedText is what a hidden row ends its turn with: plain text, never a

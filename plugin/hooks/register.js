@@ -85,7 +85,7 @@ import { summarySettings } from './settings.js'
 import { createSummarizer } from './summarizer.js'
 import { backedTypeOf } from './backed.js'
 import { forgetEfforts, holdEffort, takeEffort } from './efforts.js'
-import { FOLLOW, admitSpawn, checkHiddenRow, endedText, followFailureText, hiddenRunIds, hiddenRunOf, stoppedText } from './hidden.js'
+import { FOLLOW, admitSpawn, checkHiddenRow, endedText, followFailureText, hiddenRunIds, hiddenRunOf, isRewrittenPrompt, runIdOfPrompt, stoppedText } from './hidden.js'
 import { PROGRESS_SPEC, PROGRESS_TOOL, onProgressTool } from './progress.js'
 import { createService } from './service.js'
 import { INTERFACE, createModelsCache, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveModels, serveRun, serveVersion } from './iface.js'
@@ -228,6 +228,7 @@ export function register(on, options) {
   stepCounts.clear()
   steppedTurns.clear()
   startTexts.clear()
+  rewrittenStarts.clear()
   forgetEfforts()
   isLossToastShown = false
   service = createService()
@@ -310,7 +311,7 @@ export function register(on, options) {
   // can be megabytes and no step of it reads the text.
   on('turn.start', async ($, e, next) => {
     const row = await rowOf($, e.agentId)
-    if (row !== null && row.backed.command !== FOLLOW) startTexts.set(e.agentId, { turnId: e.turnId, text: e.text })
+    if (row !== null) keepStart(e, row)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -1359,6 +1360,35 @@ function answeredText(e) {
 // the turn.start event carried it. A new turn replaces the entry.
 const startTexts = new Map()
 
+// The run named by the rewritten prompt each hidden row's latest turn started
+// with, by agent id, and the turn it belongs to: no text, since that prompt can
+// be megabytes. A turn that starts with any other prompt removes the entry.
+const rewrittenStarts = new Map()
+
+// keepStart keeps what a row's turn started with for the steps that follow: the
+// text of a row the engine runs a job for, and only the run a hidden row's
+// rewritten prompt names.
+function keepStart(e, row) {
+  if (row.backed.command !== FOLLOW) {
+    startTexts.set(e.agentId, { turnId: e.turnId, text: e.text })
+    return
+  }
+  // The reminders the host adds around a prompt are not part of it.
+  const prompt = turnPrompt([], e.text)
+  if (isRewrittenPrompt(prompt)) {
+    rewrittenStarts.set(e.agentId, { turnId: e.turnId, runId: runIdOfPrompt(prompt) })
+  } else {
+    rewrittenStarts.delete(e.agentId)
+  }
+}
+
+// markedRunOf is the run that the rewritten prompt the given turn started with
+// names, or null when the turn started with another prompt or none was heard.
+function markedRunOf(agentId, turnId) {
+  const marked = rewrittenStarts.get(agentId)
+  return marked !== undefined && marked.turnId === turnId ? marked.runId : null
+}
+
 // startTextOf is the prompt the given turn started with, or '' when no start was
 // heard for that turn: a text kept for an earlier turn is never its prompt.
 function startTextOf(agentId, turnId) {
@@ -1416,7 +1446,7 @@ async function* hiddenStep($, e, next, row) {
 
   const runId = await hiddenRunOf($, e.agentId)
   const bin = shimPath($.plugin.root)
-  const checked = await checkHiddenRow($, bin, e.agentId, runId)
+  const checked = await checkHiddenRow($, bin, runId, markedRunOf(e.agentId, e.turnId))
   if (checked.isPassed) {
     answeredHiddenRows.delete(e.agentId)
     return yield* next(e)

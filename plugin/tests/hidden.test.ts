@@ -335,8 +335,8 @@ test('a row that is not registered and carries the rewritten prompt ends in plai
   const w = world(on, { backed: BACKED })
   w.respond = follower()
   w.agents.push({ id: 'ag-hidden', type: ROW_TYPE })
-  w.messages['ag-hidden'] = [{ role: 'user', text: 'msgate run run-hook\n\nlinha 1\nlinha 2' }]
   await $.session.start(START)
+  await startTurn($, 'ag-hidden', 'msgate run run-hook\n\nlinha 1\nlinha 2')
 
   const out = await step($, 'ag-hidden')
 
@@ -344,6 +344,58 @@ test('a row that is not registered and carries the rewritten prompt ends in plai
   expect(out.result.toolUses).toEqual([])
   expect(w.modelSteps).toEqual([])
   expect(w.runs).toEqual([])
+})
+
+test('a row whose registry write failed and whose session saves no transcript still never passes a prompt of 3 MiB to the model beneath', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.stateWriteFailures = 100
+  await $.session.start(START)
+  w.agents.push({ id: 'ag-hidden', type: ROW_TYPE })
+  const { result } = spawnAs(w, AGENTS)
+  await result
+  await startTurn($, 'ag-hidden', 'msgate run run-hook\n\n' + 'x'.repeat(3 * 1024 * 1024))
+
+  const out = await step($, 'ag-hidden')
+
+  expect(hiddenRows(w)).toBeUndefined()
+  expect(w.modelSteps).toEqual([])
+  expect(out.text).toBe('msgate run run-hook is not available to this row')
+})
+
+test('a rewritten prompt that the host wraps in reminders is still recognised, and the row never passes it to the model beneath', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.agents.push({ id: 'ag-hidden', type: ROW_TYPE })
+  await $.session.start(START)
+  await startTurn($, 'ag-hidden', '<system-reminder>\nsession context\n</system-reminder>\nmsgate run run-hook\n\nlinha 1')
+
+  const out = await step($, 'ag-hidden')
+
+  expect(out.text).toBe('msgate run run-hook is not available to this row')
+  expect(w.modelSteps).toEqual([])
+})
+
+test('a start of a row with a prompt that is not the rewritten form clears what an earlier start left, and the plain prompt passes to the model beneath', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.agents.push({ id: 'ag-hidden', type: ROW_TYPE })
+  await $.session.start(START)
+  await startTurn($, 'ag-hidden', 'msgate run run-hook\n\nlinha 1', 'turn-1')
+  await startTurn($, 'ag-hidden', 'msgate run run-hook', 'turn-1')
+
+  const out = await step($, 'ag-hidden', { turnId: 'turn-1' })
+
+  expect(out.text).toBe('a Claude model answered')
+  expect(w.modelSteps).toEqual(['ag-hidden'])
+})
+
+test('what a row\'s turn started with does not carry to another turn that has no start of its own', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.agents.push({ id: 'ag-hidden', type: ROW_TYPE })
+  await $.session.start(START)
+  await startTurn($, 'ag-hidden', 'msgate run run-hook\n\nlinha 1', 'turn-1')
+
+  const out = await step($, 'ag-hidden', { turnId: 'turn-2' })
+
+  expect(out.text).toBe('a Claude model answered')
 })
 
 const NOT_ANSWERED: [string, (argv: string[]) => any][] = [
