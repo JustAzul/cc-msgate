@@ -731,11 +731,12 @@ shown.
   engine does not answer for (the run is unknown, belongs to another session or
   does not ask to be shown) ends its turn with the text
   `msgate run <run_id> is not available to this row` and runs no tools; so does
-  a row that is not registered but carries a whole prompt, such as one whose
-  registration could not be written. Only a row that is not registered and
-  carries the plain prompt, or whose prompt cannot be read, passes to the model
-  beneath, as does any other row of the type that the plugin that backed it did
-  not spawn.
+  a row that is not registered but whose turn started with the whole prompt,
+  such as one whose registration could not be written. The engine tells the two
+  forms by what the turn started with, and keeps only the run id of a whole
+  prompt, never its text. Only a row that is not registered and whose turn
+  started with the plain `msgate run <run_id>` passes to the model beneath, as
+  does any other row of the type that the plugin that backed it did not spawn.
 
 ## For plugin authors: the msgate interface
 
