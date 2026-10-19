@@ -780,6 +780,11 @@ agentcli · spawned <scenario> · trigger <source> · finished in 3s
   (`claude-code.d.ts`, `ProcessRunResult`; the limit counts bytes, not
   characters). A command whose output the mod must have whole stays under 4 MiB,
   and a read that must be whole checks the flag before it uses the text.
+- The prompt a hidden row shows whole is capped far below that, at 1 MiB
+  (1048576 bytes of UTF-8, `SHOWN_PROMPT_MAX_BYTES` in `plugin/hooks/hidden.js`):
+  the host accepts a larger prompt at the spawn, but the turn of a row on the
+  `haiku` model fails at once with "Prompt is too long". Over the cap the row
+  opens with the plain `msgate run <run_id>` prompt.
 
 ## Rules for every slice
 

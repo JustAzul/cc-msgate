@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { AGENTS, POLL_MS, SESSION, engineOf, job, listing, ok, startTurn, step, world } from './kit'
 import { BAND_REFRESH_MS } from '../hooks/band.js'
-import { admitSpawn, followFailureText, isRewrittenPrompt, runIdOfPrompt } from '../hooks/hidden.js'
+import { SHOWN_PROMPT_MAX_BYTES, admitSpawn, followFailureText, isRewrittenPrompt, runIdOfPrompt } from '../hooks/hidden.js'
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 const ROW_TYPE = AGENTS + ':run'
@@ -568,7 +568,7 @@ test('the spawn of a hidden row shows the prompt of its run whole below the run 
   expect(hiddenRows(w)).toEqual({ 'ag-hidden': 'run-hook' })
 })
 
-for (const [name, size] of [['5 kB', 5 * 1024], ['3 MiB', 3 * 1024 * 1024]] as const) {
+for (const [name, size] of [['5 kB', 5 * 1024], ['exactly the limit, 1 MiB', SHOWN_PROMPT_MAX_BYTES]] as const) {
   test(`a prompt of ${name} reaches the row whole`, async ($, on) => {
     const w = world(on, { backed: BACKED })
     const prompt = 'x'.repeat(size - 1) + '\n'
@@ -585,6 +585,18 @@ for (const [name, size] of [['5 kB', 5 * 1024], ['3 MiB', 3 * 1024 * 1024]] as c
   })
 }
 
+test('a prompt of 3 MiB is not shown, and the row opens with the plain prompt', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = promptServer('x'.repeat(3 * 1024 * 1024 - 1) + '\n')
+  await $.session.start(START)
+
+  const { calls, result } = spawnAs(w, AGENTS)
+
+  expect(await result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(calls.sent.map((sent) => sent.prompt.slice(0, 60))).toEqual(['msgate run run-hook'])
+  expect(hiddenRows(w)).toEqual({ 'ag-hidden': 'run-hook' })
+})
+
 test('a prompt the binary could not return whole is not shown, and the row opens with the plain prompt', async ($, on) => {
   const w = world(on, { backed: BACKED })
   w.respond = (argv) => (argv[1] === 'prompt' ? ({ ...ok('the first 4 MiB of it'), isStdoutTruncated: true } as any) : promptServer('')(argv))
@@ -596,6 +608,35 @@ test('a prompt the binary could not return whole is not shown, and the row opens
   expect(calls.sent.map((sent) => sent.prompt)).toEqual(['msgate run run-hook'])
   expect(w.debugLogs.join('\n')).toContain('the row of run-hook opens without the prompt of its run: the prompt is longer than the output msgate can return')
   expect(hiddenRows(w)).toEqual({ 'ag-hidden': 'run-hook' })
+})
+
+test('a prompt one byte over the limit is not shown, and the row opens with the plain prompt and is registered', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  w.respond = promptServer('x'.repeat(SHOWN_PROMPT_MAX_BYTES + 1))
+  await $.session.start(START)
+
+  const { calls, result } = spawnAs(w, AGENTS)
+
+  expect(await result).toMatchObject({ agentId: 'ag-hidden' })
+  // Cut to a head: a failing diff of megabytes ends the run unreported.
+  expect(calls.sent.map((sent) => sent.prompt.slice(0, 60))).toEqual(['msgate run run-hook'])
+  expect(w.debugLogs.join('\n')).toContain('the row of run-hook opens without the prompt of its run: the prompt is longer than the 1048576 bytes a row can show')
+  expect(hiddenRows(w)).toEqual({ 'ag-hidden': 'run-hook' })
+})
+
+test('a prompt whose characters are under the limit but whose UTF-8 bytes are over it is not shown', async ($, on) => {
+  const w = world(on, { backed: BACKED })
+  // 600000 characters of 2 bytes each: 1200000 bytes.
+  const prompt = 'é'.repeat(600000)
+  expect(prompt.length).toBeLessThan(SHOWN_PROMPT_MAX_BYTES)
+  w.respond = promptServer(prompt)
+  await $.session.start(START)
+
+  const { calls, result } = spawnAs(w, AGENTS)
+
+  expect(await result).toMatchObject({ agentId: 'ag-hidden' })
+  expect(calls.sent.map((sent) => sent.prompt.slice(0, 60))).toEqual(['msgate run run-hook'])
+  expect(w.debugLogs.join('\n')).toContain('the prompt is longer than the 1048576 bytes a row can show')
 })
 
 test('the spawn of another plugin\'s hidden row, of a row that is not hidden, and of one MSGATE_ROW_MODE=auto refuses read no prompt', async ($, on) => {

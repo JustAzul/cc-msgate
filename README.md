@@ -692,14 +692,21 @@ backed its type spawned it, and only for a run of the session that asks to be
 shown.
 - **Prompt.** The engine opens the row with the whole prompt of its run below
   the run id: `msgate run <run_id>`, a blank line, then the output of
-  `msgate prompt <run_id>`, with no cap of its own. It makes two reads for that,
-  `msgate status` and `msgate prompt`, each limited to 5 seconds. A read that
-  fails, a run that is not one the engine answers for, an empty prompt, or
-  output that reached the 4 MiB the mod reads from a command (`$.process.run`
-  keeps no more and marks the rest as truncated) leaves the row opening with the
-  plain prompt, one line in the debug log saying why: a prompt larger than 4 MiB
-  therefore shows only the run id. A host that refuses the whole prompt is
-  asked once more with the plain one.
+  `msgate prompt <run_id>`, up to 1 MiB (1048576 bytes of UTF-8, counted on that
+  output). It makes two reads for that, `msgate status` and `msgate prompt`,
+  each limited to 5 seconds. A read that fails, a run that is not one the
+  engine answers for, an empty prompt, an output over 1 MiB, or output that
+  reached the 4 MiB the mod reads from a command (`$.process.run` keeps no more
+  and marks the rest as truncated) leaves the row opening with the plain
+  prompt, one line in the debug log saying why: a prompt larger than 1 MiB
+  therefore shows only the run id. The cap exists because the model the row
+  runs on has a context window that a larger prompt overflows: the host accepts
+  the spawn, then the turn of the row fails at once with "Prompt is too long",
+  and the row ends with no labels and no final text, which is worse than a row
+  that shows only the run id. The limit was measured with the `haiku` row of
+  msgate-agents (a text of 2900000 characters ran, one of 3100000 failed) and
+  holds for that model. A host that refuses the whole prompt is asked once more
+  with the plain one.
 - **Where the prompt is kept.** The whole prompt enters the transcript of the
   row's session, which Claude Code keeps on disk, where before only
   `msgate run <run_id>` did.

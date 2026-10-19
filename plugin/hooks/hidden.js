@@ -12,6 +12,11 @@ import { finishedRun, handoffFailure } from './subagent.js'
 export const FOLLOW = 'follow'
 // How long each of the two reads that fetch a run's prompt at a spawn may take.
 export const SPAWN_READ_TIMEOUT_MS = 5000
+// The most bytes of a run's prompt a row shows whole. The model a row runs on
+// has a context window the host measures against the prompt, and the turn of a
+// row whose prompt is over it fails at once without a word; 1 MiB is far under
+// the size at which that was seen with the haiku row of msgate-agents.
+export const SHOWN_PROMPT_MAX_BYTES = 1024 * 1024
 // What the spawn of a hidden row answers when MSGATE_ROW_MODE=auto refuses it.
 export const AUTO_DENIAL = 'msgate: a hidden row does not open, since MSGATE_ROW_MODE=auto refuses it'
 // A hidden row's prompt names its run on its first line.
@@ -133,7 +138,7 @@ async function nextOrPlain($, e, prompt, next) {
 
 // readRunPrompt reads the prompt of a run the engine answers for: { text }, or
 // { reason } when the run is not one it answers for or the prompt cannot be had
-// whole.
+// whole or is too long to show.
 async function readRunPrompt($, bin, runId) {
   const checked = await checkRun($, bin, runId, { timeoutMs: SPAWN_READ_TIMEOUT_MS })
   if (checked.isPassed) return { reason: 'the engine does not answer for the run' }
@@ -147,7 +152,15 @@ async function readRunPrompt($, bin, runId) {
   }
   if (reply.exitCode !== 0) return { reason: failureText(reply) }
   if (reply.isStdoutTruncated === true) return { reason: 'the prompt is longer than the output msgate can return' }
-  return reply.stdout.trim() === '' ? { reason: 'the prompt is empty' } : { text: reply.stdout }
+  return shownPrompt(reply.stdout)
+}
+
+// shownPrompt is { text } for a prompt a row shows whole, or the { reason } it
+// does not: empty, or over SHOWN_PROMPT_MAX_BYTES of UTF-8.
+function shownPrompt(text) {
+  if (text.trim() === '') return { reason: 'the prompt is empty' }
+  if (new TextEncoder().encode(text).length > SHOWN_PROMPT_MAX_BYTES) return { reason: 'the prompt is longer than the ' + SHOWN_PROMPT_MAX_BYTES + ' bytes a row can show' }
+  return { text }
 }
 
 // The notes of MSGATE_ROW_MODE already logged by this load.
