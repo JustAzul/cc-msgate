@@ -391,7 +391,7 @@ function onTurnComplete(on) {
 async function endSteppedTurn($, e) {
   const held = e.agentId === undefined ? null : heldTurn(e.agentId, e.turnId)
   if (held === null) return
-  dropTurn(e.agentId, e.turnId)
+  dropTurn($, e.agentId, e.turnId)
   if (!e.isAborted || !held.isOwn) return
   await $.process.run([shimPath($.plugin.root), 'cancel', held.runId]).catch(() => {})
 }
@@ -1552,12 +1552,12 @@ export async function* watchRun($, bin, runId, signal) {
   try {
     let step
     do {
-      step = await follow.advance()
+      step = await advanceFollow($, follow)
       for (const line of step.lines) yield thinking(line)
     } while (!step.isDone && !signal.aborted)
-    return await follow.finish()
+    return await finishFollow($, follow)
   } finally {
-    follow.release()
+    releaseFollow($, follow)
   }
 }
 
@@ -1572,11 +1572,11 @@ function heldTurn(agentId, turnId) {
 }
 
 // dropTurn lets go of what the agent's turn kept between its steps.
-function dropTurn(agentId, turnId) {
+function dropTurn($, agentId, turnId) {
   const held = heldTurn(agentId, turnId)
   if (held === null) return
   steppedTurns.delete(agentId)
-  held.follow.release()
+  releaseFollow($, held.follow)
   turnAgents.delete(agentId)
 }
 
@@ -1599,7 +1599,7 @@ async function holdTurn($, bin, turn, runId, signal) {
     await $.ui.log('agent ' + turn.agentId + ' found no follow at step ' + turn.index + ' of turn ' + turn.turnId + ': a new one starts', { to: 'debug' })
   }
   const earlier = steppedTurns.get(turn.agentId)
-  if (earlier !== undefined) dropTurn(turn.agentId, earlier.turnId)
+  if (earlier !== undefined) dropTurn($, turn.agentId, earlier.turnId)
   const follow = await createFollow($, bin, runId, signal)
   const held = { turnId: turn.turnId, runId, isOwn: turn.row.backed.command !== FOLLOW, follow }
   steppedTurns.set(turn.agentId, held)
@@ -1615,34 +1615,34 @@ async function* watching($, bin, turn, runId, signal) {
   if (window === 0) return { records: yield* watchRun($, bin, runId, signal) }
 
   const kept = held ?? (await holdTurn($, bin, turn, runId, signal))
-  kept.follow.rebind(signal)
+  rebindFollow(kept.follow, signal)
   let isKept = false
   try {
-    const watched = yield* watchSlice(kept.follow, signal, window)
+    const watched = yield* watchSlice($, kept.follow, signal, window)
     isKept = watched.progress !== undefined
     return watched
   } finally {
-    if (!isKept) dropTurn(turn.agentId, turn.turnId)
+    if (!isKept) dropTurn($, turn.agentId, turn.turnId)
   }
 }
 
 // watchSlice waits slice after slice until `window` entries have arrived, the
 // run ends or the turn is interrupted. A step that ends before the run does
 // waits for the label of its window, and shows it with the records that settled.
-async function* watchSlice(follow, signal, window) {
+async function* watchSlice($, follow, signal, window) {
   const labels = []
   let entries = 0
   let step
   do {
-    step = await follow.advance()
+    step = await advanceFollow($, follow)
     entries += step.entries
     for (const line of step.lines) yield thinking(line)
     labels.push(...step.labels)
   } while (!step.isDone && !signal.aborted && entries < window)
-  if (step.isDone || signal.aborted) return { records: await follow.finish() }
+  if (step.isDone || signal.aborted) return { records: await finishFollow($, follow) }
 
-  labels.push(...(await follow.label()))
-  return { progress: [...labels.map((label) => label + '\n'), ...follow.fresh().map((record) => record.text)] }
+  labels.push(...(await followLabels(follow)))
+  return { progress: [...labels.map((label) => label + '\n'), ...freshRecords(follow).map((record) => record.text)] }
 }
 
 // progressStep ends a step before its run does: the texts that came ready, then
@@ -1657,79 +1657,86 @@ async function* progressStep(e, texts) {
   return { turnId: e.turnId, index: e.index, answer: texts.join(''), toolUses: [{ name: PROGRESS_TOOL, input: {} }], stopReason: 'tool_use', usage: null }
 }
 
-// createFollow is the follow of one run, kept between its slices: `advance`
-// waits one slice and returns what to show for it, and `finish` ends the follow
-// with the records. A follow that ends any other way is let go with `release`.
-// A follow that spans the steps of a turn is handed the signal of each step with
-// `rebind`: the signal of a step ends with the step.
+// createFollow is the follow of one run, kept between its slices: advanceFollow
+// waits one slice and returns what to show for it, and finishFollow ends the
+// follow with the records. A follow that ends any other way is let go with
+// releaseFollow. These take the `$` of the step they run in, because a follow
+// that spans the steps of a turn outlives the dispatch it was made in; the
+// signal of each step is handed over with rebindFollow.
 export async function createFollow($, bin, runId, signal) {
-  let current = signal
-  // The recorder while the follow still feeds it: it is let go of when the
-  // summaries are switched off, and a follow cut short lets go of it too.
-  let recording = await recorderOf($, runId, await summaryConfig($))
   const startedAt = await $.clock.now()
-  let shownAt = startedAt
-  let from = 0
-  // How many of the recorder's records `fresh` and `finish` have handed over.
-  let handed = 0
-
-  async function advance() {
-    const reply = await $.process.run(sliceWaitCommand(bin, runId), { timeoutMs: SLICE_TIMEOUT_MS })
-    const progress = await newProgress($, bin, runId, from)
-    from = progress.next
-    const config = await summaryConfig($)
-    if (recording !== null && !config.isEnabled) recording = abandon($, recording)
-    if (recording !== null && progress.text.length > 0) recording.add(progress.text)
-    // With summaries active the row shows labels, not the entries.
-    const isLive = await summaries.observe(summaryPorts($), runId, progress.text)
-    const labels = isLive ? summaries.take(runId) : []
-    const lines = isLive ? labels : progress.text
-
-    const now = await $.clock.now()
-    const shown = [...lines]
-    if (lines.length > 0) shownAt = now
-    else if (now - shownAt >= HEARTBEAT_MS && config.isEnabled) {
-      shown.push(heartbeatLine(now - startedAt))
-      shownAt = now
-    }
-    return { lines: shown, labels, entries: progress.text.length, isDone: !(isWaitTimeout(reply) && !current.aborted) }
+  return {
+    bin,
+    runId,
+    signal,
+    startedAt,
+    shownAt: startedAt,
+    from: 0,
+    // How many of the recorder's records freshRecords and finishFollow have
+    // handed over.
+    handed: 0,
+    // The recorder while the follow still feeds it: it is let go of when the
+    // summaries are switched off, and a follow cut short lets go of it too.
+    recording: await recorderOf($, runId, await summaryConfig($)),
   }
+}
 
-  // label waits for the label request in flight, if any, and returns the label
-  // that settled and has not been shown.
-  async function label() {
-    await summaries.settled(runId)
-    return summaries.take(runId)
+// rebindFollow gives the follow the signal of the step it runs in now.
+export function rebindFollow(follow, signal) {
+  follow.signal = signal
+}
+
+export async function advanceFollow($, follow) {
+  const { bin, runId } = follow
+  const reply = await $.process.run(sliceWaitCommand(bin, runId), { timeoutMs: SLICE_TIMEOUT_MS })
+  const progress = await newProgress($, bin, runId, follow.from)
+  follow.from = progress.next
+  const config = await summaryConfig($)
+  if (follow.recording !== null && !config.isEnabled) follow.recording = abandon($, follow.recording)
+  if (follow.recording !== null && progress.text.length > 0) follow.recording.add(progress.text)
+  // With summaries active the row shows labels, not the entries.
+  const isLive = await summaries.observe(summaryPorts($), runId, progress.text)
+  const labels = isLive ? summaries.take(runId) : []
+  const lines = isLive ? labels : progress.text
+
+  const now = await $.clock.now()
+  const shown = [...lines]
+  if (lines.length > 0) follow.shownAt = now
+  else if (now - follow.shownAt >= HEARTBEAT_MS && config.isEnabled) {
+    shown.push(heartbeatLine(now - follow.startedAt))
+    follow.shownAt = now
   }
+  return { lines: shown, labels, entries: progress.text.length, isDone: !(isWaitTimeout(reply) && !follow.signal.aborted) }
+}
 
-  // fresh returns the records that settled since the last call.
-  function fresh() {
-    const settled = recording === null ? [] : recording.records()
-    const records = settled.slice(handed)
-    handed = settled.length
-    return records
+// followLabels waits for the label request in flight, if any, and returns the
+// label that settled and has not been shown.
+async function followLabels(follow) {
+  await summaries.settled(follow.runId)
+  return summaries.take(follow.runId)
+}
+
+// freshRecords returns the records that settled since the last call.
+function freshRecords(follow) {
+  const settled = follow.recording === null ? [] : follow.recording.records()
+  const records = settled.slice(follow.handed)
+  follow.handed = settled.length
+  return records
+}
+
+export async function finishFollow($, follow) {
+  const ending = follow.recording
+  follow.recording = null
+  try {
+    return ending === null ? [] : (await finishRecords($, follow.runId, ending, follow.signal)).slice(follow.handed)
+  } finally {
+    releaseFollow($, follow)
   }
+}
 
-  async function finish() {
-    const ending = recording
-    recording = null
-    try {
-      return ending === null ? [] : (await finishRecords($, runId, ending, current)).slice(handed)
-    } finally {
-      release()
-    }
-  }
-
-  function release() {
-    summaries.forget(runId)
-    if (recording !== null) recording = abandon($, recording)
-  }
-
-  function rebind(nextSignal) {
-    current = nextSignal
-  }
-
-  return { advance, label, fresh, finish, release, rebind }
+export function releaseFollow($, follow) {
+  summaries.forget(follow.runId)
+  if (follow.recording !== null) follow.recording = abandon($, follow.recording)
 }
 
 // abandon tells a recorder that no more entries come and that it is to start no

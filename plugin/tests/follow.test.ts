@@ -1,12 +1,18 @@
 import { expect, test } from 'claude-code/testing'
 import { WAIT_TIMEOUT, answered, engineOf, job, ok, world } from './kit'
 import { RECORD_MAX_TOKENS } from '../hooks/recorder.js'
-import { createFollow, watchRun } from '../hooks/register.js'
+import { advanceFollow, createFollow, finishFollow, watchRun } from '../hooks/register.js'
 
 const RUN = 'run-1'
 const BIN = '/plugin/bin/msgate'
 const isRecordRequest = (request: any) => request.maxTokens === RECORD_MAX_TOKENS
 const finished = () => job({ run_id: RUN, state: 'done', outcome: 'ok' })
+
+// A follow of the run, whose steps run in the engine `$` it was made with.
+async function opened($: any, signal: AbortSignal) {
+  const follow = await createFollow($, BIN, RUN, signal)
+  return { advance: () => advanceFollow($, follow), finish: () => finishFollow($, follow) }
+}
 
 // The world a follow runs in: `timeouts` waits that give up, then a wait that
 // finds the run done, and the progress entries each read answers in turn.
@@ -44,7 +50,7 @@ function engine(w: ReturnType<typeof world>, { surfaces = [] as string[] } = {})
 test('advance is not done while the wait times out, and done once the run ends', async ($, on) => {
   const w = world(on)
   followed(w, { timeouts: 2 })
-  const follow = await createFollow(engine(w).$, BIN, RUN, new AbortController().signal)
+  const follow = await opened(engine(w).$, new AbortController().signal)
 
   const results = [await follow.advance(), await follow.advance(), await follow.advance()]
 
@@ -57,7 +63,7 @@ test('advance is done as soon as the signal aborts, though the wait timed out', 
   const w = world(on)
   followed(w, { timeouts: 5 })
   const abort = new AbortController()
-  const follow = await createFollow(engine(w).$, BIN, RUN, abort.signal)
+  const follow = await opened(engine(w).$, abort.signal)
 
   const before = await follow.advance()
   abort.abort()
@@ -70,7 +76,7 @@ test('advance is done as soon as the signal aborts, though the wait timed out', 
 test('advance reads the progress from where the last read stopped', async ($, on) => {
   const w = world(on)
   followed(w, { timeouts: 2, entries: [2, 1] })
-  const follow = await createFollow(engine(w).$, BIN, RUN, new AbortController().signal)
+  const follow = await opened(engine(w).$, new AbortController().signal)
 
   await follow.advance()
   await follow.advance()
@@ -83,7 +89,7 @@ test('advance returns the lines of the progress it read, and a heartbeat once a 
   const w = world(on)
   followed(w, { timeouts: 3, entries: [1] })
   const { $: engineAt, clock } = engine(w)
-  const follow = await createFollow(engineAt, BIN, RUN, new AbortController().signal)
+  const follow = await opened(engineAt, new AbortController().signal)
 
   const first = await follow.advance()
   const quiet = await follow.advance()
@@ -99,7 +105,7 @@ test('advance returns the lines of the progress it read, and a heartbeat once a 
 test('finish returns the records of the windows when the turn was not interrupted', async ($, on) => {
   const w = world(on)
   followed(w, { timeouts: 1, entries: [8] })
-  const follow = await createFollow(engine(w, { surfaces: ['terminal'] }).$, BIN, RUN, new AbortController().signal)
+  const follow = await opened(engine(w, { surfaces: ['terminal'] }).$, new AbortController().signal)
 
   while (!(await follow.advance()).isDone);
   const records = await follow.finish()
@@ -111,7 +117,7 @@ test('finish returns no records when the turn was interrupted', async ($, on) =>
   const w = world(on)
   followed(w, { timeouts: 1, entries: [8] })
   const abort = new AbortController()
-  const follow = await createFollow(engine(w, { surfaces: ['terminal'] }).$, BIN, RUN, abort.signal)
+  const follow = await opened(engine(w, { surfaces: ['terminal'] }).$, abort.signal)
 
   await follow.advance()
   abort.abort()
@@ -134,4 +140,19 @@ test('a turn stopped while the lines of a slice are shown starts no further wait
   expect(shown.done).toBe(false)
   expect(ended).toEqual({ done: true, value: [] })
   expect(w.runs.filter((r) => r.argv[1] === 'wait')).toHaveLength(1)
+})
+
+test('advance waits through the engine of the step it runs in, not the one the follow was made with', async ($, on) => {
+  const w = world(on)
+  followed(w, { timeouts: 2 })
+  const made = engine(w).$
+  const later = engine(w).$
+  const waitedThrough: string[] = []
+  later.process = { run: async (argv: string[], init?: any) => (waitedThrough.push(argv[1]!), w.processRun(argv, init)) }
+  const follow = await createFollow(made, BIN, RUN, new AbortController().signal)
+
+  await advanceFollow(later, follow)
+  await finishFollow(later, follow)
+
+  expect(waitedThrough).toEqual(['wait', 'progress'])
 })
