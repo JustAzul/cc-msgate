@@ -121,6 +121,67 @@ function versionOnce($, cache) {
   return cache.pending
 }
 
+// The catalogs a load has read, by the provider asked for ('' for the default),
+// shared by every call of the load. The binary takes up to 10 s to read one. A
+// read that failed is forgotten, so the next call tries again.
+export function createModelsCache() {
+  return { pending: new Map() }
+}
+
+const isTextOf = (value, { isEmptyOk }) => typeof value === 'string' && (isEmptyOk || value !== '')
+
+function catalogModel(model) {
+  if (typeof model !== 'object' || model === null) throw new Error('a model is not an object')
+  for (const [field, isEmptyOk] of [['id', false], ['name', true], ['visibility', true]]) {
+    if (!isTextOf(model[field], { isEmptyOk })) throw new Error('a model has no usable ' + field)
+  }
+  return { id: model.id, name: model.name, visibility: model.visibility }
+}
+
+// catalogOf reads what `models --json` printed, or throws why it is not a catalog.
+function catalogOf(stdout) {
+  let printed
+  try {
+    printed = JSON.parse(stdout)
+  } catch (error) {
+    throw new Error('printed something that is not JSON: ' + messageOf(error))
+  }
+  if (!isTextOf(printed?.provider, { isEmptyOk: false })) throw new Error('printed no provider')
+  if (!Array.isArray(printed.models)) throw new Error('printed models that are not a list')
+  return { provider: printed.provider, models: printed.models.map(catalogModel) }
+}
+
+async function readCatalog($, provider) {
+  const argv = [shimPath($.plugin.root), 'models', '--json']
+  if (provider !== '') argv.push('--provider', provider)
+  const read = await readReply($, argv)
+  if (read.error !== undefined) throw new Error(read.error)
+  return catalogOf(read.reply.stdout)
+}
+
+function modelsOnce($, cache, provider) {
+  if (!cache.pending.has(provider)) {
+    const read = readCatalog($, provider).catch((error) => {
+      cache.pending.delete(provider)
+      throw error
+    })
+    cache.pending.set(provider, read)
+  }
+  return cache.pending.get(provider)
+}
+
+// serveModels is the model catalog of a provider, the default one when none is named.
+export async function serveModels($, args, cache) {
+  try {
+    const asked = args?.provider
+    if (asked !== undefined && !isTextOf(asked, { isEmptyOk: false })) throw new Error('the provider is not text')
+    return { value: await modelsOnce($, cache, asked ?? '') }
+  } catch (error) {
+    await $.ui.log('could not read the model catalog: ' + messageOf(error), { to: 'debug' })
+    return { deny: 'msgate:models:failed' }
+  }
+}
+
 // serveBackType marks the caller's agent type as one the engine answers.
 export async function serveBackType($, args, caller) {
   const checked = backedData(args)
@@ -203,4 +264,5 @@ export const INTERFACE = {
   run: unserved('run'),
   jobs: unserved('jobs'),
   flaggedRuns: unserved('flaggedRuns'),
+  models: unserved('models'),
 }

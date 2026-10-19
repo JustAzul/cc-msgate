@@ -69,11 +69,11 @@ function jobFlags(sessionId) {
   return ['--background', '--json', '--source', AGENT_SOURCE, '--session-id', sessionId]
 }
 
-// admissionFlags are the flags of the first turn of a row: the type's own name
-// as the purpose, and the settings it is backed with, recorded as coming from a
-// profile. A setting the type does not name is left to the provider. An effort
-// the Agent call asked for takes the place of the type's, and is recorded as
-// coming from a flag.
+// admissionFlags are the flags of the first turn of a row: the purpose the type
+// is backed with, or its own name when it has none, and the settings it is backed
+// with, recorded as coming from a profile. A setting the type does not name is
+// left to the provider. An effort the Agent call asked for takes the place of the
+// type's, and is recorded as coming from a flag.
 function admissionFlags(name, sessionId, backed, effort) {
   const flagsOf = (setting) => {
     if (setting === 'effort' && effort !== undefined) return ['--effort', effort, '--effort-source', 'flag']
@@ -81,7 +81,7 @@ function admissionFlags(name, sessionId, backed, effort) {
   }
   const settings = ['model', 'effort', 'sandbox'].flatMap(flagsOf)
   const [background, json, ...rest] = jobFlags(sessionId)
-  return [background, json, '--purpose', name, ...rest, '--settings-source', 'profile', ...settings]
+  return [background, json, '--purpose', backed.purpose ?? name, ...rest, '--settings-source', 'profile', ...settings]
 }
 
 // reviewFlags reads a code-review prompt as exactly one review target.

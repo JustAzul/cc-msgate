@@ -1,7 +1,7 @@
 // Shared stubs for the mod tests: a fake world beneath the mod where the
 // msgate binary, the store, the clock and the display calls are all in memory.
 import { mock } from 'claude-code/testing'
-import { createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveRun, serveVersion } from '../hooks/iface.js'
+import { createModelsCache, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveModels, serveRun, serveVersion } from '../hooks/iface.js'
 
 export const SESSION = 'sess-1'
 // The mod runs the plugin's own shim: an absolute path ending in bin/msgate.
@@ -436,10 +436,11 @@ export function engineOf(w: ReturnType<typeof world>) {
 // A second plugin calling the engine's interface: the call carries the plugin
 // the host stamps on it (`next.origin.plugin`), which the test's `$` cannot, so
 // the methods are driven with the caller named. `versions` is what one load has
-// read of the engine's version; a fresh one stands for the module loading again.
+// read of the engine's version and `catalogs` the model catalogs; a fresh one of
+// either stands for the module loading again.
 export const CALLER = 'p2'
 export const OTHER_CALLER = 'p3'
-export function msgateAs(w: ReturnType<typeof world>, caller: string = CALLER, versions = createVersionCache()) {
+export function msgateAs(w: ReturnType<typeof world>, caller: string = CALLER, versions = createVersionCache(), catalogs = createModelsCache()) {
   const $ = engineOf(w)
   return {
     backType: (args: unknown) => serveBackType($, args, caller),
@@ -447,5 +448,6 @@ export function msgateAs(w: ReturnType<typeof world>, caller: string = CALLER, v
     run: (args: unknown) => serveRun($, args, caller),
     jobs: (args: unknown) => serveJobs($, args, caller),
     flaggedRuns: () => serveFlaggedRuns($),
+    models: (args?: unknown) => serveModels($, args, catalogs),
   }
 }

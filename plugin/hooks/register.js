@@ -88,7 +88,7 @@ import { forgetEfforts, holdEffort, takeEffort } from './efforts.js'
 import { FOLLOW, admitSpawn, checkRun, endedText, followFailureText, hiddenRunIds, hiddenRunOf, stoppedText } from './hidden.js'
 import { PROGRESS_SPEC, PROGRESS_TOOL, onProgressTool } from './progress.js'
 import { createService } from './service.js'
-import { INTERFACE, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveRun, serveVersion } from './iface.js'
+import { INTERFACE, createModelsCache, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveModels, serveRun, serveVersion } from './iface.js'
 import { summaryRecording } from './summary.js'
 import { modelCallCommand } from './modelcall.js'
 import { ETA_TIMEOUT_MS, ETA_UNAVAILABLE, etaCommand, etaText, endedSince, finishedTail, isAnnounceable, listedRuns, spawnNotice } from './spawn.js'
@@ -244,6 +244,9 @@ export function register(on, options) {
   on('msgate.run', ($, e, next) => serveRun($, e, next.origin.plugin)).catch(() => ({ deny: 'msgate:run:failed' }))
   on('msgate.jobs', ($, e, next) => serveJobs($, e, next.origin.plugin)).catch(() => ({ deny: 'msgate:jobs:failed' }))
   on('msgate.flaggedRuns', ($) => serveFlaggedRuns($)).catch(() => ({ deny: 'msgate:flaggedRuns:failed' }))
+  // The catalogs this load has read, which `register` makes anew with the load.
+  const catalogs = createModelsCache()
+  on('msgate.models', ($, e) => serveModels($, e, catalogs)).catch(() => ({ deny: 'msgate:models:failed' }))
   // The engine answers a hidden row only when the plugin that backed its type
   // spawned it, which only this hook sees. A hook that fails lets the spawn go on.
   on('agent.spawn', ($, e, next) => admitSpawn($, e, next.origin.plugin, next)).catch(($, e, next) => next(e))

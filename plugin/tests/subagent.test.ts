@@ -502,6 +502,17 @@ test('the rows of any plugin\'s backed type are answered, with the type\'s own n
   expect(w.modelSteps).toEqual([])
 })
 
+test('a row of a type backed with a purpose records that purpose, not the type\'s name', async ($, on) => {
+  const w = world(on, { backed: { 'p2:second-opinion-gpt-6-astra': { command: 'exec', promptMode: 'free', purpose: 'second-opinion' } } })
+  w.respond = codex('done')
+  subagent(w, 'ag-1', 'p2:second-opinion-gpt-6-astra', [{ role: 'user', text: 'q' }])
+  await $.session.start(START)
+
+  await step($, 'ag-1')
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('second-opinion'), '-'])
+})
+
 const SETTINGS: [string, string[]][] = [
   ['adhoc', []],
   ['delegation', ['--model', 'gpt-6.1-sol', '--effort', 'medium', '--sandbox', 'workspace-write']],

@@ -41,13 +41,18 @@ export type MsgateBackedType = {
   model?: string
   effort?: string
   sandbox?: 'read-only' | 'workspace-write'
+  /** The purpose the type's runs are recorded with; left out, the type's own name. */
+  purpose?: string
+  /** Whether the type's agents follow the run in several steps; see `backType`. */
+  stepped?: boolean
 }
 
 /**
  * The arguments of `backType`. `type` matches ^[a-z0-9][a-z0-9-]{0,63}$; `exec`
  * needs the `free` prompt mode, `review` the `review-target` one and `follow` the
  * `run-id` one; `model`, `effort` and `sandbox` are the settings the engine runs
- * the type's agents with, and a `follow` type needs none.
+ * the type's agents with, and a `follow` type needs none; `purpose` is non-empty
+ * text and `stepped` a boolean.
  */
 export type MsgateBackTypeArgs = MsgateBackedType & { type: string }
 
@@ -79,6 +84,19 @@ export type MsgateFlaggedRun = {
   source: string
   /** When the run started, `null` before it has. */
   started_at: string | null
+}
+
+/** One model of a provider's catalog, as the provider lists it. */
+export type MsgateModel = {
+  id: string
+  name: string
+  visibility: string
+}
+
+export type MsgateModels = {
+  provider: string
+  /** In the order the provider lists them. */
+  models: MsgateModel[]
 }
 
 /** A run as `status --json` prints it: these keys, and others the binary adds. */
@@ -115,7 +133,7 @@ declare module 'claude-code' {
        * answers, replacing an earlier call for the same type, and resolves that
        * full type. A plugin can back only its own types. It rejects with
        * `msgate:backType:<field>` naming the first argument it refuses (type,
-       * command, promptMode, model, effort or sandbox).
+       * command, promptMode, model, effort, sandbox, purpose or stepped).
        */
       backType: (args: MsgateBackTypeArgs) => Promise<{ type: string }>
       /**
@@ -148,6 +166,13 @@ declare module 'claude-code' {
        * It rejects with `msgate:flaggedRuns:failed`.
        */
       flaggedRuns: () => Promise<MsgateFlaggedRun[]>
+      /**
+       * The model catalog of a provider (`codex` when none is named), as the
+       * provider lists it. The engine reads a catalog once per load and keeps it;
+       * a read that failed is made again by the next call. It rejects with
+       * `msgate:models:failed`.
+       */
+      models: (args?: { provider?: string }) => Promise<MsgateModels>
     }
   }
 

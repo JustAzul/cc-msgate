@@ -27,6 +27,20 @@ test('a type with no model, effort or sandbox is stored without them', async ($,
   expect(registry(w)).toEqual({ 'p2:adhoc': { command: 'exec', promptMode: 'free' } })
 })
 
+test('a purpose and a stepped the call names are stored with the type, a false stepped included', async ($, on) => {
+  const w = world(on, { backed: {} })
+  await $.session.start(START)
+  const msgate = msgateAs(w, 'msgate-agents')
+
+  await msgate.backType({ ...SECOND_OPINION, type: 'second-opinion-gpt-6-astra', purpose: 'second-opinion', stepped: true })
+  await msgate.backType({ type: 'adhoc', command: 'exec', promptMode: 'free', stepped: false })
+
+  expect(registry(w)).toEqual({
+    'msgate-agents:second-opinion-gpt-6-astra': { command: 'exec', promptMode: 'free', model: 'gpt-6.1-sol', effort: 'high', sandbox: 'read-only', purpose: 'second-opinion', stepped: true },
+    'msgate-agents:adhoc': { command: 'exec', promptMode: 'free', stepped: false },
+  })
+})
+
 test('a review type is backed with the review-target prompt mode', async ($, on) => {
   const w = world(on, { backed: {} })
   await $.session.start(START)
@@ -69,6 +83,10 @@ const REFUSALS: [string, Record<string, unknown>, string][] = [
   ['an effort that is not text', { ...SECOND_OPINION, effort: ['high'] }, 'effort'],
   ['a sandbox of danger-full-access', { ...SECOND_OPINION, sandbox: 'danger-full-access' }, 'sandbox'],
   ['a sandbox that is not text', { ...SECOND_OPINION, sandbox: true }, 'sandbox'],
+  ['an empty purpose', { ...SECOND_OPINION, purpose: '' }, 'purpose'],
+  ['a purpose that is not text', { ...SECOND_OPINION, purpose: 3 }, 'purpose'],
+  ['a stepped that is a word', { ...SECOND_OPINION, stepped: 'yes' }, 'stepped'],
+  ['a stepped that is a number', { ...SECOND_OPINION, stepped: 1 }, 'stepped'],
 ]
 
 for (const [name, args, field] of REFUSALS) {

@@ -27,6 +27,8 @@ function invalidField(args) {
   if (!isOptionalText(call.model)) return 'model'
   if (!isOptionalText(call.effort)) return 'effort'
   if (call.sandbox !== undefined && !SANDBOXES.includes(call.sandbox)) return 'sandbox'
+  if (!isOptionalText(call.purpose)) return 'purpose'
+  if (call.stepped !== undefined && typeof call.stepped !== 'boolean') return 'stepped'
   return null
 }
 
@@ -36,7 +38,7 @@ export function backedData(args) {
   const field = invalidField(args)
   if (field !== null) return { field }
   const data = { command: args.command, promptMode: args.promptMode }
-  for (const name of ['model', 'effort', 'sandbox']) {
+  for (const name of ['model', 'effort', 'sandbox', 'purpose', 'stepped']) {
     if (args[name] !== undefined) data[name] = args[name]
   }
   return { data }
