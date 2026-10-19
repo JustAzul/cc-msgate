@@ -18,6 +18,10 @@ const WRITE_ATTEMPTS = 20
 const isText = (value) => typeof value === 'string' && value !== ''
 const isOptionalText = (value) => value === undefined || isText(value)
 
+const invalidPurpose = (call) => (isOptionalText(call.purpose) ? null : 'purpose')
+const invalidStepped = (call) => (call.stepped === undefined || typeof call.stepped === 'boolean' ? null : 'stepped')
+const invalidDescription = (call) => invalidPurpose(call) ?? invalidStepped(call)
+
 // The first field of a backType call that is not acceptable, or null.
 function invalidField(args) {
   const call = typeof args === 'object' && args !== null ? args : {}
@@ -27,9 +31,7 @@ function invalidField(args) {
   if (!isOptionalText(call.model)) return 'model'
   if (!isOptionalText(call.effort)) return 'effort'
   if (call.sandbox !== undefined && !SANDBOXES.includes(call.sandbox)) return 'sandbox'
-  if (!isOptionalText(call.purpose)) return 'purpose'
-  if (call.stepped !== undefined && typeof call.stepped !== 'boolean') return 'stepped'
-  return null
+  return invalidDescription(call)
 }
 
 // backedData checks a backType call and returns the data the registry keeps for
