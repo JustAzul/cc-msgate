@@ -16,6 +16,10 @@ func StartTime(pid int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return startTimeOf(kp), nil
+}
+
+func startTimeOf(kp *unix.KinfoProc) string {
 	tv := kp.Proc.P_starttime
-	return fmt.Sprintf("%d.%06d", int64(tv.Sec), int64(tv.Usec)), nil
+	return fmt.Sprintf("%d.%06d", int64(tv.Sec), int64(tv.Usec))
 }

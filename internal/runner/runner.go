@@ -50,6 +50,9 @@ type Job struct {
 
 	startedAt time.Time
 	version   *string
+	// leaderProbe tells whether the provider's group leader has exited; nil
+	// means unknown.
+	leaderProbe func() leaderStatus
 }
 
 // Result describes a finished run.
@@ -161,6 +164,7 @@ func Run(job Job) (Result, error) {
 	out.closeWriters() // only the provider and its descendants hold the write ends now
 	pgid := cmd.Process.Pid
 	j.recordProviderGroup(&st, pgid)
+	j.watchLeader(pgid, st.ProviderStartTime)
 
 	// The version probe runs beside the provider so it adds no wall time.
 	versionCh := make(chan *string, 1)
@@ -350,7 +354,8 @@ type ended struct {
 // await blocks until the provider exits, the timeout expires or SIGINT or
 // SIGTERM arrives, and in the last two cases ends the provider's group. A
 // provider that has already exited wins any race with the timeout or a
-// signal, so its own result is kept.
+// signal, so its own result is kept, including when the kernel has recorded the
+// exit but waitCh has not delivered it yet.
 func (j *Job) await(pgid int, waitCh <-chan error, sigs <-chan os.Signal) ended {
 	var timeoutC <-chan time.Time
 	if j.Timeout > 0 {
@@ -372,6 +377,9 @@ func (j *Job) await(pgid int, waitCh <-chan error, sigs <-chan os.Signal) ended 
 	case err := <-waitCh:
 		return ended{waitErr: err, reaped: true}
 	default:
+	}
+	if exited, ok := j.exitedFirst(waitCh); ok {
+		return exited
 	}
 	reason, sig := end.reason, end.signal
 	end = j.terminate(pgid, waitCh)
