@@ -393,7 +393,20 @@ async function endSteppedTurn($, e) {
   if (held === null) return
   dropTurn($, e.agentId, e.turnId)
   if (!e.isAborted || !held.isOwn) return
-  await $.process.run([shimPath($.plugin.root), 'cancel', held.runId]).catch(() => {})
+  await cancelOwnRun($, held.runId)
+}
+
+// cancelOwnRun asks the engine to cancel the run a row started itself. A cancel
+// that does not go through leaves the run going, so it is logged with the run.
+async function cancelOwnRun($, runId) {
+  let reply
+  try {
+    reply = await $.process.run([shimPath($.plugin.root), 'cancel', runId])
+  } catch (error) {
+    await $.ui.log('could not cancel run ' + runId + ': ' + messageOf(error), { to: 'debug' })
+    return
+  }
+  if (reply.exitCode !== 0) await $.ui.log('could not cancel run ' + runId + ': ' + failureText(reply), { to: 'debug' })
 }
 
 export async function registerTools($) {

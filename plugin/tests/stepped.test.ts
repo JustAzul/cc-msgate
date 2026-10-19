@@ -285,3 +285,36 @@ test('a turn that ends interrupted between two steps cancels the run its row sta
 
   expect(w.runs.filter((r) => r.argv[1] === 'cancel').map((r) => r.argv[2])).toEqual(['run-1'])
 })
+
+const cancelLogsOf = (w: ReturnType<typeof world>) => w.debugLogs.filter((text) => text.includes('could not cancel run run-1'))
+
+test('a cancel of the own run that the engine refuses is logged with the run, since the run keeps going', async ($, on) => {
+  on('turn.complete', (_$: any, e: any) => ({ text: e.answer }))
+  const w = world(on, { backed: OWN })
+  await openOwnRow($, w, 3)
+  const follow = w.respond
+  w.respond = (argv: string[]) => (argv[1] === 'cancel' ? { exitCode: 1, stdout: '', stderr: 'msgate: cancel refused\n' } : follow(argv))
+  await ownStep($, 0)
+
+  await $.turn.complete({ turnId: 'turn-1', agentId: 'ag-own', ...ENDED })
+
+  expect(cancelLogsOf(w)).toHaveLength(1)
+  expect(cancelLogsOf(w)[0]).toContain('cancel refused')
+})
+
+test('a cancel of the own run that cannot be made is logged with the run and a reason', async ($, on) => {
+  on('turn.complete', (_$: any, e: any) => ({ text: e.answer }))
+  const w = world(on, { backed: OWN })
+  await openOwnRow($, w, 3)
+  const follow = w.respond
+  w.respond = (argv: string[]) => {
+    if (argv[1] === 'cancel') throw new Error('the process port is down')
+    return follow(argv)
+  }
+  await ownStep($, 0)
+
+  await $.turn.complete({ turnId: 'turn-1', agentId: 'ag-own', ...ENDED })
+
+  expect(cancelLogsOf(w)).toHaveLength(1)
+  expect(cancelLogsOf(w)[0]).toMatch(/could not cancel run run-1: \S/)
+})
