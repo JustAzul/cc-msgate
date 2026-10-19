@@ -368,7 +368,10 @@ async function registerTools($) {
       description:
         'Run a prompt on an agent CLI as a background job and return at once with {conversation_id, run_id, continued}. ' +
         'Without conversation_id it starts a new conversation; with one it sends the next turn of that conversation. ' +
-        'A notice arrives in this session when the job finishes, so do not poll for it.',
+        'A notice arrives in this session when the job finishes, so do not poll for it. ' +
+        'A plugin that opens agent rows for flagged runs shows this run as an agent row until it ends. ' +
+        'When an installed plugin already has an agent type for the purpose and the model you want, start that type with the Agent tool instead; ' +
+        'use this tool only for what the Agent tool cannot set: sandbox, cwd, provider, or conversation_id to continue a conversation.',
       inputSchema: {
         type: 'object',
         properties: {

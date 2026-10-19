@@ -23,6 +23,21 @@ test('the mod registers its two tools with schemas the model can use', async ($,
   expect(spec.jobs.inputSchema.properties.run_id.type).toBe('string')
 })
 
+test('the run tool\'s description prefers a plugin\'s agent type and names what the tool is for', async ($, on) => {
+  const w = world(on)
+  await $.session.start(START)
+
+  const run = w.tools.find((t) => t.name === 'run')
+  expect(run.description).toContain('Agent tool')
+  for (const word of ['sandbox', 'cwd', 'provider', 'conversation_id']) {
+    expect(run.description).toContain(word)
+  }
+  expect(run.description).toContain('agent row')
+  expect(Object.keys(run.inputSchema.properties).sort()).toEqual(
+    ['conversation_id', 'cwd', 'effort', 'model', 'prompt', 'provider', 'purpose', 'sandbox'],
+  )
+})
+
 test('the mod registers exactly one command, /msgate-jobs, that runs mid-turn', async ($, on) => {
   const w = world(on)
   await $.session.start(START)

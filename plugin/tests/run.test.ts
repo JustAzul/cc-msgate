@@ -15,7 +15,7 @@ test('run without a conversation admits a background exec and returns its ids', 
   expect(w.runs.filter((r) => r.argv[1] === 'exec').length).toBe(1)
   const run = w.runs[0]!
   expect(isShim(run.argv[0]!)).toBe(true)
-  expect(run.argv.slice(1)).toEqual(['exec', '--background', '--json', '--source', 'mod', '--session-id', SESSION, '-'])
+  expect(run.argv.slice(1)).toEqual(['exec', '--background', '--json', '--source', 'mod', '--session-id', SESSION, '--agent-feedback', '-'])
   // The prompt travels on standard input, never inside an argument.
   expect(run.stdin).toBe('review this')
   expect(JSON.parse(out.result)).toEqual({ conversation_id: 'conv-1', run_id: 'run-1', continued: false })
@@ -31,7 +31,7 @@ test('run with a conversation id sends the next turn of that conversation', asyn
   const run = w.runs[0]!
   expect(isShim(run.argv[0]!)).toBe(true)
   expect(run.argv.slice(1)).toEqual([
-    'send', 'conv-1', '--background', '--json', '--source', 'mod', '--session-id', SESSION, '--effort', 'low', '--cwd', '/repo', '-',
+    'send', 'conv-1', '--background', '--json', '--source', 'mod', '--session-id', SESSION, '--agent-feedback', '--effort', 'low', '--cwd', '/repo', '-',
   ])
   expect(run.stdin).toBe('and now the tests')
   expect(JSON.parse(out.result)).toEqual({ conversation_id: 'conv-1', run_id: 'run-2', continued: true })
@@ -48,7 +48,7 @@ test('run passes the optional settings as flags, the purpose as --purpose', asyn
   })
 
   expect(w.runs[0]!.argv.slice(1)).toEqual([
-    'exec', '--background', '--json', '--source', 'mod', '--session-id', SESSION,
+    'exec', '--background', '--json', '--source', 'mod', '--session-id', SESSION, '--agent-feedback',
     '--provider', 'codex', '--purpose', 'delegation', '--model', 'm1', '--effort', 'high',
     '--sandbox', 'read-only', '--cwd', '/repo', '-',
   ])

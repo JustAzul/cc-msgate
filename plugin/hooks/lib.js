@@ -46,7 +46,8 @@ function fail(error) {
 // turnCommand builds the argv and standard input of a command that starts a
 // background turn: `exec` opens a conversation, `send` continues the one the
 // input names. The prompt goes on standard input so no prompt text ever becomes
-// part of an argument. `source` is the label of whoever starts the job.
+// part of an argument. `source` is the label of whoever starts the job; the run
+// tool's own jobs also ask to be shown as an agent row, a plugin's do not.
 export function turnCommand(bin, sessionId, input, source) {
   const args = input ?? {}
   if (typeof args.prompt !== 'string' || args.prompt.trim() === '') {
@@ -63,6 +64,7 @@ export function turnCommand(bin, sessionId, input, source) {
     argv.push('exec')
   }
   argv.push('--background', '--json', '--source', source, '--session-id', sessionId)
+  if (source === JOB_SOURCE) argv.push('--agent-feedback')
   for (const name of OPTIONAL_FLAGS) {
     const value = args[name]
     if (value === undefined || value === null || value === '') continue

@@ -18,6 +18,17 @@ test('run admits a job for the calling plugin and resolves its ids', async ($, o
   expect(w.runs.length).toBe(1)
 })
 
+test('a plugin\'s run is not marked to open a row, on either path', async ($, on) => {
+  const w = world(on)
+  w.respond = () => ok(JSON.stringify(ADMITTED))
+
+  await msgateAs(w).run({ prompt: 'q' })
+  await msgateAs(w).run({ prompt: 'q2', conversation_id: 'conv-1' })
+
+  expect(w.runs.map((r) => r.argv.includes('--agent-feedback'))).toEqual([false, false])
+  expect(w.runs.map((r) => r.argv[1])).toEqual(['exec', 'send'])
+})
+
 test('the source of the job names the plugin the host stamped on the call', async ($, on) => {
   const w = world(on)
   w.respond = () => ok(JSON.stringify(ADMITTED))

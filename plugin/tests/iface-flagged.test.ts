@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { SESSION, job, listing, msgateAs, world } from './kit'
+import { SESSION, TOOL, job, listing, msgateAs, ok, world } from './kit'
 
 const flagged = (over: Record<string, unknown> = {}) =>
   job({ run_id: 'run-hook', source: 'hook-stop', purpose: 'code-review', agent_feedback: true, started_at: '2026-01-01T00:00:05Z', ...over })
@@ -46,4 +46,23 @@ test('flaggedRuns is refused as msgate:flaggedRuns:failed when the listing canno
 
   expect(await msgateAs(w).flaggedRuns()).toEqual({ deny: 'msgate:flaggedRuns:failed' })
   expect(w.debugLogs.join('\n')).toContain('store is locked')
+})
+
+test('a run the run tool started is listed by flaggedRuns while it has not ended', async ($, on) => {
+  const w = world(on)
+  // A stand-in for the binary: it records the run flagged only when the argv asked for it.
+  let started: string[] = []
+  w.respond = (argv) => {
+    if (argv[1] === 'exec') {
+      started = argv
+      return ok(JSON.stringify({ conversation_id: 'conv-1', run_id: 'run-tool', state: 'running', run_dir: '/s/runs/run-tool', output_path: '/s/runs/run-tool/output.md' }))
+    }
+    return listing(job({ run_id: 'run-tool', source: 'mod', purpose: 'adhoc', agent_feedback: started.includes('--agent-feedback'), started_at: '2026-01-01T00:00:05Z' }))
+  }
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+  await $.tool.call({ tool: TOOL('run'), prompt: 'review this' })
+  const out = await msgateAs(w).flaggedRuns()
+
+  expect(out).toEqual({ value: [{ run_id: 'run-tool', purpose: 'adhoc', source: 'mod', started_at: '2026-01-01T00:00:05Z' }] })
 })
