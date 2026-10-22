@@ -15,13 +15,28 @@ import (
 // started: a session_meta line, then one turn_context.
 func writeRollout(t *testing.T, codexHome, id, cwd, model, effort string) {
 	t.Helper()
+	turn := fmt.Sprintf(`{"type":"turn_context","payload":{"cwd":%q,"model":%q,"effort":%q,"sandbox_policy":{"type":"workspace-write"},"approval_policy":"on-request"}}`, cwd, model, effort)
+	writeRolloutLines(t, codexHome, id, rolloutMeta(id, cwd), turn)
+}
+
+// writeMetaOnlyRollout lays out the session file of a session that never began
+// a turn: a session_meta line alone.
+func writeMetaOnlyRollout(t *testing.T, codexHome, id, cwd string) {
+	t.Helper()
+	writeRolloutLines(t, codexHome, id, rolloutMeta(id, cwd))
+}
+
+func rolloutMeta(id, cwd string) string {
+	return fmt.Sprintf(`{"type":"session_meta","payload":{"id":%q,"session_id":%q,"cwd":%q,"originator":"codex_exec","source":"exec","thread_source":"user"}}`, id, id, cwd)
+}
+
+func writeRolloutLines(t *testing.T, codexHome, id string, lines ...string) {
+	t.Helper()
 	dir := filepath.Join(codexHome, "sessions", "2026", "10", "22")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	meta := fmt.Sprintf(`{"type":"session_meta","payload":{"id":%q,"session_id":%q,"cwd":%q,"originator":"codex_exec","source":"exec","thread_source":"user"}}`, id, id, cwd)
-	turn := fmt.Sprintf(`{"type":"turn_context","payload":{"cwd":%q,"model":%q,"effort":%q,"sandbox_policy":{"type":"workspace-write"},"approval_policy":"on-request"}}`, cwd, model, effort)
-	body := meta + "\n" + turn + "\n"
+	body := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "rollout-2026-10-22T00-00-00-"+id+".jsonl"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -407,5 +422,140 @@ func TestSendOfASessionWaitsForARunningTurnThatHasNotAnnouncedItYet(t *testing.T
 	waitOK(t, s, "p1")
 	if c := conversationRecord(t, s.home, conv); c["provider_session_id"] != resumeThread {
 		t.Errorf("provider_session_id = %v, want %s", c["provider_session_id"], resumeThread)
+	}
+}
+
+func TestAdoptionFlagsOverrideTheSessionAndBecomeItsDefaults(t *testing.T) {
+	cases := []struct {
+		name          string
+		flags         []string
+		modelSource   string
+		effortSrc     string
+		sandboxSource string
+	}{
+		{"by default", nil, "flag", "flag", "flag"},
+		{"with the profile as settings source", []string{"--settings-source", "profile"}, "profile", "profile", "profile"},
+		{"with the profile as effort source", []string{"--effort-source", "profile"}, "flag", "profile", "flag"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			codexHome := t.TempDir()
+			cwd := gitRepo(t)
+			writeRollout(t, codexHome, resumeThread, cwd, "outside-model", "medium")
+			s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1")).set("CODEX_HOME", codexHome)
+			rec := s.recordTo()
+
+			args := append([]string{"send", resumeThread, "--json", "--run-id", "o1", "--model", "m", "--effort", "low", "--sandbox", "workspace-write"}, c.flags...)
+			r := s.run(append(args, "carry on")...)
+			if r.code != 0 {
+				t.Fatalf("exit %d stderr %s", r.code, r.stderr)
+			}
+
+			wantFlags := []string{"-s", "workspace-write", "-m", "m", "-c", "model_reasoning_effort=low"}
+			checkResumeArgv(t, readRecord(t, rec).Argv, cwd, wantFlags, resumeThread)
+			checkFields(t, "run record", lastRunRecord(t, s.home), map[string]any{
+				"model": "m", "model_source": c.modelSource, "effort": "low", "effort_source": c.effortSrc,
+			})
+			checkFields(t, "request", readJSONFile(t, filepath.Join(s.home, "runs", "o1", "request.json")), map[string]any{
+				"sandbox": "workspace-write", "sandbox_source": c.sandboxSource,
+			})
+			conv := r.json(t)["conversation_id"].(string)
+			defaults, _ := conversationRecord(t, s.home, conv)["defaults"].(map[string]any)
+			checkFields(t, "defaults", defaults, map[string]any{
+				"model": "m", "model_source": c.modelSource, "effort": "low", "effort_source": c.effortSrc,
+				"sandbox": "workspace-write", "sandbox_source": c.sandboxSource,
+			})
+
+			if r := s.run("send", resumeThread, "--json", "--run-id", "o2", "again"); r.code != 0 {
+				t.Fatalf("second send: exit %d stderr %s", r.code, r.stderr)
+			}
+			checkResumeArgv(t, readRecord(t, rec).Argv, cwd, wantFlags, resumeThread)
+		})
+	}
+}
+
+func TestAdoptionOfASessionWithNoTurnContextLeavesModelAndEffortToTheProvider(t *testing.T) {
+	codexHome := t.TempDir()
+	cwd := gitRepo(t)
+	writeMetaOnlyRollout(t, codexHome, resumeThread, cwd)
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1")).set("CODEX_HOME", codexHome)
+	rec := s.recordTo()
+
+	r := s.run("send", resumeThread, "--json", "--run-id", "o1", "carry on")
+
+	if r.code != 0 {
+		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
+	}
+	argv := readRecord(t, rec).Argv
+	checkResumeArgv(t, argv, cwd, []string{"-s", "read-only"}, resumeThread)
+	for _, a := range argv {
+		if a == "-m" || strings.Contains(a, "model_reasoning_effort") {
+			t.Errorf("argv %v overrides the model or effort", argv)
+		}
+	}
+	checkFields(t, "run record", lastRunRecord(t, s.home), map[string]any{
+		"model_source": "provider-default", "effort_source": "provider-default",
+	})
+	conv := r.json(t)["conversation_id"].(string)
+	defaults, _ := conversationRecord(t, s.home, conv)["defaults"].(map[string]any)
+	checkFields(t, "defaults", defaults, map[string]any{
+		"model_source": "provider-default", "effort_source": "provider-default",
+	})
+}
+
+func TestAdoptionRecordsThePurposeOfTheSend(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"given", []string{"--purpose", "delegation"}, "delegation"},
+		{"left out", nil, "adhoc"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			codexHome := t.TempDir()
+			writeRollout(t, codexHome, resumeThread, gitRepo(t), "outside-model", "medium")
+			s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1")).set("CODEX_HOME", codexHome)
+
+			args := append([]string{"send", resumeThread, "--json", "--run-id", "o1"}, c.flags...)
+			r := s.run(append(args, "carry on")...)
+
+			if r.code != 0 {
+				t.Fatalf("exit %d stderr %s", r.code, r.stderr)
+			}
+			checkFields(t, "run record", lastRunRecord(t, s.home), map[string]any{"purpose": c.want})
+			defaults, _ := conversationRecord(t, s.home, r.json(t)["conversation_id"].(string))["defaults"].(map[string]any)
+			checkFields(t, "defaults", defaults, map[string]any{"purpose": c.want})
+		})
+	}
+}
+
+func TestDryRunOfASessionIdPlansWithoutAdopting(t *testing.T) {
+	codexHome := t.TempDir()
+	cwd := gitRepo(t)
+	writeRollout(t, codexHome, resumeThread, cwd, "outside-model", "medium")
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1")).set("CODEX_HOME", codexHome)
+	rec := s.recordTo()
+
+	r := s.run("send", resumeThread, "--dry-run", "--json", "--run-id", "o1", "carry on")
+
+	plan := r.json(t)
+	if r.code != 0 || plan["command"] != "send" {
+		t.Fatalf("exit %d plan %v", r.code, plan)
+	}
+	argv, _ := plan["argv"].([]any)
+	wantTail := []any{"-s", "read-only", "-m", "outside-model", "-c", "model_reasoning_effort=medium"}
+	if len(argv) < 4+len(wantTail)+3 || !reflect.DeepEqual(argv[4:4+len(wantTail)], wantTail) || !reflect.DeepEqual(argv[len(argv)-3:], []any{"resume", resumeThread, "-"}) {
+		t.Errorf("plan argv = %v", argv)
+	}
+	if got := conversationCount(t, s.home); got != 0 {
+		t.Errorf("%d conversations, want none", got)
+	}
+	if exists(filepath.Join(s.home, "runs", "o1")) {
+		t.Error("dry-run left a run directory")
+	}
+	if exists(rec) {
+		t.Error("the provider ran")
 	}
 }
