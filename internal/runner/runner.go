@@ -24,6 +24,9 @@ import (
 
 const stderrTailBytes = 64 * 1024
 
+// sendCommand is the telemetry command of a run that resumes a conversation.
+const sendCommand = "send"
+
 // Job is everything the runner needs; the caller has already admitted the run.
 type Job struct {
 	Store    *store.Store
@@ -449,6 +452,26 @@ func (j *Job) appendTelemetry(st store.State, label, excerpt string, o outcome) 
 	}
 }
 
+// turnUsage is the usage the run itself used. A send resumes the provider's
+// session; for a provider that reports that session's running total, the total
+// stamped before the run started is taken off. With no such total, or for any
+// other command, the usage is as reported.
+func (j *Job) turnUsage(o outcome) *provider.Usage {
+	reporter, ok := j.Provider.(provider.ThreadUsageReporter)
+	if !ok || j.Record.Command != sendCommand || o.usage == nil || o.sessionID == "" {
+		return o.usage
+	}
+	before, found, err := reporter.ThreadUsageBefore(j.Env, o.sessionID, j.startedAt)
+	if err != nil {
+		j.Warn(fmt.Sprintf("could not read the session's usage before the run: %v", err))
+	}
+	if !found {
+		return o.usage
+	}
+	own := o.usage.Minus(before)
+	return &own
+}
+
 // usedModel asks the provider which model and effort the run actually used,
 // when it can tell. It must run while the run still owns its conversation: a
 // next turn of the same provider session records its own model after it.
@@ -596,6 +619,7 @@ func (j *Job) finish(st store.State, o outcome) Result {
 	}
 
 	o.modelUsed, o.effortUsed = j.usedModel(o.sessionID)
+	o.usage = j.turnUsage(o)
 	ended := j.stamp()
 	exit := o.exitCode
 	st.State = state

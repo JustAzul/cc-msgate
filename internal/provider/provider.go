@@ -100,6 +100,18 @@ type Usage struct {
 // IsZero reports whether every counter is zero.
 func (u Usage) IsZero() bool { return u == Usage{} }
 
+// Minus is u - base, each counter floored at 0.
+func (u Usage) Minus(base Usage) Usage {
+	floor := func(n int64) int64 { return max(n, 0) }
+	return Usage{
+		InputTokens:           floor(u.InputTokens - base.InputTokens),
+		CachedInputTokens:     floor(u.CachedInputTokens - base.CachedInputTokens),
+		CacheWriteInputTokens: floor(u.CacheWriteInputTokens - base.CacheWriteInputTokens),
+		OutputTokens:          floor(u.OutputTokens - base.OutputTokens),
+		ReasoningOutputTokens: floor(u.ReasoningOutputTokens - base.ReasoningOutputTokens),
+	}
+}
+
 // NormalizeUsage returns the usage to record for a command: a review
 // whose usage is all zeros reports nothing, so it records null.
 func NormalizeUsage(command string, u *Usage) *Usage {
@@ -169,6 +181,14 @@ type Relayer interface {
 // in use. ok is false when there is nothing to report yet.
 type LiveUsageReporter interface {
 	LiveUsage(env []string, sessionID string, since time.Time) (u Usage, model string, ok bool, err error)
+}
+
+// ThreadUsageReporter is a provider whose turn usage is the session's running
+// total rather than the turn's own. ThreadUsageBefore is the session's total
+// up to the instant before, from its own session records; ok is false when
+// the records hold none.
+type ThreadUsageReporter interface {
+	ThreadUsageBefore(env []string, sessionID string, before time.Time) (total Usage, ok bool, err error)
 }
 
 // ModelCatalog is a provider that can list the models it offers and names the

@@ -24,20 +24,48 @@ const liveReadChunk = 64 * 1024
 // that is not whole JSON (one being written) is skipped, and the scan stops as
 // soon as the baseline and the model are both known.
 func (adapter) LiveUsage(env []string, sessionID string, since time.Time) (u provider.Usage, model string, ok bool, err error) {
+	scan := &liveScan{since: since}
+	found, err := scanRollout(env, sessionID, scan)
+	if err != nil || !found || !scan.haveCurrent {
+		return provider.Usage{}, "", false, err
+	}
+	return scan.current.minus(scan.baseline), scan.model, true, nil
+}
+
+// ThreadUsageBefore is the session's running total as of its newest
+// token_count stamped before the given time; ok is false when there is none or
+// the session has no file. The scan stops at the first such event.
+func (adapter) ThreadUsageBefore(env []string, sessionID string, before time.Time) (total provider.Usage, ok bool, err error) {
+	scan := &totalBeforeScan{before: before}
+	if _, err := scanRollout(env, sessionID, scan); err != nil || !scan.have {
+		return provider.Usage{}, false, err
+	}
+	return scan.total.usage(), true, nil
+}
+
+// rolloutScan reads a session file's lines newest first and says when it has
+// what it came for.
+type rolloutScan interface {
+	take(line []byte)
+	done() bool
+}
+
+// scanRollout feeds the session's lines, newest first, to scan until it is
+// done or the file is read. found is false when the session has no file.
+func scanRollout(env []string, sessionID string, scan rolloutScan) (found bool, err error) {
 	path, err := sessionFile(env, sessionID)
 	if err != nil || path == "" {
-		return provider.Usage{}, "", false, err
+		return false, err
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return provider.Usage{}, "", false, err
+		return false, err
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		return provider.Usage{}, "", false, err
+		return false, err
 	}
-	scan := &liveScan{since: since}
 	lines := newReverseLines(f, info.Size(), liveReadChunk)
 	for !scan.done() {
 		line, readErr := lines.next()
@@ -45,14 +73,29 @@ func (adapter) LiveUsage(env []string, sessionID string, since time.Time) (u pro
 			break
 		}
 		if readErr != nil {
-			return provider.Usage{}, "", false, fmt.Errorf("reading %s: %w", path, readErr)
+			return false, fmt.Errorf("reading %s: %w", path, readErr)
 		}
 		scan.take(line)
 	}
-	if !scan.haveCurrent {
-		return provider.Usage{}, "", false, nil
+	return true, nil
+}
+
+// totalBeforeScan looks for the newest token_count stamped before a time.
+type totalBeforeScan struct {
+	before time.Time
+	total  tokenTotals
+	have   bool
+}
+
+func (s *totalBeforeScan) done() bool { return s.have }
+
+func (s *totalBeforeScan) take(line []byte) {
+	if !bytes.Contains(line, tokenCountMarker) {
+		return
 	}
-	return scan.current.minus(scan.baseline), scan.model, true, nil
+	if at, totals, ok := tokenCount(line); ok && at.Before(s.before) {
+		s.total, s.have = totals, true
+	}
 }
 
 // liveScan collects, newest line first, the three things LiveUsage needs.
@@ -116,16 +159,20 @@ type tokenTotals struct {
 	Reasoning  int64 `json:"reasoning_output_tokens"`
 }
 
+// usage is the totals as a provider.Usage.
+func (t tokenTotals) usage() provider.Usage {
+	return provider.Usage{
+		InputTokens:           t.Input,
+		CachedInputTokens:     t.Cached,
+		CacheWriteInputTokens: t.CacheWrite,
+		OutputTokens:          t.Output,
+		ReasoningOutputTokens: t.Reasoning,
+	}
+}
+
 // minus is t - base, each count floored at 0.
 func (t tokenTotals) minus(base tokenTotals) provider.Usage {
-	floor := func(n int64) int64 { return max(n, 0) }
-	return provider.Usage{
-		InputTokens:           floor(t.Input - base.Input),
-		CachedInputTokens:     floor(t.Cached - base.Cached),
-		CacheWriteInputTokens: floor(t.CacheWrite - base.CacheWrite),
-		OutputTokens:          floor(t.Output - base.Output),
-		ReasoningOutputTokens: floor(t.Reasoning - base.Reasoning),
-	}
+	return t.usage().Minus(base.usage())
 }
 
 // tokenCount decodes a token_count line; ok is false for any other line, one
