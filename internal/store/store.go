@@ -186,6 +186,12 @@ func (s *Store) conversationLockPath(id string) string {
 	return filepath.Join(s.conversationsDir(), id+".lock")
 }
 
+// adoptionLockPath is the lock file of adopting the provider's session. It
+// ends in .lock, so ConversationIDs does not list it.
+func (s *Store) adoptionLockPath(providerName, sessionID string) string {
+	return filepath.Join(s.conversationsDir(), "adopt-"+providerName+"-"+sessionID+".lock")
+}
+
 // CreateConversation writes a new conversation record.
 func (s *Store) CreateConversation(c Conversation) error {
 	if err := os.MkdirAll(filepath.Join(s.Home, "conversations"), dirMode); err != nil {

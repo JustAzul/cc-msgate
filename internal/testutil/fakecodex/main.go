@@ -54,6 +54,8 @@ func run() int {
 		spawnPipeHolder(path)
 	}
 
+	sleepFor("FAKECODEX_DELAY_MS") // before any event, so the session is announced late
+
 	var fixture []byte
 	if f := os.Getenv("FAKECODEX_FIXTURE"); f != "" {
 		var err error
@@ -80,11 +82,16 @@ func run() int {
 	if s := os.Getenv("FAKECODEX_STDERR"); s != "" {
 		fmt.Fprint(os.Stderr, s)
 	}
-	if ms, _ := strconv.Atoi(os.Getenv("FAKECODEX_SLEEP_MS")); ms > 0 {
-		time.Sleep(time.Duration(ms) * time.Millisecond)
-	}
+	sleepFor("FAKECODEX_SLEEP_MS")
 	code, _ := strconv.Atoi(os.Getenv("FAKECODEX_EXIT"))
 	return code
+}
+
+// sleepFor sleeps for the milliseconds the environment variable names, if any.
+func sleepFor(env string) {
+	if ms, _ := strconv.Atoi(os.Getenv(env)); ms > 0 {
+		time.Sleep(time.Duration(ms) * time.Millisecond)
+	}
 }
 
 // debugModels is `codex debug models`: it prints the file FAKECODEX_MODELS

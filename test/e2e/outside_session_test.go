@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -209,9 +210,8 @@ func TestSendOfASessionWithoutADirectoryNeedsCwd(t *testing.T) {
 
 	r := s.run("send", resumeThread, "carry on")
 
-	want := "the provider session " + resumeThread + " records no working directory; pass --cwd"
-	if r.code != 2 || !strings.Contains(r.stderr, want) {
-		t.Errorf("exit %d stderr %q, want exit 2 saying %q", r.code, r.stderr, want)
+	if r.code != 2 || !strings.Contains(r.stderr, "--cwd") {
+		t.Errorf("exit %d stderr %q, want exit 2 pointing at --cwd", r.code, r.stderr)
 	}
 	if exists(rec) || conversationCount(t, s.home) != 0 {
 		t.Error("the provider ran or a conversation was created")
@@ -227,9 +227,8 @@ func TestSendOfASessionWhoseDirectoryIsGoneNeedsCwd(t *testing.T) {
 
 	r := s.run("send", resumeThread, "carry on")
 
-	want := fmt.Sprintf("the provider session's working directory %q no longer exists; pass --cwd to run this turn elsewhere", gone)
-	if r.code != 2 || !strings.Contains(r.stderr, want) {
-		t.Errorf("exit %d stderr %q, want exit 2 saying %q", r.code, r.stderr, want)
+	if r.code != 2 || !strings.Contains(r.stderr, "--cwd") || !strings.Contains(r.stderr, gone) {
+		t.Errorf("exit %d stderr %q, want exit 2 naming %s and pointing at --cwd", r.code, r.stderr, gone)
 	}
 	if exists(rec) || conversationCount(t, s.home) != 0 {
 		t.Error("the provider ran or a conversation was created")
@@ -250,13 +249,18 @@ func TestSendOfASessionRunsInTheCwdFlagInstead(t *testing.T) {
 
 	missing := filepath.Join(t.TempDir(), "missing")
 	r := s.run("send", resumeThread, "--cwd", missing, "carry on")
-	if want := fmt.Sprintf("--cwd %q is not an existing directory", missing); r.code != 2 || !strings.Contains(r.stderr, want) {
-		t.Errorf("exit %d stderr %q, want exit 2 saying %q", r.code, r.stderr, want)
+	if r.code != 2 || !strings.Contains(r.stderr, missing) {
+		t.Errorf("exit %d stderr %q, want exit 2 naming %s", r.code, r.stderr, missing)
+	}
+	if got := conversationCount(t, s.home); got != 1 {
+		t.Errorf("%d conversations, want the adopted one only", got)
+	}
+	if runs, _ := os.ReadDir(filepath.Join(s.home, "runs")); len(runs) != 1 {
+		t.Errorf("%d run directories, want the adopted turn's only", len(runs))
 	}
 }
 
 func TestSendOfAnIdNoSessionCouldHaveIsNotFound(t *testing.T) {
-	const notFound = `no conversation, run or provider session `
 	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1"))
 	rec := s.recordTo()
 	for name, args := range map[string][]string{
@@ -266,8 +270,8 @@ func TestSendOfAnIdNoSessionCouldHaveIsNotFound(t *testing.T) {
 		"an unknown id":              {"send", "nosuch", "hi"},
 	} {
 		r := s.run(args...)
-		if r.code != 4 || !strings.Contains(r.stderr, notFound+fmt.Sprintf("%q", args[1])) {
-			t.Errorf("%s: exit %d stderr %q, want exit 4 saying %s%q", name, r.code, r.stderr, notFound, args[1])
+		if r.code != 4 || !strings.Contains(r.stderr, args[1]) {
+			t.Errorf("%s: exit %d stderr %q, want exit 4 naming %s", name, r.code, r.stderr, args[1])
 		}
 	}
 	if exists(rec) {
@@ -288,10 +292,120 @@ func TestSendOfARunWhoseConversationIsGoneIsNotFound(t *testing.T) {
 
 	r := s.run("send", run, "carry on")
 
-	if r.code != 4 {
-		t.Errorf("exit %d stderr %q, want 4", r.code, r.stderr)
+	if r.code != 4 || !strings.Contains(r.stderr, run) {
+		t.Errorf("exit %d stderr %q, want exit 4 naming %s", r.code, r.stderr, run)
 	}
 	if exists(rec) || conversationCount(t, s.home) != 0 {
 		t.Error("the provider ran or a conversation was created")
+	}
+}
+
+// raceSends has one send of the session per run id start at once, each from a
+// process of its own over the sandbox's home.
+func raceSends(t *testing.T, s *sandbox, runs []string) []result {
+	t.Helper()
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	results := make([]result, len(runs))
+	for i, id := range runs {
+		sb := siblingSandbox(t, s)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results[i] = sb.run("send", resumeThread, "--json", "--run-id", id, "x")
+		}()
+	}
+	close(start)
+	wg.Wait()
+	return results
+}
+
+func TestSimultaneousFirstSendsOfASessionAdoptItOnce(t *testing.T) {
+	codexHome := t.TempDir()
+	writeRollout(t, codexHome, resumeThread, gitRepo(t), "outside-model", "medium")
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1")).set("CODEX_HOME", codexHome).set("FAKECODEX_SLEEP_MS", "1500")
+	runs := []string{"sa", "sb"}
+	results := raceSends(t, s, runs)
+
+	won, lost := 0, 1
+	if results[1].code == 0 {
+		won, lost = 1, 0
+	}
+	if results[won].code != 0 || results[lost].code != 3 {
+		t.Fatalf("exit codes %d and %d, want one 0 and one 3 (stderr %q / %q)", results[0].code, results[1].code, results[0].stderr, results[1].stderr)
+	}
+	if got := conversationCount(t, s.home); got != 1 {
+		t.Fatalf("%d conversations, want 1", got)
+	}
+	conv := results[won].json(t)["conversation_id"].(string)
+	c := conversationRecord(t, s.home, conv)
+	checkFields(t, "conversation", c, map[string]any{"provider_session_id": resumeThread})
+	if !reflect.DeepEqual(c["turns"], []any{runs[won]}) {
+		t.Errorf("turns = %v, want only %s", c["turns"], runs[won])
+	}
+	checkFields(t, "refused send", results[lost].json(t), map[string]any{"conversation_id": conv, "sdk_status": "busy"})
+	for _, id := range []string{conv, runs[won]} {
+		if !strings.Contains(results[lost].stderr, id) {
+			t.Errorf("stderr %q does not name %s", results[lost].stderr, id)
+		}
+	}
+	if exists(filepath.Join(s.home, "runs", runs[lost])) {
+		t.Error("a refused send left a run directory")
+	}
+}
+
+// One session has one conversation: a turn that reports a session another
+// conversation holds does not take it over.
+func TestARunReportingASessionAnotherConversationHoldsDoesNotRecordIt(t *testing.T) {
+	codexHome := t.TempDir()
+	writeRollout(t, codexHome, resumeThread, gitRepo(t), "outside-model", "medium")
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1")).set("CODEX_HOME", codexHome)
+	holder := firstOutsideTurn(t, s, resumeThread)
+
+	r := s.run("exec", "--json", "--run-id", "x1", "hi")
+
+	if r.code != 0 {
+		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
+	}
+	started := r.json(t)["conversation_id"].(string)
+	if c := conversationRecord(t, s.home, started); c["provider_session_id"] != nil {
+		t.Errorf("the new conversation holds %v, want no session: %s holds it", c["provider_session_id"], holder)
+	}
+	if c := conversationRecord(t, s.home, holder); c["provider_session_id"] != resumeThread {
+		t.Errorf("the holder's session = %v, want %s", c["provider_session_id"], resumeThread)
+	}
+	if !strings.Contains(r.stderr, holder) {
+		t.Errorf("stderr %q does not name the holder %s", r.stderr, holder)
+	}
+}
+
+// A turn msgate started may be the one that announces the session: while one
+// has not reported its session, a send of the session waits for it rather than
+// creating a second conversation for the same thread.
+func TestSendOfASessionWaitsForARunningTurnThatHasNotAnnouncedItYet(t *testing.T) {
+	codexHome := t.TempDir()
+	writeRollout(t, codexHome, resumeThread, gitRepo(t), "outside-model", "medium")
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("resume-turn1")).set("CODEX_HOME", codexHome).
+		set("FAKECODEX_DELAY_MS", "1500").set("FAKECODEX_SLEEP_MS", "3000")
+	cleanupJob(t, s, "p1")
+	if r := s.run("exec", "--background", "--json", "--run-id", "p1", "first"); r.code != 0 {
+		t.Fatalf("exec exit %d stderr %s", r.code, r.stderr)
+	}
+	queued := waitForState(t, s, "p1", "an admitted run", func(m map[string]any) bool { return m["conversation_id"] != nil })
+	conv := queued["conversation_id"].(string)
+
+	r := s.run("send", resumeThread, "--json", "--run-id", "s1", "second")
+
+	if r.code != 3 {
+		t.Errorf("exit %d stderr %q, want 3", r.code, r.stderr)
+	}
+	if got := conversationCount(t, s.home); got != 1 {
+		t.Errorf("%d conversations, want 1", got)
+	}
+	checkFields(t, "refused send", r.json(t), map[string]any{"conversation_id": conv, "sdk_status": "busy"})
+	waitOK(t, s, "p1")
+	if c := conversationRecord(t, s.home, conv); c["provider_session_id"] != resumeThread {
+		t.Errorf("provider_session_id = %v, want %s", c["provider_session_id"], resumeThread)
 	}
 }

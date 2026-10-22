@@ -548,12 +548,13 @@ func progressLine(text string) string {
 }
 
 func (j *Job) persistSession(conversationID, sessionID string) {
-	err := j.Store.UpdateConversation(conversationID, func(c *store.Conversation) {
-		c.ProviderSessionID = &sessionID
-		c.UpdatedAt = j.stamp()
-	})
+	holder, err := j.Store.PersistProviderSession(conversationID, sessionID, j.stamp())
 	if err != nil {
 		j.Warn(fmt.Sprintf("could not persist the provider session id: %v", err))
+		return
+	}
+	if holder.ConversationID != "" {
+		j.Warn(fmt.Sprintf("provider session %s is held by conversation %s, so it is not recorded on conversation %s", sessionID, holder.ConversationID, conversationID))
 	}
 }
 

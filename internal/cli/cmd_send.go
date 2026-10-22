@@ -54,6 +54,21 @@ func runSend(ctx *Context, args []string) int {
 
 // sendToConversation runs the next turn of conv.
 func sendToConversation(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversation) int {
+	return sendTurn(ctx, st, p, conv, func() ([]byte, int) { return readPrompt(ctx, p) })
+}
+
+// sendToHolder runs the next turn of conv, which came to hold the provider
+// session after this send resolved it, with the prompt already read: the turn
+// is exactly what a send of conv would have been.
+func sendToHolder(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversation, prompt []byte) int {
+	delete(ctx.IDs, "run_id")
+	ctx.IDs["conversation_id"] = conv.ConversationID
+	return sendTurn(ctx, st, p, conv, func() ([]byte, int) { return prompt, 0 })
+}
+
+// sendTurn runs the next turn of conv with the prompt that readPrompt yields
+// once the turn has passed its checks.
+func sendTurn(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversation, readPrompt func() ([]byte, int)) int {
 	prov, code := conversationProvider(ctx, conv, &p)
 	if code != 0 {
 		return code
@@ -62,7 +77,10 @@ func sendToConversation(ctx *Context, st *store.Store, p parsedTurn, conv store.
 		p.purpose = conv.Defaults.Purpose
 	}
 	eff := turnSettings(st, conv, p)
-	prompt, code := checkedPrompt(ctx, prov, p, eff)
+	if code := checkedTurn(ctx, prov, p, eff); code != 0 {
+		return code
+	}
+	prompt, code := readPrompt()
 	if code != 0 {
 		return code
 	}
@@ -109,16 +127,25 @@ func conversationProvider(ctx *Context, conv store.Conversation, p *parsedTurn) 
 // checkedPrompt refuses a turn the provider cannot run with the effective
 // settings and the native flags, then reads the turn's one prompt.
 func checkedPrompt(ctx *Context, prov provider.Provider, p parsedTurn, eff settings.Resolved) ([]byte, int) {
-	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "resume", Sandbox: eff.Sandbox}); err != nil {
-		return nil, ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
-	}
-	if flagText, reserved := reservedPassthrough(prov, p.passthrough); reserved {
-		return nil, ctx.Fail(ExitUsage, "native flag %q is reserved by msgate and cannot be passed after --", flagText)
-	}
-	if len(p.positional)+boolToInt(p.promptFile != "") != 1 {
-		return nil, ctx.Fail(ExitUsage, "exactly one prompt source is required: a positional prompt, - for stdin, or --prompt-file")
+	if code := checkedTurn(ctx, prov, p, eff); code != 0 {
+		return nil, code
 	}
 	return readPrompt(ctx, p)
+}
+
+// checkedTurn refuses a turn the provider cannot run with the effective
+// settings and the native flags, or that does not name exactly one prompt.
+func checkedTurn(ctx *Context, prov provider.Provider, p parsedTurn, eff settings.Resolved) int {
+	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "resume", Sandbox: eff.Sandbox}); err != nil {
+		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
+	}
+	if flagText, reserved := reservedPassthrough(prov, p.passthrough); reserved {
+		return ctx.Fail(ExitUsage, "native flag %q is reserved by msgate and cannot be passed after --", flagText)
+	}
+	if len(p.positional)+boolToInt(p.promptFile != "") != 1 {
+		return ctx.Fail(ExitUsage, "exactly one prompt source is required: a positional prompt, - for stdin, or --prompt-file")
+	}
+	return 0
 }
 
 // sendToProviderSession runs the first turn of a new conversation on a session
@@ -155,6 +182,7 @@ func sendToProviderSession(ctx *Context, st *store.Store, p parsedTurn, id strin
 
 	return runTurn(ctx, turn{
 		command: "send", flags: p, prov: prov, eff: eff, cwd: cwd, prompt: prompt, st: st, adopts: id,
+		onHolder: func(holder store.Conversation) int { return sendToHolder(ctx, st, p, holder, prompt) },
 		req: provider.Request{
 			Command: "resume", Cwd: cwd, Model: eff.Model, Effort: eff.Effort, Sandbox: eff.Sandbox,
 			SessionID: id, Passthrough: p.passthrough,
