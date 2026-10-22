@@ -37,6 +37,21 @@ test('run with a conversation id sends the next turn of that conversation', asyn
   expect(JSON.parse(out.result)).toEqual({ conversation_id: 'conv-1', run_id: 'run-2', continued: true })
 })
 
+test('run passes a Codex thread id through to send unchanged and returns the conversation id the engine reports', async ($, on) => {
+  const thread = '00000000-0000-4000-8000-000000000003'
+  const w = world(on)
+  w.respond = () => ok(JSON.stringify({ ...ADMITTED, conversation_id: 'c-20261022T000000Z-abcdef01', run_id: 'run-3' }))
+  await $.session.start(START)
+
+  const out: any = await $.tool.call({ tool: TOOL('run'), conversation_id: thread, prompt: 'pick this thread back up' })
+
+  const run = w.runs[0]!
+  expect(isShim(run.argv[0]!)).toBe(true)
+  expect(run.argv.slice(1)).toEqual(['send', thread, '--background', '--json', '--source', 'mod', '--session-id', SESSION, '--agent-feedback', '-'])
+  expect(run.stdin).toBe('pick this thread back up')
+  expect(JSON.parse(out.result)).toEqual({ conversation_id: 'c-20261022T000000Z-abcdef01', run_id: 'run-3', continued: true })
+})
+
 test('run passes the optional settings as flags, the purpose as --purpose', async ($, on) => {
   const w = world(on)
   w.respond = () => ok(JSON.stringify(ADMITTED))
