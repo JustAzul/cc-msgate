@@ -258,21 +258,26 @@ export function sessionStatsCommand(bin, sessionId) {
   return [bin, 'stats', '--session-id', sessionId, '--all', '--json']
 }
 
-// providerCost is one provider's cost for the status line, "<label> <amount>",
-// or undefined when it has none.
+// providerCost is one provider's cost for the status line, its text
+// "<label> <amount>" and its amount to order by, or undefined when it has none.
 function providerCost(label, usage) {
   const cost = usage?.cost_complete === true ? formatCost(usage.cost_usd) : formatLowerBound(usage?.cost_usd)
-  return cost === undefined ? undefined : label + ' ' + cost
+  return cost === undefined ? undefined : { text: label + ' ' + cost, amount: Number(usage.cost_usd) }
 }
 
-// costText is the session's costs for the status line, the Codex one then the
-// Claude one, or undefined when neither could be priced. An answer without
-// usage_by_provider holds only the Codex runs' usage, in usage_totals.
+// costText is the session's costs for the status line, the dearest provider
+// first and Codex before Claude when they cost the same, or undefined when
+// neither could be priced. An answer without usage_by_provider holds only the
+// Codex runs' usage, in usage_totals.
 export function costText(stdout) {
   try {
     const stats = JSON.parse(stdout)
     const providers = stats.usage_by_provider ?? { codex: stats.usage_totals }
-    return [providerCost('Codex', providers.codex), providerCost('Claude', providers.anthropic)].filter((part) => part !== undefined).join(' | ') || undefined
+    return [providerCost('Codex', providers.codex), providerCost('Claude', providers.anthropic)]
+      .filter((part) => part !== undefined)
+      .sort((a, b) => b.amount - a.amount)
+      .map((part) => part.text)
+      .join(' | ') || undefined
   } catch {
     return undefined
   }

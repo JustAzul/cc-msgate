@@ -28,6 +28,21 @@ test('the Codex and Claude costs show side by side, Codex first', () => {
   expect(costText(byProvider({ anthropic: provider('0.030000'), codex: provider('5.820000') }))).toBe('Codex $5.82 | Claude $0.03')
 })
 
+test('the dearer provider comes first', () => {
+  expect(costText(byProvider({ codex: provider('0.010000'), anthropic: provider('0.020000') }))).toBe('Claude $0.02 | Codex $0.01')
+  // Compared as numbers, not as strings.
+  expect(costText(byProvider({ codex: provider('9.000000'), anthropic: provider('10.000000') }))).toBe('Claude $10.00 | Codex $9.00')
+})
+
+test('equal costs keep Codex first', () => {
+  expect(costText(byProvider({ anthropic: provider('0.020000'), codex: provider('0.020000') }))).toBe('Codex $0.02 | Claude $0.02')
+})
+
+test('an incomplete cost is ordered by its amount like any other', () => {
+  expect(costText(byProvider({ codex: provider('0.010000', false), anthropic: provider('0.020000') }))).toBe('Claude $0.02 | Codex ≥$0.01')
+  expect(costText(byProvider({ codex: provider('0.030000'), anthropic: provider('0.020000', false) }))).toBe('Codex $0.03 | Claude ≥$0.02')
+})
+
 test('Claude shows alone when Codex has no cost', () => {
   expect(costText(byProvider({ codex: provider(null), anthropic: provider('0.030000') }))).toBe('Claude $0.03')
   expect(costText(byProvider({ anthropic: provider('0.030000') }))).toBe('Claude $0.03')
