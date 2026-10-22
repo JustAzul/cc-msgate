@@ -132,3 +132,20 @@ func TestReleaseOfTheOnlyTurnRemovesTheConversation(t *testing.T) {
 		t.Errorf("conversation record still present: %v", err)
 	}
 }
+
+func TestReserveNewThatCannotReserveLeavesNoConversation(t *testing.T) {
+	home := t.TempDir()
+	s := store.Open(home)
+	// A directory where the lock file belongs makes the reservation fail.
+	if err := os.MkdirAll(filepath.Join(home, "conversations", "c1.lock"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.ReserveNew(newConversation("c1"), "r1", reserveAt); err == nil {
+		t.Fatal("ReserveNew succeeded without the lock")
+	}
+
+	if _, err := s.ReadConversation("c1"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("ReadConversation after the failed reservation: %v, want not-exist", err)
+	}
+}

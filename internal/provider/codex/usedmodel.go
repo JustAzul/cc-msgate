@@ -3,7 +3,6 @@ package codex
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -62,43 +61,48 @@ func lookupEnv(env []string, key string) string {
 	return ""
 }
 
-// lastTurnContext reads the file line by line, each line whole however long
-// (a large tool output), and keeps the last turn_context's model and effort.
-func lastTurnContext(path string) (model, effort string, err error) {
+// eachLine calls fn with each line of the file, whole however long (a large
+// tool output) and the last one even without a newline.
+func eachLine(path string, fn func(line []byte)) error {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 	defer f.Close()
 
-	marker := []byte(`"turn_context"`)
 	r := bufio.NewReader(f)
 	for {
 		line, readErr := r.ReadBytes('\n')
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return "", "", fmt.Errorf("reading %s: %w", path, readErr)
+			return fmt.Errorf("reading %s: %w", path, readErr)
 		}
-		if bytes.Contains(line, marker) {
-			if m, e, ok := turnContext(line); ok {
-				model, effort = m, e
-			}
-		}
+		fn(line)
 		if readErr != nil {
-			return model, effort, nil
+			return nil
 		}
 	}
 }
 
+// lastTurnContext keeps the model and effort of the file's last turn_context.
+func lastTurnContext(path string) (model, effort string, err error) {
+	marker := []byte(`"turn_context"`)
+	err = eachLine(path, func(line []byte) {
+		if !bytes.Contains(line, marker) {
+			return
+		}
+		if m, e, ok := turnContext(line); ok {
+			model, effort = m, e
+		}
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return model, effort, nil
+}
+
+// turnContext is turnContextOf without the directory, and only for a turn that
+// names its model.
 func turnContext(line []byte) (model, effort string, ok bool) {
-	var item struct {
-		Type    string `json:"type"`
-		Payload struct {
-			Model  string `json:"model"`
-			Effort string `json:"effort"`
-		} `json:"payload"`
-	}
-	if json.Unmarshal(line, &item) != nil || item.Type != "turn_context" || item.Payload.Model == "" {
-		return "", "", false
-	}
-	return item.Payload.Model, item.Payload.Effort, true
+	_, model, effort, ok = turnContextOf(line)
+	return model, effort, ok && model != ""
 }

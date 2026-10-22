@@ -157,3 +157,28 @@ func TestConversationCreateAndUpdate(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestFindByProviderSessionMatchesProviderAndSession(t *testing.T) {
+	s := store.Open(t.TempDir())
+	held := func(id, provider, session string) {
+		c := newConversation(id)
+		c.Provider, c.ProviderSessionID = provider, &session
+		if err := s.CreateConversation(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	held("c1", "codex", "s1")
+	held("c2", "other", "s2")
+	if err := s.CreateConversation(newConversation("c3")); err != nil { // reports no session yet
+		t.Fatal(err)
+	}
+
+	if got, err := s.FindByProviderSession("codex", "s1"); err != nil || got.ConversationID != "c1" {
+		t.Errorf("codex s1 = %q, %v, want c1", got.ConversationID, err)
+	}
+	for _, c := range []struct{ provider, session string }{{"codex", "s2"}, {"other", "s1"}, {"codex", ""}, {"codex", "nope"}} {
+		if _, err := s.FindByProviderSession(c.provider, c.session); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s %q: err = %v, want not-exist", c.provider, c.session, err)
+		}
+	}
+}

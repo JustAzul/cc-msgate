@@ -21,6 +21,9 @@ type turn struct {
 	req      provider.Request // everything but the output path
 	st       *store.Store
 	existing *store.Conversation // nil: the turn starts a new conversation
+	// adopts is the provider session a new conversation takes over; empty when
+	// the provider reports the session id during the first turn.
+	adopts string
 }
 
 // runTurn plans the turn and, unless it is a dry run, admits and runs it in
@@ -58,6 +61,7 @@ func runTurn(ctx *Context, t turn) int {
 		command: t.command, runID: runID, conversationID: conversationID, existing: t.existing,
 		flags: p.turnFlags, effective: t.eff, cwd: t.cwd, prompt: t.prompt,
 		passthrough: p.passthrough, plan: plan, background: p.background, now: now,
+		providerSessionID: t.adopts,
 	}
 	state, err := admit(t.st, adm)
 	if err != nil {

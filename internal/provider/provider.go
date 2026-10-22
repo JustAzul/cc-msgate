@@ -132,6 +132,38 @@ type ModelReporter interface {
 	UsedModel(env []string, sessionID string) (model, effort string, err error)
 }
 
+// SessionReader is implemented by a provider that can read one of its own
+// sessions by id, including one the Engine did not start.
+type SessionReader interface {
+	// ReadSession reports what the Engine needs to run a turn on the session
+	// id. ok is false when id names no session of this provider (a shape the
+	// provider does not use for session ids, or no such session).
+	ReadSession(env []string, id string) (s Session, ok bool, err error)
+}
+
+// Session is what a provider reports about one of its sessions.
+type Session struct {
+	Cwd    string  // the last turn's directory, else the session's own
+	Model  string  // the last turn's model; empty when the session has no turn or it names none
+	Effort string  // the last turn's effort; empty when none
+	Parent *Parent // set only when the provider reaches this session through its parent
+}
+
+// Parent links a Child session to the session that spawned it.
+type Parent struct {
+	SessionID string // the parent's session id
+	Address   string // the name the parent uses for this child
+}
+
+// Relayer is implemented by a provider whose sessions can pass a prompt to a
+// Child session they spawned.
+type Relayer interface {
+	// RelayPrompt is the prompt that asks a parent session to pass prompt to
+	// its child at address, wait for the child's final answer and reply with
+	// that answer verbatim.
+	RelayPrompt(address string, prompt []byte) []byte
+}
+
 // LiveUsageReporter is a provider that can tell what a run has used so far,
 // from its own session records: the usage since the run started and the model
 // in use. ok is false when there is nothing to report yet.

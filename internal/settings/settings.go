@@ -7,6 +7,9 @@ const (
 	SourceFlag            = "flag"
 	SourceProfile         = "profile"
 	SourceProviderDefault = "provider-default"
+	// SourceProviderSession marks a value read from a session the provider
+	// already holds.
+	SourceProviderSession = "provider-session"
 	// SourceDefault marks the engine's own read-only sandbox.
 	SourceDefault = "default"
 )

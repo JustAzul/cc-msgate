@@ -38,7 +38,9 @@ func (s *Store) lockConversation(conversationID string) (func(), error) {
 	return func() { f.Close() }, nil // closing the descriptor drops the lock
 }
 
-// ReserveNew creates the conversation with runID as its first, active turn.
+// ReserveNew creates the conversation with runID as its first, active turn. If
+// the turn cannot be reserved the conversation is not left behind: a record
+// with no turn would hold its provider session for nothing.
 func (s *Store) ReserveNew(c Conversation, runID string, at time.Time) error {
 	c.Turns = []string{}
 	c.ActiveRunID = nil
@@ -46,6 +48,9 @@ func (s *Store) ReserveNew(c Conversation, runID string, at time.Time) error {
 		return err
 	}
 	_, err := s.Reserve(c.ConversationID, runID, at)
+	if err != nil {
+		_ = os.Remove(s.conversationPath(c.ConversationID)) // the reservation error is the one to report
+	}
 	return err
 }
 

@@ -136,6 +136,28 @@ func (s *Store) ConversationIDs() ([]string, error) {
 	return ids, nil
 }
 
+// FindByProviderSession returns the conversation of the provider that holds
+// the provider session id. The error wraps os.ErrNotExist when none does.
+func (s *Store) FindByProviderSession(providerName, sessionID string) (Conversation, error) {
+	ids, err := s.ConversationIDs()
+	if err != nil {
+		return Conversation{}, err
+	}
+	for _, id := range ids {
+		c, err := s.ReadConversation(id)
+		if errors.Is(err, os.ErrNotExist) {
+			continue // released since the listing
+		}
+		if err != nil {
+			return Conversation{}, err
+		}
+		if c.Provider == providerName && c.ProviderSessionID != nil && *c.ProviderSessionID == sessionID {
+			return c, nil
+		}
+	}
+	return Conversation{}, fmt.Errorf("no conversation of %s holds provider session %s: %w", providerName, sessionID, os.ErrNotExist)
+}
+
 // WriteState atomically replaces the run's state file.
 func (s *Store) WriteState(runID string, st State) error {
 	return s.writeJSON(filepath.Join(s.RunDir(runID), "state.json"), st)

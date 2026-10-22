@@ -24,6 +24,10 @@ type admission struct {
 	plan           provider.Plan
 	background     bool // the run is a job executed by a detached worker
 	now            time.Time
+
+	// providerSessionID is the session a new conversation holds from its
+	// creation; empty when the first turn's run reports it.
+	providerSessionID string
 }
 
 // requestRecord is runs/<run_id>/request.json: the resolved request and plan.
@@ -93,7 +97,7 @@ func reserve(st *store.Store, a admission) (int, error) {
 	f, e := a.flags, a.effective
 	ts := a.now.Format(time.RFC3339)
 	err := st.ReserveNew(store.Conversation{
-		ConversationID: a.conversationID, Provider: f.provider, Cwd: a.cwd,
+		ConversationID: a.conversationID, Provider: f.provider, ProviderSessionID: nullable(a.providerSessionID), Cwd: a.cwd,
 		Defaults: store.Defaults{
 			Purpose: f.purpose, Model: e.Model, Effort: e.Effort, Sandbox: e.Sandbox,
 			ModelSource: e.ModelSource, EffortSource: e.EffortSource, SandboxSource: e.SandboxSource,
