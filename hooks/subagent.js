@@ -1,0 +1,310 @@
+// Pure helpers for the rows the mod answers. A row is the subagent of a type that
+// a plugin backed, and every model request of it is answered by a msgate job,
+// never by a Claude model. Nothing here touches the mods API, so these functions can be read and
+// tested on their own.
+
+import { RESULT_OUTPUT_BYTES, cutBytes, isTerminal, resultNote } from './lib.js'
+import { formatCost, formatLowerBound } from './prices.js'
+
+export const AGENT_SOURCE = 'agent'
+export const CONVERSATIONS_KEY = 'agent-conversations'
+export const ADMIT_TIMEOUT_MS = 30000
+export const CONVERSATIONS_LIMIT = 500
+
+// The first line every failed hand-off answers with, so an answer that did not
+// come from the agent can never pass for one.
+export const HANDOFF_FAILED = 'msgate: the hand-off to the agent failed, so this is not its answer.'
+
+const DELIVERED_OUTCOMES = ['ok', 'clean']
+const REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g
+// A branch, tag or commit for `review`: no leading "-" or ".", so it can never
+// read as a flag. The mod passes it as one argv entry, never through a shell.
+const REVISION_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._/~^-]{0,254}$/
+const REVIEW_TARGETS = "'uncommitted', 'base <branch>' or 'commit <sha>'"
+
+// typeNameOf is the type's own name in a full type ("<plugin>:<name>"), the
+// part after the plugin's prefix.
+export function typeNameOf(fullType) {
+  return fullType.slice(fullType.indexOf(':') + 1)
+}
+
+// The most steps of one turn of a row the engine answers; the model the type
+// registered as its fallback answers the rest of the turn.
+export const STEP_LIMIT = 8
+
+// stepNumber counts one more step for an agent's turn and returns how many the
+// turn has made, this one included. A step of another turn starts at one.
+export function stepNumber(counts, agentId, turnId) {
+  const earlier = counts.get(agentId)
+  const number = earlier !== undefined && earlier.turnId === turnId ? earlier.number + 1 : 1
+  counts.set(agentId, { turnId, number })
+  return number
+}
+
+// turnPrompt is the newest user message of a subagent's conversation: the
+// Agent call's prompt on the first turn, a SendMessage on a later one. A
+// session that saves no transcript has no rows, and then the text the turn
+// started with answers. The rows come first: on a turn a SendMessage woke, the
+// start text wraps the message in the engine's own framing.
+export function turnPrompt(rows, startText) {
+  const last = [...rows].reverse().find((row) => row && row.role === 'user')
+  return cleanPrompt(last?.text) || cleanPrompt(startText)
+}
+
+function cleanPrompt(text) {
+  return String(text ?? '').replace(REMINDER, '').trim()
+}
+
+// hasAnswered tells a later turn from the first: the agent already replied.
+export function hasAnswered(rows) {
+  return rows.some((row) => row && row.role === 'assistant')
+}
+
+function fail(error) {
+  return { error }
+}
+
+// The flags every job of a row carries.
+function jobFlags(sessionId) {
+  return ['--background', '--json', '--source', AGENT_SOURCE, '--session-id', sessionId]
+}
+
+// admissionFlags are the flags of the first turn of a row: the purpose the type
+// is backed with, or its own name when it has none, and the settings it is backed
+// with, recorded as coming from a profile. A setting the type does not name is
+// left to the provider. An effort the Agent call asked for takes the place of the
+// type's, and is recorded as coming from a flag.
+function admissionFlags(name, sessionId, backed, effort) {
+  const flagsOf = (setting) => {
+    if (setting === 'effort' && effort !== undefined) return ['--effort', effort, '--effort-source', 'flag']
+    return backed[setting] === undefined ? [] : ['--' + setting, backed[setting]]
+  }
+  const settings = ['model', 'effort', 'sandbox'].flatMap(flagsOf)
+  const [background, json, ...rest] = jobFlags(sessionId)
+  return [background, json, '--purpose', backed.purpose ?? name, ...rest, '--settings-source', 'profile', ...settings]
+}
+
+// reviewFlags reads a code-review prompt as exactly one review target.
+export function reviewFlags(prompt) {
+  const words = prompt.trim().split(/\s+/)
+  if (words.length === 1 && words[0] === 'uncommitted') return { flags: ['--uncommitted'] }
+
+  const [kind, revision] = words
+  const isTarget = words.length === 2 && (kind === 'base' || kind === 'commit') && REVISION_PATTERN.test(revision)
+  if (!isTarget) return fail('a code-review prompt is the review target and nothing else: ' + REVIEW_TARGETS + '; got: ' + prompt.slice(0, 200))
+
+  return { flags: ['--' + kind, revision] }
+}
+
+// firstTurnCommand starts the conversation of a new row of a backed type. `row`
+// names the type (`name`, without its plugin's prefix) and what it is backed
+// with. The prompt goes on standard input so no prompt text ever becomes part of
+// an argument; a review reads it as its one target instead. `effort` is the one
+// the Agent call asked for, when it did.
+export function firstTurnCommand(row, bin, sessionId, prompt, effort) {
+  if (prompt === '') return fail('the prompt is empty')
+  const flags = admissionFlags(row.name, sessionId, row.backed, effort)
+  if (row.backed.command !== 'review') return { argv: [bin, row.backed.command, ...flags, '-'], stdin: prompt }
+
+  const target = reviewFlags(prompt)
+  if (target.error) return target
+  return { argv: [bin, 'review', ...target.flags, ...flags] }
+}
+
+// followUpCommand sends a SendMessage to the subagent's conversation.
+export function followUpCommand(bin, sessionId, conversationId, prompt) {
+  if (prompt === '') return fail('the prompt is empty')
+  return { argv: [bin, 'send', conversationId, ...jobFlags(sessionId), '-'], stdin: prompt }
+}
+
+// isWaitTimeout tells a wait that gave up while the run goes on from a run
+// that ended: `wait` exits with the run's own exit code, which can be 5 too.
+export function isWaitTimeout(reply) {
+  try {
+    return JSON.parse(reply.stdout).sdk_status === 'wait_timeout'
+  } catch {
+    return false
+  }
+}
+
+// finishedRun reads `status <run_id> --json`, or null when it is not a run.
+export function finishedRun(stdout) {
+  try {
+    const run = JSON.parse(stdout)
+    return run && typeof run.run_id === 'string' ? run : null
+  } catch {
+    return null
+  }
+}
+
+function outcomeOf(run) {
+  return run.outcome ?? run.state
+}
+
+function trailer(run) {
+  return '[msgate run ' + run.run_id + ' · conversation ' + run.conversation_id + ' · ' + outcomeOf(run) + ']'
+}
+
+function body(output, outputPath) {
+  const cut = cutBytes(String(output ?? '').trim(), RESULT_OUTPUT_BYTES)
+  return cut.isCut ? cut.text + '\n' + resultNote(outputPath) : cut.text
+}
+
+function endedLine(run) {
+  const hasExcerpt = typeof run.error_excerpt === 'string' && run.error_excerpt !== ''
+  return 'msgate run ' + run.run_id + ' ended ' + outcomeOf(run) + (hasExcerpt ? ': ' + run.error_excerpt : '')
+}
+
+// answerText is what the subagent answers once its run has finished: the
+// output, cut at 64 KiB, and a trailer naming the run, its conversation and its
+// outcome. A run that did not deliver leads with how it ended.
+export function answerText(run, output) {
+  const text = body(output, run.output_path)
+  if (!DELIVERED_OUTCOMES.includes(run.outcome)) {
+    return [endedLine(run), text, trailer(run)].filter((part) => part !== '').join('\n\n')
+  }
+
+  return (text === '' ? 'The run produced no output.' : text) + '\n\n' + trailer(run)
+}
+
+export function handoffFailure(detail) {
+  return HANDOFF_FAILED + ' ' + detail
+}
+
+// What a later turn answers when its conversation is no longer recorded: it
+// is never started afresh, which would drop the context the follow-up needs.
+export const LOST_CONVERSATION =
+  "this agent's msgate conversation is no longer recorded, so its context cannot be resumed here. " +
+  "Continue it with the msgate run tool and the conversation id from an earlier answer's trailer."
+
+// readConversations returns the persisted agentId → conversation records, or
+// an empty list when the stored value is missing or damaged.
+export function readConversations(stored) {
+  if (!Array.isArray(stored)) return []
+  return stored.filter((entry) => entry && typeof entry.agent_id === 'string' && typeof entry.conversation_id === 'string')
+}
+
+// rememberConversation records an agent's conversation, replacing an older
+// record of the same agent and keeping the most recent CONVERSATIONS_LIMIT.
+export function rememberConversation(records, agentId, conversationId) {
+  const others = records.filter((entry) => entry.agent_id !== agentId)
+  return [...others, { agent_id: agentId, conversation_id: conversationId }].slice(-CONVERSATIONS_LIMIT)
+}
+
+export function conversationOf(records, agentId) {
+  return records.find((entry) => entry.agent_id === agentId)?.conversation_id ?? null
+}
+
+// Following a run while it works. The step hook waits in short slices and,
+// after each, shows what the provider did since the last one as thinking:
+// drawn in the agent's row, never recorded in its transcript.
+export const SLICE_SECONDS = 5
+export const SLICE_TIMEOUT_MS = 60000
+export const HEARTBEAT_MS = 30000
+
+export function sliceWaitCommand(bin, runId) {
+  return [bin, 'wait', runId, '--timeout', String(SLICE_SECONDS), '--json']
+}
+
+export function progressCommand(bin, runId, from) {
+  return [bin, 'progress', runId, '--from', String(from), '--json']
+}
+
+// readProgress reads `progress --json`: the entries, where the next read
+// starts, the run's state and its cost so far (null when it has none yet), or
+// null when it is not a progress listing.
+export function readProgress(stdout) {
+  try {
+    const parsed = JSON.parse(stdout)
+    if (!parsed || !Array.isArray(parsed.entries) || typeof parsed.next !== 'number') return null
+    return {
+      next: parsed.next,
+      entries: parsed.entries,
+      state: typeof parsed.state === 'string' ? parsed.state : null,
+      cost: typeof parsed.cost_usd === 'string' ? parsed.cost_usd : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function progressLine(entry) {
+  return entry.kind === 'command' ? '$ ' + entry.text : String(entry.text ?? '')
+}
+
+export function formatElapsed(ms) {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(seconds / 60)
+  return minutes === 0 ? seconds + 's' : minutes + 'm ' + (seconds % 60) + 's'
+}
+
+export function heartbeatLine(elapsedMs) {
+  return 'still working · ' + formatElapsed(elapsedMs)
+}
+
+// terminalRunIds is a key that changes whenever one more run of the session
+// ends, so the session's cost is read again only then.
+export function terminalRunIds(stdout) {
+  try {
+    const parsed = JSON.parse(stdout)
+    const runs = parsed && Array.isArray(parsed.runs) ? parsed.runs : []
+    return runs.filter((run) => run && isTerminal(run.state)).map((run) => run.run_id).sort().join(' ')
+  } catch {
+    return ''
+  }
+}
+
+export function sessionStatsCommand(bin, sessionId) {
+  return [bin, 'stats', '--session-id', sessionId, '--all', '--json']
+}
+
+// providerCost is one provider's cost for the status line, its text
+// "<label> <amount>" and its amount to order by, or undefined when it has none.
+function providerCost(label, usage) {
+  const cost = usage?.cost_complete === true ? formatCost(usage.cost_usd) : formatLowerBound(usage?.cost_usd)
+  return cost === undefined ? undefined : { text: label + ' ' + cost, amount: Number(usage.cost_usd) }
+}
+
+// costText is the session's costs for the status line, the dearest provider
+// first and Codex before Claude when they cost the same, or undefined when
+// neither could be priced. An answer without usage_by_provider holds only the
+// Codex runs' usage, in usage_totals.
+export function costText(stdout) {
+  try {
+    const stats = JSON.parse(stdout)
+    const providers = stats.usage_by_provider ?? { codex: stats.usage_totals }
+    return [providerCost('Codex', providers.codex), providerCost('Claude', providers.anthropic)]
+      .filter((part) => part !== undefined)
+      .sort((a, b) => b.amount - a.amount)
+      .map((part) => part.text)
+      .join(' | ') || undefined
+  } catch {
+    return undefined
+  }
+}
+
+// missingPrices are the models of the session's runs that the price cache knows
+// nothing about, not even as unpriced; a refresh may find them.
+export function missingPrices(stdout) {
+  try {
+    const missing = JSON.parse(stdout).missing_prices
+    return Array.isArray(missing) ? missing.filter((model) => typeof model === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function compactCount(n) {
+  const value = Number(n) || 0
+  if (value >= 1e6) return (value / 1e6).toFixed(1).replace(/\.0$/, '') + 'M'
+  if (value >= 1e3) return (value / 1e3).toFixed(1).replace(/\.0$/, '') + 'k'
+  return String(value)
+}
+
+// STATUS_MARK leads the plugin's status line.
+export const STATUS_MARK = '💸'
+
+export function statusLine(jobsText, cost) {
+  const parts = [jobsText, cost].filter((part) => typeof part === 'string' && part !== '')
+  return parts.length === 0 ? undefined : `${STATUS_MARK} ${parts.join(' · ')}`
+}

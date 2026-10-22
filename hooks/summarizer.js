@@ -1,0 +1,117 @@
+// The progress summaries of a session, shared by the agent row and the band:
+// it keeps each run's entries since its last request and asks for a label when
+// one is due. A display reads what it settled and never waits for a request.
+
+import { createLimiter } from './limiter.js'
+import {
+  ENTRIES_PER_REQUEST,
+  WINDOW_ENTRIES,
+  isBilled,
+  isDue,
+  isRateLimited,
+  labelLine,
+  newRun,
+  newestEntries,
+  outcomeOf,
+  summaryRequest,
+  wholeWithin,
+} from './summary.js'
+
+// createSummarizer is one load's summaries; `options` is the plugin's config
+// and `limiter` the session's request limit, shared with whatever else asks the
+// model. What it needs of the engine arrives as `ports`, because a hooks module
+// may not hand `$` to another module: surfaces(), now(), complete(request),
+// record(usage, runId), log(text) and labelSettled(runId), and optionally
+// isEnabled(), which overrides the summaries option.
+export function createSummarizer(options, limiter = createLimiter()) {
+  const runs = new Map()
+  // A cadence beyond the window could never be reached.
+  const every = wholeWithin(options.liveEvery, 1, WINDOW_ENTRIES, ENTRIES_PER_REQUEST)
+
+  // observe takes the entries a display has just read of a run and starts a
+  // request when one is due. It answers whether summaries are active, read each
+  // time: the config allows them and the session draws on some surface.
+  async function observe(ports, runId, lines) {
+    if (!(await isAllowed(ports)) || (await ports.surfaces()).length === 0) return false
+    let run = runs.get(runId)
+    if (run === undefined) {
+      run = newRun()
+      runs.set(runId, run)
+    }
+    run.entries = newestEntries(run.entries.concat(lines))
+    await startIfDue(ports, runId, run)
+    return true
+  }
+
+  async function isAllowed(ports) {
+    return ports.isEnabled === undefined ? options.summaries !== false : ports.isEnabled()
+  }
+
+  // The checks that decide a start and the claim of a slot follow the last await,
+  // so two runs cannot both take the last slot.
+  async function startIfDue(ports, runId, run) {
+    if (!isDue(run, every)) return
+    const now = await ports.now()
+    if (!isDue(run, every) || !limiter.tryTake(now)) return
+
+    run.isInFlight = true
+    run.hasRequested = true
+    const sent = run.entries
+    run.entries = []
+    run.settling = settle(ports, runId, run, sent).catch(() => {})
+  }
+
+  async function settle(ports, runId, run, sent) {
+    let outcome
+    try {
+      const result = await ports.complete(summaryRequest(sent, run.label))
+      // Recorded whether or not the reply is a label, and never waited for.
+      if (isBilled(result)) void ports.record(result.usage, runId).catch(() => {})
+      outcome = outcomeOf(result)
+      if (isRateLimited(result)) limiter.pause(await ports.now())
+    } catch (error) {
+      outcome = { failure: 'the request failed: ' + String(error && error.message ? error.message : error) }
+    } finally {
+      limiter.release()
+      run.isInFlight = false
+    }
+
+    if (outcome.label !== undefined) {
+      run.label = outcome.label
+      run.isUnread = true
+      ports.labelSettled(runId)
+      return
+    }
+
+    if (run.isFailureLogged) return
+    run.isFailureLogged = true
+    ports.log('could not summarize the progress of run ' + runId + ': ' + outcome.failure)
+  }
+
+  // take is what the agent row streams next: the label that settled since the
+  // last call.
+  function take(runId) {
+    const run = runs.get(runId)
+    if (run === undefined || !run.isUnread) return []
+    run.isUnread = false
+    return [labelLine(run.label)]
+  }
+
+  // settled resolves when the request in flight for the run, if any, has come
+  // back: a display that must show the label of a window waits for it here.
+  function settled(runId) {
+    return runs.get(runId)?.settling ?? Promise.resolve()
+  }
+
+  // shown is what the band shows of a run in place of its newest raw step, or
+  // null until a label has settled.
+  function shown(runId) {
+    return runs.get(runId)?.label ?? null
+  }
+
+  function forget(runId) {
+    runs.delete(runId)
+  }
+
+  return { observe, take, settled, shown, forget }
+}
