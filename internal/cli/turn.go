@@ -28,6 +28,9 @@ type turn struct {
 	// onHolder continues the send on the conversation that held adopts by the
 	// time the new conversation was to be created.
 	onHolder func(holder store.Conversation) int
+	// relay is set when the turn passes the prompt on to a child session of
+	// the one it resumes.
+	relay *relayRecord
 }
 
 // runTurn plans the turn and, unless it is a dry run, admits and runs it in
@@ -93,7 +96,7 @@ func (t turn) admission(runID string, plan provider.Plan, now time.Time) admissi
 		command: t.command, runID: runID, conversationID: conversationID, existing: t.existing,
 		flags: t.flags.turnFlags, effective: t.eff, cwd: t.cwd, prompt: t.prompt,
 		passthrough: t.flags.passthrough, plan: plan, background: t.flags.background, now: now,
-		providerSessionID: t.adopts,
+		providerSessionID: t.adopts, relay: t.relay,
 	}
 }
 

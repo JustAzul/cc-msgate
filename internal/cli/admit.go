@@ -29,6 +29,9 @@ type admission struct {
 	// providerSessionID is the session a new conversation holds from its
 	// creation; empty when the first turn's run reports it.
 	providerSessionID string
+
+	// relay is set when the turn passes the prompt on to a child session.
+	relay *relayRecord
 }
 
 // requestRecord is runs/<run_id>/request.json: the resolved request and plan.
@@ -52,6 +55,7 @@ type requestRecord struct {
 	Attrs         map[string]any `json:"attrs"`
 	Passthrough   []string       `json:"passthrough"`
 	Plan          provider.Plan  `json:"plan"`
+	Relay         *relayRecord   `json:"relay,omitempty"`
 }
 
 // UnmarshalJSON reads a request written before the purpose had its name: its
@@ -139,7 +143,7 @@ func (a admission) request() requestRecord {
 		Sandbox: nullable(e.Sandbox), SandboxSource: e.SandboxSource,
 		Cwd: a.cwd, Source: f.source, SessionID: f.sessionID, AgentFeedback: f.agentFeedback, TimeoutS: timeoutSeconds(f.timeoutS),
 		CleanSentinel: f.cleanSentinel, MaterialLabel: f.materialLabel,
-		Attrs: f.attrs.object(), Passthrough: passthrough, Plan: a.plan,
+		Attrs: f.attrs.object(), Passthrough: passthrough, Plan: a.plan, Relay: a.relay,
 	}
 }
 

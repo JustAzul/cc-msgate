@@ -49,26 +49,27 @@ func runSend(ctx *Context, args []string) int {
 	if byRun && !st.RunExists(target) {
 		return sendNotFound(ctx, target)
 	}
-	return sendToConversation(ctx, st, p, conv)
+	return sendToConversation(ctx, st, p, conv, nil)
 }
 
-// sendToConversation runs the next turn of conv.
-func sendToConversation(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversation) int {
-	return sendTurn(ctx, st, p, conv, func() ([]byte, int) { return readPrompt(ctx, p) })
+// sendToConversation runs the next turn of conv, relayed to a child session of
+// the conversation's when relay is set.
+func sendToConversation(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversation, relay *relayRecord) int {
+	return sendTurn(ctx, st, p, conv, relay, func() ([]byte, int) { return readPrompt(ctx, p) })
 }
 
 // sendToHolder runs the next turn of conv, which came to hold the provider
 // session after this send resolved it, with the prompt already read: the turn
 // is exactly what a send of conv would have been.
-func sendToHolder(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversation, prompt []byte) int {
+func sendToHolder(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversation, relay *relayRecord, prompt []byte) int {
 	delete(ctx.IDs, "run_id")
 	ctx.IDs["conversation_id"] = conv.ConversationID
-	return sendTurn(ctx, st, p, conv, func() ([]byte, int) { return prompt, 0 })
+	return sendTurn(ctx, st, p, conv, relay, func() ([]byte, int) { return prompt, 0 })
 }
 
 // sendTurn runs the next turn of conv with the prompt that readPrompt yields
 // once the turn has passed its checks.
-func sendTurn(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversation, readPrompt func() ([]byte, int)) int {
+func sendTurn(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversation, relay *relayRecord, readPrompt func() ([]byte, int)) int {
 	prov, code := conversationProvider(ctx, conv, &p)
 	if code != 0 {
 		return code
@@ -102,7 +103,7 @@ func sendTurn(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversati
 	}
 
 	return runTurn(ctx, turn{
-		command: "send", flags: p, prov: prov, eff: eff, cwd: cwd, prompt: prompt, st: st, existing: &conv,
+		command: "send", flags: p, prov: prov, eff: eff, cwd: cwd, prompt: prompt, st: st, existing: &conv, relay: relay,
 		req: provider.Request{
 			Command: "resume", Cwd: cwd, Model: eff.Model, Effort: eff.Effort, Sandbox: eff.Sandbox,
 			SessionID: *conv.ProviderSessionID, Passthrough: p.passthrough,
@@ -148,44 +149,69 @@ func checkedTurn(ctx *Context, prov provider.Provider, p parsedTurn, eff setting
 	return 0
 }
 
-// sendToProviderSession runs the first turn of a new conversation on a session
-// the provider holds that no conversation does: it adopts the session, taking
-// its directory, model and effort unless the flags say otherwise. An id the
-// provider does not know is exit 4.
+// sendToProviderSession runs a turn for a session the provider holds that no
+// conversation does. A child session is reached through its parent: the turn
+// is the parent's, relayed to the child. Any other session is adopted by a new
+// conversation, taking its directory, model and effort unless the flags say
+// otherwise. An id the provider does not know is exit 4.
 func sendToProviderSession(ctx *Context, st *store.Store, p parsedTurn, id string) int {
+	found, code := readProviderSession(ctx, p, id)
+	if code != 0 {
+		return code
+	}
+	route, code := routeSession(ctx, st, p, found)
+	if code != 0 {
+		return code
+	}
+	if route.holder != nil {
+		ctx.IDs["conversation_id"] = route.holder.ConversationID
+		return sendToConversation(ctx, st, p, *route.holder, route.relay)
+	}
+	return adoptSession(ctx, st, p, found.prov, route)
+}
+
+// readProviderSession reads the session id from the provider named by p; a
+// provider that cannot read sessions, or has none by that id, is exit 4.
+func readProviderSession(ctx *Context, p parsedTurn, id string) (providerSession, int) {
 	prov, ok := provider.Get(p.provider)
 	if !ok {
-		return sendNotFound(ctx, id)
+		return providerSession{}, sendNotFound(ctx, id)
 	}
 	reader, ok := prov.(provider.SessionReader)
 	if !ok {
-		return sendNotFound(ctx, id)
+		return providerSession{}, sendNotFound(ctx, id)
 	}
 	session, found, err := reader.ReadSession(ctx.Env, id)
 	if err != nil {
-		return ctx.Fail(ExitInternal, "reading the provider session: %v", err)
+		return providerSession{}, ctx.Fail(ExitInternal, "reading the provider session: %v", err)
 	}
 	if !found {
-		return sendNotFound(ctx, id)
+		return providerSession{}, sendNotFound(ctx, id)
 	}
+	return providerSession{prov: prov, reader: reader, id: id, session: session}, 0
+}
 
-	eff := adoptedSettings(p, session)
+// adoptSession runs the first turn of a new conversation that takes over
+// route's session; a conversation that comes to hold it first runs the turn
+// instead.
+func adoptSession(ctx *Context, st *store.Store, p parsedTurn, prov provider.Provider, route sessionRoute) int {
+	eff := adoptedSettings(p, route.session)
 	prompt, code := checkedPrompt(ctx, prov, p, eff)
 	if code != 0 {
 		return code
 	}
 
-	cwd, code := adoptedCwd(ctx, p, id, session)
+	cwd, code := adoptedCwd(ctx, p, route.id, route.session)
 	if code != 0 {
 		return code
 	}
 
 	return runTurn(ctx, turn{
-		command: "send", flags: p, prov: prov, eff: eff, cwd: cwd, prompt: prompt, st: st, adopts: id,
-		onHolder: func(holder store.Conversation) int { return sendToHolder(ctx, st, p, holder, prompt) },
+		command: "send", flags: p, prov: prov, eff: eff, cwd: cwd, prompt: prompt, st: st, adopts: route.id, relay: route.relay,
+		onHolder: func(holder store.Conversation) int { return sendToHolder(ctx, st, p, holder, route.relay, prompt) },
 		req: provider.Request{
 			Command: "resume", Cwd: cwd, Model: eff.Model, Effort: eff.Effort, Sandbox: eff.Sandbox,
-			SessionID: id, Passthrough: p.passthrough,
+			SessionID: route.id, Passthrough: p.passthrough,
 		},
 	})
 }

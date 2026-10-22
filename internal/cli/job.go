@@ -19,7 +19,7 @@ func buildJob(ctx *Context, st *store.Store, prov provider.Provider, req request
 		timeout = time.Duration(*req.TimeoutS) * time.Second
 	}
 	return runner.Job{
-		Store: st, Provider: prov, Plan: req.Plan, Prompt: prompt, Env: ctx.Env, State: state,
+		Store: st, Provider: prov, Plan: req.Plan, Prompt: jobPrompt(prov, req.Relay, prompt), Env: ctx.Env, State: state,
 		CleanSentinel: req.CleanSentinel, MaterialLabel: req.MaterialLabel,
 		Timeout:  timeout,
 		Shutdown: runner.ShutdownFromEnv(ctx.Getenv),
