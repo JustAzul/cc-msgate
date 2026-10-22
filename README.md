@@ -235,7 +235,7 @@ The commands:
 |---|---|
 | `exec` | starts a conversation and runs its first turn |
 | `review` | runs a provider review of a branch diff, the working tree or a commit |
-| `send` | runs the next turn of a conversation |
+| `send` | runs the next turn of a conversation, or of a Codex thread msgate did not start |
 | `status` | shows one run, or the session's active and recent runs |
 | `wait` | blocks until a run finishes, then prints it like a foreground run |
 | `result` | prints a finished run's output; `--report` prints a delivery report |
@@ -296,6 +296,57 @@ How jobs behave:
   at its run.
 - `--timeout N` stops the provider's whole process group and exits 124.
 
+### Continuing a Codex thread msgate did not start
+
+`send` also takes the id of a Codex thread opened with `codex`, `codex exec`,
+the TUI or another tool. It resolves the id in this order: a conversation id, a
+run id, a conversation that already holds that provider session id, then the
+provider's own sessions. Codex session ids are UUIDs. An id that names none of
+them exits 4 with `no conversation, run or provider session "<id>"`.
+
+```sh
+msgate send "$thread_id" "Continue with the failing test."   # a Codex thread id
+```
+
+A thread no conversation holds is adopted: a new conversation holds it from
+this turn on, and later sends continue that conversation like any other.
+- **cwd, model and effort** come from the thread's last turn, the model and
+  effort with source `provider-session`. With no turn recorded, the thread's
+  own cwd and `provider-default` apply. A cwd that is missing or gone exits 2
+  and asks for `--cwd`.
+- **sandbox and purpose** are `read-only` (source `default`) and `adhoc`
+  unless passed.
+- **flags** override all of these and become the conversation's defaults.
+  `--dry-run` plans the turn without adopting the thread.
+- **two first sends** of one thread make one conversation; the other continues
+  on it and exits 3 while the first runs. A send waits up to 5 seconds while a
+  run of the same provider has not reported its thread yet, so it finds that
+  run's conversation instead of making a second.
+
+msgate guards only its own runs. It does not know whether another tool is
+running the thread: not continuing a thread that is live elsewhere is up to the
+caller.
+
+A Codex multi-agent sub-agent cannot be resumed directly. `send <sub-agent id>`
+runs a turn of the parent thread's conversation instead, and the parent is
+adopted first when no conversation holds it. The prompt asks the parent to give
+it to that agent with `followup_task`, wait, and reply with the agent's answer
+as given. The flags configure the parent's turn: for that turn only when a
+conversation already holds the parent, and as the conversation's defaults when
+the send adopts it. `output.md` is the parent's final message. `request.json`
+records `relay` (`provider_session_id`, `address`), and `prompt.md` keeps your
+prompt, not the wrapped one. A relay has these tradeoffs:
+- a sub-agent is reachable only between its parent's turns; while the parent
+  runs, the send exits 3;
+- one parent's sub-agents are reached one at a time, as turns of one
+  conversation;
+- it costs a full parent turn, and the recorded cost leaves out the
+  sub-agent's tokens.
+
+A sub-agent that cannot be relayed (its parent's rollout is missing, or its
+parent is itself a sub-agent) and a review sub-thread are resumed as
+themselves. If Codex refuses, its refusal is the run's error.
+
 Every run keeps its files under the msgate home: `$MSGATE_HOME`, else
 `$XDG_STATE_HOME/msgate`, else `~/.local/state/msgate`. Each run directory
 holds:
@@ -326,6 +377,7 @@ Each run records where every value came from:
 | `profile` | passed on the command line by a caller applying a profile, with `--settings-source profile` |
 | `provider-default` | not passed; the provider chose |
 | `default` | the sandbox, not passed, so the engine's read-only default applied |
+| `provider-session` | not passed; read from the last turn of a Codex thread msgate adopted |
 
 `--settings-source <flag|profile>` (default `flag`) is for a caller that
 resolves its own profile and hands the values over as flags, such as an agent
@@ -353,6 +405,10 @@ A record carries:
 - exit code, outcome, duration, timeout;
 - output path and size, error excerpt, token usage;
 - an `attrs` object for anything else.
+
+A resumed turn (`send`) records its own usage. Codex reports the thread's
+running total, and msgate takes off the total from before the run. A record
+written before this stays as it was.
 
 Records, `status --json`, `eta --json` and the `runs` export name the field
 `purpose`. A record written under the old name, with `scenario`, is read as
@@ -480,7 +536,9 @@ Claude wants to run directly; the third is internal:
 | `mcp__msgate__progress` | takes no arguments and returns nothing: the marker that ends a step of an agent row, which Claude never calls |
 
 `run` without a `conversation_id` starts a conversation (`exec`); with one it
-continues that conversation (`send`). It returns at once with
+continues that conversation (`send`). The id may also be a Codex thread id that
+msgate did not start (see [Continuing a Codex thread msgate did not start](#continuing-a-codex-thread-msgate-did-not-start)).
+It returns at once with
 `{conversation_id, run_id, continued}`, `continued` being true when it continued
 the conversation it was given. Its runs carry the source `mod`, and they are
 started with `--agent-feedback`: each is a [flagged run](#the-band-the-spinner-and-the-status-line),
@@ -828,7 +886,8 @@ full type takes the caller's name.
 ### `run({ prompt, conversation_id?, purpose?, provider?, model?, effort?, sandbox?, cwd? })`
 
 Admits a job like the `run` tool and resolves
-`{ conversation_id, run_id, continued }`. The run's source is
+`{ conversation_id, run_id, continued }`. As in the tool, `conversation_id` in
+the call may be a Codex thread id that msgate did not start. The run's source is
 `plugin:<caller>`. The engine does not deliver its result to Claude and adds no
 delivery-queue entry: the caller reads the result with `jobs`.
 
@@ -955,7 +1014,7 @@ No `AGENTCLI_*` variable is read.
 | 1 | the home migration was refused or failed (see [Moving from agentcli](#moving-from-agentcli)) |
 | 2 | usage error (bad flag, missing prompt, reserved native flag, unsupported capability) |
 | 3 | conversation busy, or `result` on an unfinished run |
-| 4 | run or conversation not found |
+| 4 | run or conversation not found; for `send`, an id that names no conversation, run or provider session |
 | 5 | `wait` reached its own `--timeout` (the run keeps going), or `result --report` on an unfinished run |
 | 6 | conversation not resumable yet |
 | 7 | `prices refresh` could not get the price list (the cache is kept) |

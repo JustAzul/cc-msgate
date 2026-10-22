@@ -419,6 +419,7 @@ export async function registerTools($) {
       description:
         'Run a prompt on an agent CLI as a background job and return at once with {conversation_id, run_id, continued}. ' +
         'Without conversation_id it starts a new conversation; with one it sends the next turn of that conversation. ' +
+        'A Codex thread id that msgate did not start also works: msgate adopts it, or, for a Codex sub-agent, relays the turn through its parent thread. ' +
         'A notice arrives in this session when the job finishes, so do not poll for it. ' +
         'A plugin that opens agent rows for flagged runs shows this run as an agent row until it ends. ' +
         'When an installed plugin already has an agent type for the purpose and the model you want, start that type with the Agent tool instead; ' +
@@ -427,7 +428,7 @@ export async function registerTools($) {
         type: 'object',
         properties: {
           prompt: { type: 'string', description: 'The prompt for the agent.' },
-          conversation_id: { type: 'string', description: 'The conversation to continue (a run id of that conversation also works); leave out to start a new one.' },
+          conversation_id: { type: 'string', description: 'The conversation to continue (a run id of that conversation also works, and so does a Codex thread id msgate did not start); leave out to start a new one.' },
           ...TURN_PROPERTIES,
         },
         required: ['prompt'],

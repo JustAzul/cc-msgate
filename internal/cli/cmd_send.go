@@ -17,7 +17,7 @@ func init() {
 // session, so the provider is not asked about it.
 var errNoSendTarget = errors.New("the id names no conversation, run or provider session")
 
-var sendSpec = turnSpec{name: "send", usage: "[flags] <conversation_id | run_id> <prompt | -> [-- native flags]"}
+var sendSpec = turnSpec{name: "send", usage: "[flags] <conversation_id | run_id | provider_session_id> <prompt | -> [-- native flags]"}
 
 func runSend(ctx *Context, args []string) int {
 	p, exit, done := parseTurnArgs(ctx, sendSpec, args)
@@ -25,7 +25,7 @@ func runSend(ctx *Context, args []string) int {
 		return exit
 	}
 	if len(p.positional) == 0 {
-		return ctx.Fail(ExitUsage, "send needs the conversation id or a run id of the conversation")
+		return ctx.Fail(ExitUsage, "send needs the id of a conversation, a run or a provider session")
 	}
 	target := p.positional[0]
 	p.positional = p.positional[1:]

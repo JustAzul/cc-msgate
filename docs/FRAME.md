@@ -170,7 +170,12 @@ and cancel-while-queued. Readers print what is recorded; they derive both from
 
 `runs/<run_id>/request.json`: the resolved request (command, provider,
 scenario, model, effort, sandbox and their `_source`s, cwd, source, session id,
-timeout, clean sentinel, material label, attrs, passthrough) plus the plan.
+timeout, clean sentinel, material label, attrs, passthrough) plus the plan. A
+run that relays a prompt through a parent session to one of its child sessions
+also has `relay`:
+`{"provider_session_id": "<child session id>", "address": "<the child's name to its parent>"}`.
+`prompt.md` keeps the caller's prompt; a relayed run sends the provider the
+prompt that asks the parent to pass it on.
 
 `conversations/<conversation_id>.json`:
 
@@ -181,7 +186,7 @@ timeout, clean sentinel, material label, attrs, passthrough) plus the plan.
   "provider_session_id": null,
   "cwd": "absolute path",
   "defaults": {"scenario": "…", "model": "…", "effort": "…", "sandbox": "…",
-               "model_source": "flag|profile|provider-default", "effort_source": "…", "sandbox_source": "…"},
+               "model_source": "flag|profile|provider-default|provider-session", "effort_source": "…", "sandbox_source": "…"},
   "turns": ["r-…"],
   "active_run_id": null,
   "created_at": "RFC3339 UTC",
