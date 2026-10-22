@@ -1,6 +1,8 @@
 package codex_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/JustAzul/cc-msgate/internal/provider"
@@ -57,5 +59,89 @@ func TestReadSessionIsNotASessionOfCodex(t *testing.T) {
 		if s, ok := readSession(t, home, id); ok {
 			t.Errorf("%s: ok with %+v, want not a session", name, s)
 		}
+	}
+}
+
+const parentID = "00000000-0000-4000-8000-0000000000a1"
+
+func sessionMetaWithSource(source string) string {
+	return `{"type":"session_meta","payload":{"cwd":"/meta","source":` + source + `}}`
+}
+
+func TestReadSessionOfASpawnedChildNamesItsParent(t *testing.T) {
+	cases := map[string]struct {
+		agentPath string
+		address   string
+	}{
+		"one segment below the root":  {"/root/child", "child"},
+		"two segments below the root": {"/root/a/b", "b"},
+	}
+	for name, c := range cases {
+		home := t.TempDir()
+		writeRollout(t, home, sessionMetaWithSource(
+			`{"subagent":{"thread_spawn":{"parent_thread_id":"`+parentID+`","depth":1,"agent_path":"`+c.agentPath+`"}}}`))
+
+		s, ok := readSession(t, home, sessionID)
+
+		want := &provider.Parent{SessionID: parentID, Address: c.address}
+		if !ok || s.Parent == nil || *s.Parent != *want {
+			t.Errorf("%s: got %+v ok=%v, want parent %+v", name, s.Parent, ok, want)
+		}
+	}
+}
+
+func TestReadSessionWithoutASpawnedParentHasNone(t *testing.T) {
+	cases := map[string]string{
+		"exec":                   `"exec"`,
+		"cli":                    `"cli"`,
+		"vscode":                 `"vscode"`,
+		"a review thread":        `{"subagent":"review"}`,
+		"an unknown object":      `{"other":{"thread_spawn":{"parent_thread_id":"` + parentID + `","agent_path":"/root/child"}}}`,
+		"an empty agent path":    `{"subagent":{"thread_spawn":{"parent_thread_id":"` + parentID + `","agent_path":""}}}`,
+		"no agent path":          `{"subagent":{"thread_spawn":{"parent_thread_id":"` + parentID + `"}}}`,
+		"no parent thread id":    `{"subagent":{"thread_spawn":{"agent_path":"/root/child"}}}`,
+		"an empty parent thread": `{"subagent":{"thread_spawn":{"parent_thread_id":"","agent_path":"/root/child"}}}`,
+	}
+	for name, source := range cases {
+		home := t.TempDir()
+		writeRollout(t, home, sessionMetaWithSource(source))
+
+		s, ok := readSession(t, home, sessionID)
+
+		if !ok || s.Parent != nil || s.Cwd != "/meta" {
+			t.Errorf("%s: got %+v ok=%v, want the session with cwd /meta and no parent", name, s, ok)
+		}
+	}
+}
+
+func TestReadSessionWithoutASourceHasNoParent(t *testing.T) {
+	home := t.TempDir()
+	writeRollout(t, home, `{"type":"session_meta","payload":{"cwd":"/meta"}}`)
+
+	s, ok := readSession(t, home, sessionID)
+
+	if !ok || s.Parent != nil {
+		t.Errorf("got %+v ok=%v, want the session with no parent", s, ok)
+	}
+}
+
+func TestReadSessionOfAnUnreadableRolloutIsAnError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	home := t.TempDir()
+	writeRollout(t, home, `{"type":"session_meta","payload":{"cwd":"/meta"}}`)
+	rollouts, err := filepath.Glob(filepath.Join(home, "sessions", "*", "*", "*", "rollout-*.jsonl"))
+	if err != nil || len(rollouts) != 1 {
+		t.Fatalf("rollouts %v, err %v, want exactly one", rollouts, err)
+	}
+	if err := os.Chmod(rollouts[0], 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	s, ok, err := codex.New().(provider.SessionReader).ReadSession([]string{"CODEX_HOME=" + home}, sessionID)
+
+	if err == nil || ok {
+		t.Errorf("got %+v ok=%v err=%v, want an error and not ok", s, ok, err)
 	}
 }

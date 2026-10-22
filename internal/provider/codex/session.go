@@ -3,6 +3,7 @@ package codex
 import (
 	"bytes"
 	"encoding/json"
+	"path"
 	"regexp"
 
 	"github.com/JustAzul/cc-msgate/internal/provider"
@@ -31,16 +32,20 @@ func (adapter) ReadSession(env []string, id string) (provider.Session, bool, err
 	return s, true, nil
 }
 
-// readSessionFile keeps the session_meta directory and the last turn_context
-// of the file.
-func readSessionFile(path string) (provider.Session, error) {
+// readSessionFile keeps the session_meta directory and parent and the last
+// turn_context of the file.
+func readSessionFile(file string) (provider.Session, error) {
 	var s provider.Session
 	metaCwd := ""
 	meta, turn := []byte(`"session_meta"`), []byte(`"turn_context"`)
-	err := eachLine(path, func(line []byte) {
+	err := eachLine(file, func(line []byte) {
 		switch {
 		case metaCwd == "" && bytes.Contains(line, meta):
-			metaCwd = sessionMetaCwd(line)
+			var parent *provider.Parent
+			metaCwd, parent = sessionMetaOf(line)
+			if s.Parent == nil {
+				s.Parent = parent
+			}
 		case bytes.Contains(line, turn):
 			if cwd, model, effort, ok := turnContextOf(line); ok {
 				s.Cwd, s.Model, s.Effort = cwd, model, effort
@@ -56,17 +61,44 @@ func readSessionFile(path string) (provider.Session, error) {
 	return s, nil
 }
 
-func sessionMetaCwd(line []byte) string {
+// sessionMetaOf is the directory of a session_meta line and, when the session
+// is a sub-agent codex spawned from another thread, that thread and the name it
+// gave the child. Any other source leaves the parent nil.
+func sessionMetaOf(line []byte) (string, *provider.Parent) {
 	var item struct {
 		Type    string `json:"type"`
 		Payload struct {
-			Cwd string `json:"cwd"`
+			Cwd    string          `json:"cwd"`
+			Source json.RawMessage `json:"source"`
 		} `json:"payload"`
 	}
 	if json.Unmarshal(line, &item) != nil || item.Type != "session_meta" {
-		return ""
+		return "", nil
 	}
-	return item.Payload.Cwd
+	return item.Payload.Cwd, spawnParent(item.Payload.Source)
+}
+
+// spawnParent reads the thread_spawn of a source's subagent. The source is a
+// bare name for a session codex did not spawn, and the subagent a bare name for
+// a review thread; neither has a parent.
+func spawnParent(source json.RawMessage) *provider.Parent {
+	var spawn struct {
+		Subagent struct {
+			ThreadSpawn struct {
+				ParentThreadID string `json:"parent_thread_id"`
+				AgentPath      string `json:"agent_path"`
+			} `json:"thread_spawn"`
+		} `json:"subagent"`
+	}
+	if json.Unmarshal(source, &spawn) != nil {
+		return nil
+	}
+	ts := spawn.Subagent.ThreadSpawn
+	address := path.Base(ts.AgentPath)
+	if ts.ParentThreadID == "" || ts.AgentPath == "" || address == "/" || address == "." {
+		return nil
+	}
+	return &provider.Parent{SessionID: ts.ParentThreadID, Address: address}
 }
 
 func turnContextOf(line []byte) (cwd, model, effort string, ok bool) {
