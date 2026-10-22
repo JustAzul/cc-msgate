@@ -202,3 +202,92 @@ func TestBackgroundSendOfAChildSessionRelaysThePromptFromTheWorker(t *testing.T)
 	checkFields(t, "relay", relay, map[string]any{"provider_session_id": childThread, "address": "helper"})
 	checkContinued(t, s, conv, "bg1", 2)
 }
+
+const (
+	// subAgentThread is the session the next tests send to: the id the exec-ok
+	// fixture reports, so that the conversation keeps it after the turn.
+	subAgentThread = "00000000-0000-4000-8000-000000000001"
+	missingParent  = "00000000-0000-4000-8000-000000000002" // a session whose rollout is never written
+)
+
+// writeReviewRollout lays out the session file of a review sub-thread: a
+// sub-agent session that no parent spawned.
+func writeReviewRollout(t *testing.T, codexHome, id, cwd string) {
+	t.Helper()
+	meta := fmt.Sprintf(`{"type":"session_meta","payload":{"id":%q,"cwd":%q,"source":{"subagent":"review"},"thread_source":"subagent"}}`, id, cwd)
+	writeRolloutLines(t, codexHome, id, meta)
+}
+
+// checkAdoptedAsItself checks that sending to session id made one new
+// conversation holding id, which the provider resumed itself with the
+// caller's prompt, and that nothing was relayed.
+func checkAdoptedAsItself(t *testing.T, s *sandbox, rec, cwd, id string) {
+	t.Helper()
+	r := s.run("send", id, "--json", "--run-id", "r1", "q")
+	if r.code != 0 {
+		t.Fatalf("exit %d stderr %s", r.code, r.stderr)
+	}
+	fake := readRecord(t, rec)
+	checkResumeArgv(t, fake.Argv, cwd, []string{"-s", "read-only"}, id)
+	if fake.Stdin != "q" {
+		t.Errorf("provider stdin = %q, want %q", fake.Stdin, "q")
+	}
+	if _, has := requestRecordOf(t, s, "r1")["relay"]; has {
+		t.Error("request.json of a turn that was not relayed has a relay field")
+	}
+	conv := r.json(t)["conversation_id"].(string)
+	checkContinued(t, s, conv, "r1", 1)
+	checkFields(t, "conversation", conversationRecord(t, s.home, conv), map[string]any{"provider": "codex", "provider_session_id": id})
+}
+
+func TestSendOfAReviewSubThreadAdoptsItAsItself(t *testing.T) {
+	codexHome := t.TempDir()
+	cwd := gitRepo(t)
+	writeReviewRollout(t, codexHome, subAgentThread, cwd)
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("CODEX_HOME", codexHome)
+
+	checkAdoptedAsItself(t, s, s.recordTo(), cwd, subAgentThread)
+}
+
+func TestSendOfAChildWhoseParentIsUnknownAdoptsTheChildAsItself(t *testing.T) {
+	codexHome := t.TempDir()
+	cwd := gitRepo(t)
+	writeChildRollout(t, codexHome, subAgentThread, cwd, missingParent, "helper")
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("CODEX_HOME", codexHome)
+
+	checkAdoptedAsItself(t, s, s.recordTo(), cwd, subAgentThread)
+}
+
+func TestSendOfAChildWhoseParentIsItselfAChildAdoptsTheChildAsItself(t *testing.T) {
+	codexHome := t.TempDir()
+	cwd := gitRepo(t)
+	writeRollout(t, codexHome, resumeThread, cwd, "outside-model", "medium")
+	writeChildRollout(t, codexHome, childThread, cwd, resumeThread, "helper")
+	writeChildRollout(t, codexHome, subAgentThread, cwd, childThread, "grandhelper")
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("CODEX_HOME", codexHome)
+
+	checkAdoptedAsItself(t, s, s.recordTo(), cwd, subAgentThread)
+}
+
+// The provider's refusal to resume a child on its own reaches the caller as
+// the provider wrote it.
+func TestRefusalOfTheProviderToResumeAChildIsPassedThrough(t *testing.T) {
+	const refusal = "cannot resume an unloaded multi-agent v2 sub-agent through its parent"
+	codexHome := t.TempDir()
+	writeChildRollout(t, codexHome, subAgentThread, gitRepo(t), missingParent, "helper")
+	s := newSandbox(t).set("FAKECODEX_FIXTURE", fixture("exec-ok")).set("CODEX_HOME", codexHome).
+		set("FAKECODEX_EXIT", "1").set("FAKECODEX_STDERR", refusal+"\n")
+
+	r := s.run("send", subAgentThread, "--json", "--run-id", "r1", "q")
+
+	if r.code != 1 {
+		t.Errorf("exit %d stderr %q, want 1", r.code, r.stderr)
+	}
+	status := s.run("status", "r1", "--json").json(t)
+	if status["outcome"] != "error" {
+		t.Errorf("outcome = %v, want error", status["outcome"])
+	}
+	if excerpt, _ := status["error_excerpt"].(string); !strings.Contains(excerpt, refusal) {
+		t.Errorf("error_excerpt = %q, want it to contain %q", excerpt, refusal)
+	}
+}

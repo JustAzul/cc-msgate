@@ -74,3 +74,37 @@ func TestRelayedTurnThatLosesTheAdoptionOfTheParentIsStillRelayed(t *testing.T) 
 		t.Errorf("request relay = %+v, want %+v", req.Relay, want)
 	}
 }
+
+// parentedProvider reads sessions like a provider that spawns sub-agents, but
+// cannot relay a prompt to them: relayChild has relayParent as its parent, and
+// relayParent is a session of its own.
+type parentedProvider struct{ sessionProvider }
+
+func (parentedProvider) Name() string { return "parentedprov" }
+func (parentedProvider) ReadSession(_ []string, id string) (provider.Session, bool, error) {
+	if id == relayChild {
+		return provider.Session{Cwd: "/", Parent: &provider.Parent{SessionID: relayParent, Address: "helper"}}, true, nil
+	}
+	return provider.Session{Cwd: "/"}, id == relayParent, nil
+}
+
+// A provider that cannot relay keeps a sub-agent session on its own route,
+// although the session reports a parent the provider reads.
+func TestRouteOfAChildSessionOfAProviderThatCannotRelayIsTheSessionItself(t *testing.T) {
+	prov := parentedProvider{}
+	child, _, err := prov.ReadSession(nil, relayChild)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := &Context{Env: []string{"MSGATE_HOME=" + t.TempDir()}}
+	st := store.Open(t.TempDir())
+
+	route, code := routeSession(ctx, st, parsedTurn{}, providerSession{prov: prov, reader: prov, id: relayChild, session: child})
+
+	if code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if route.id != relayChild || route.relay != nil || route.holder != nil {
+		t.Errorf("route = {id %s relay %+v holder %+v}, want the child itself with no relay and no holder", route.id, route.relay, route.holder)
+	}
+}
