@@ -15,9 +15,10 @@ export const ENTRIES_PER_REQUEST = 3
 export const WINDOW_ENTRIES = 10
 export const ENTRY_CHARS = 300
 export const LABEL_CHARS = 100
-// Across the session, so a busy session does not queue a call for every run.
+// For each provider, across the session, so a busy session does not queue a call
+// for every run.
 export const SESSION_IN_FLIGHT_MAX = 2
-// After the API answers 429 no request goes out for this long.
+// After a provider answers 429 no request goes out to it for this long.
 export const RATE_LIMIT_PAUSE_MS = 60000
 export const LABEL_MARK = '» '
 
@@ -102,9 +103,9 @@ export function isBilled(result) {
 }
 
 // summaryRecording is the record of one billed summary completion, made for a
-// run in the session that was running it.
-export function summaryRecording(usage, sessionId, runId) {
-  return { usage, sessionId, model: SUMMARY_MODEL, source: 'mod-summary', runId }
+// run in the session that was running it, under the model that answered.
+export function summaryRecording(usage, sessionId, runId, model = SUMMARY_MODEL) {
+  return { usage, sessionId, model, source: 'mod-summary', runId }
 }
 
 export function isRateLimited(result) {

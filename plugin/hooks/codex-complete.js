@@ -58,12 +58,13 @@ function pushFlag(argv, flag, value) {
 const hasTimeout = (request) => typeof request.timeoutMs === 'number' && request.timeoutMs > 0
 
 // completeCommand is `msgate complete` for a request and the call it belongs to:
-// { sessionId, source, callId, attrs }. The CLI takes a timeout in whole seconds.
+// { sessionId, runId?, source, callId, attrs }. The CLI takes a timeout in whole seconds.
 export function completeCommand(bin, request, call) {
   const argv = [bin, 'complete', '--provider', PROVIDER, '--json']
   pushFlag(argv, '--model', request.model)
   pushFlag(argv, '--effort', request.effort)
   pushFlag(argv, '--session-id', call.sessionId)
+  pushFlag(argv, '--run-id', call.runId)
   pushFlag(argv, '--source', call.source)
   pushFlag(argv, '--call-id', call.callId)
   for (const [key, value] of Object.entries(call.attrs)) argv.push('--attr', key + '=' + value)
@@ -119,8 +120,8 @@ function resultOf(reply) {
 
 // codexComplete makes one completion by Codex and gives it as `$.model.complete`
 // would: answered, empty-reply, api-error or aborted. `call` is { sessionId,
-// source, callId, attrs, signal }: the source and call id are the CLI's record
-// of the call, and the signal stops the process. It rejects only when the
+// runId?, source, callId, attrs, signal }: the run id, source and call id are
+// the CLI's record of the call, and the signal stops the process. It rejects only when the
 // process could not be run.
 export async function codexComplete(ports, request, call) {
   if (call.signal.aborted) return aborted()

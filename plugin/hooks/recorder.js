@@ -11,8 +11,6 @@ import {
   SUMMARY_EFFORT,
   SUMMARY_MODEL,
   SUMMARY_TIMEOUT_MS,
-  isBilled,
-  isRateLimited,
   wholeWithin,
 } from './summary.js'
 
@@ -22,8 +20,10 @@ export const RECORD_MAX_TOKENS = 120
 export const RECORD_WINDOW_ENTRIES = 24
 // How many entries a window waits for when nothing else is said.
 export const DEFAULT_RECORDED_EVERY = 8
-// The end of a run waits this long, in all, for the records it still owes.
+// The end of a run waits this long, in all, for the records it still owes: as
+// long as the slowest provider it waits on is allowed.
 export const FINISH_DEADLINE_MS = 15000
+export const CODEX_FINISH_DEADLINE_MS = 30000
 
 export const RECORD_SYSTEM = [
   'You write one entry of the history of a coding agent\'s run, from the newest activity of the agent.',
@@ -88,6 +88,29 @@ export function recordRequest(window) {
   }
 }
 
+const deadlineOf = (provider) => (provider === 'codex' ? CODEX_FINISH_DEADLINE_MS : FINISH_DEADLINE_MS)
+
+// createDeadline times the end of a run from `startedAt`. Each provider it waits
+// on can lengthen the wait, never shorten it, and `onExpire` runs when it is up.
+function createDeadline(ports, startedAt, onExpire) {
+  let allowed = 0
+  let timer
+  return {
+    async extend(provider) {
+      const ms = deadlineOf(provider)
+      if (ms <= allowed) return
+      allowed = ms
+      const left = ms - ((await ports.now()) - startedAt)
+      // A longer wait asked for during the await has the timer.
+      if (allowed !== ms) return
+      timer?.cancel()
+      timer = ports.after(Math.max(0, left), onExpire)
+    },
+    allowedMs: () => allowed,
+    cancel: () => timer?.cancel(),
+  }
+}
+
 // recordText is the block a record writes into a row's history: the numbers of
 // the first and last entry it covers, then the sentence.
 function recordText(from, to, sentence) {
@@ -98,11 +121,12 @@ function recordText(from, to, sentence) {
 // keeps the newest RECORD_WINDOW_ENTRIES not yet recorded and, once `every` of
 // them have accumulated, asks for a record of them. `every` is a whole number
 // up to that buffer, 8 when it is not; 0 never asks.
-// `limiter` is the session's, shared with the live summaries. `ports` serve the
+// `choice` is the session's model choice and limits, shared with the live
+// summaries. A call to Codex is stopped when the recorder is abandoned. `ports` serve the
 // requests add starts when the call names none; a follow that outlives the step
 // it was made in names the current step's with each add, as finish takes its own
 // for the ones it makes.
-export function createRecorder({ runId, every: asked, limiter, ports }) {
+export function createRecorder({ runId, every: asked, choice, ports }) {
   // A cadence beyond the buffer could never be reached.
   const every = wholeWithin(asked, 0, RECORD_WINDOW_ENTRIES, DEFAULT_RECORDED_EVERY)
   const settled = []
@@ -113,6 +137,24 @@ export function createRecorder({ runId, every: asked, limiter, ports }) {
   let inFlight = Promise.resolve()
   let isAbandoned = false
   let isFinishing = false
+  // The provider of the call in flight, and the deadline of a finish under way.
+  let provider = null
+  let deadline = null
+  const stop = new AbortController()
+
+  // abandon ends the recorder's interest in replies: none that comes later
+  // settles anything, and a call that can be stopped is.
+  function abandon() {
+    isAbandoned = true
+    stop.abort()
+  }
+
+  const isOver = (isAborted) => isAbandoned || isAborted()
+
+  function attempted(next) {
+    provider = next
+    return deadline?.extend(next)
+  }
 
   // add takes the progress lines a display has just read, oldest first. It
   // starts a request when one is due and never waits for it. Once finish has
@@ -132,37 +174,38 @@ export function createRecorder({ runId, every: asked, limiter, ports }) {
   // The checks that decide a start and the claim of a slot follow the last await.
   async function startIfDue(through) {
     if (!isDue()) return
+    const candidates = await through.candidates()
     const now = await through.now()
-    // A finish that began during the await starts the last window itself.
-    if (isFinishing || !isDue() || !limiter.tryTake(now)) return
+    // A finish that began during the awaits starts the last window itself.
+    if (isFinishing || !isDue()) return
 
-    start(through)
+    const lease = choice.take(candidates, now)
+    if (lease !== null) start(through, lease, candidates)
   }
 
-  // start sends everything unrecorded; the caller holds a slot of the limiter.
-  function start(through) {
+  // start sends everything unrecorded; the caller holds the leased slot, which
+  // the choice gives back.
+  function start(through, lease, candidates) {
     isInFlight = true
-    inFlight = settle(through, unrecorded.slice()).catch(() => {})
+    inFlight = settle(through, unrecorded.slice(), { lease, candidates }).catch(() => {})
     return inFlight
   }
 
-  async function settle(through, window) {
+  async function settle(through, window, held) {
+    const call = { runId, signal: stop.signal, candidates: held.candidates, onAttempt: attempted }
     let outcome
     try {
-      const result = await through.complete(recordRequest(window))
-      // Recorded whether or not the reply is a record, and never waited for.
-      if (isBilled(result)) void through.record(result.usage, runId).catch(() => {})
-      outcome = recordOutcome(result)
-      if (isRateLimited(result)) limiter.pause(await through.now())
+      outcome = recordOutcome(await choice.complete(through, held.lease, recordRequest(window), call))
     } catch (error) {
       outcome = { failure: 'the request failed: ' + String(error && error.message ? error.message : error) }
     } finally {
-      limiter.release()
       isInFlight = false
+      provider = null
     }
 
     if (outcome.sentence === undefined) {
-      logFailure(through, outcome.failure)
+      // A call that abandoning stopped has nothing to report.
+      if (!stop.signal.aborted) logFailure(through, outcome.failure)
       return
     }
 
@@ -182,66 +225,66 @@ export function createRecorder({ runId, every: asked, limiter, ports }) {
   }
 
   // finish is for a run that has ended. It waits for the request in flight and
-  // asks once for what is left, all under one deadline, and resolves to the
-  // records that settled. A stopped run records nothing. A port that throws
-  // ends the wait, not the run: the records that settled are still returned.
-  async function finish({ isAborted, ports }) {
+  // asks once for what is left, all under one deadline that the provider of the
+  // call it waits on sets, and resolves to the records that settled. A stopped
+  // run records nothing, and `signal`, when given, abandons the recorder as it
+  // aborts. A port that throws ends the wait, not the run: the records that
+  // settled are still returned.
+  async function finish({ isAborted, ports, signal }) {
     // The run has ended: no entry comes after, and none may start a request.
     isFinishing = true
     if (every === 0 || isAborted()) {
-      isAbandoned = true
+      abandon()
       return []
     }
 
-    let timer
+    signal?.addEventListener('abort', abandon, { once: true })
     try {
-      const expired = new Promise((resolve) => {
-        timer = ports.after(FINISH_DEADLINE_MS, () => {
-          isAbandoned = true
-          resolve(false)
-        })
-      })
-      const isDone = await Promise.race([drain(isAborted, ports), expired])
-      if (!isDone) logFailure(ports, 'the last window was not recorded within ' + FINISH_DEADLINE_MS + ' ms')
+      await waitForRecords(isAborted, ports)
     } catch (error) {
       logFailure(ports, 'the end of the run failed: ' + String(error && error.message ? error.message : error))
     } finally {
-      timer?.cancel()
+      deadline?.cancel()
+      signal?.removeEventListener('abort', abandon)
       // A reply that comes later settles nothing.
-      isAbandoned = true
+      abandon()
     }
 
     return isAborted() ? [] : settled.slice()
   }
 
+  async function waitForRecords(isAborted, ports) {
+    let expire
+    const expired = new Promise((resolve) => {
+      expire = resolve
+    })
+    deadline = createDeadline(ports, await ports.now(), () => {
+      abandon()
+      expire(false)
+    })
+    await deadline.extend(provider ?? 'anthropic')
+    const isDone = await Promise.race([drain(isAborted, ports), expired])
+    if (!isDone) logFailure(ports, 'the last window was not recorded within ' + deadline.allowedMs() + ' ms')
+  }
+
   async function drain(isAborted, ports) {
     for (;;) {
       while (isInFlight) await inFlight
-      if (isAbandoned || isAborted() || unrecorded.length === 0) return true
+      if (isOver(isAborted) || unrecorded.length === 0) return true
 
+      const candidates = await ports.candidates()
       const now = await ports.now()
-      if (isAbandoned || isAborted()) return true
-
-      // An add can have started a request during the await: look again.
+      // Nothing can take the request, or an add can have started one: look again.
+      if (isOver(isAborted) || candidates.length === 0) return true
       if (isInFlight) continue
-      if (limiter.tryTake(now)) break
-      await slotMayBeFree(now, ports)
+
+      const lease = choice.take(candidates, now)
+      if (lease !== null) {
+        await start(ports, lease, candidates)
+        return true
+      }
+      await choice.wait(candidates, now, ports)
     }
-
-    await start(ports)
-    return true
-  }
-
-  // slotMayBeFree waits for a slot to be released or for the pause to end,
-  // whichever is first; the deadline of finish cuts it short.
-  async function slotMayBeFree(now, ports) {
-    const pause = limiter.pausedFor(now)
-    let timer
-    const ended = new Promise((resolve) => {
-      timer = pause > 0 ? ports.after(pause, resolve) : undefined
-    })
-    await Promise.race([limiter.freed(), ended])
-    timer?.cancel()
   }
 
   return { add, finish, records: () => settled.slice() }
@@ -260,7 +303,7 @@ export async function finishOnStop({ recorder, runId, signal, ports }) {
     else signal.addEventListener('abort', onStop, { once: true })
   })
   try {
-    return await Promise.race([recorder.finish({ isAborted: () => signal.aborted, ports }), stopped])
+    return await Promise.race([recorder.finish({ isAborted: () => signal.aborted, ports, signal }), stopped])
   } catch (error) {
     ports.log('could not finish the record of run ' + runId + ': ' + String(error && error.message ? error.message : error))
     return []

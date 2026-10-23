@@ -2,13 +2,11 @@
 // it keeps each run's entries since its last request and asks for a label when
 // one is due. A display reads what it settled and never waits for a request.
 
-import { createLimiter } from './limiter.js'
+import { createSummaryChoice } from './summary-choice.js'
 import {
   ENTRIES_PER_REQUEST,
   WINDOW_ENTRIES,
-  isBilled,
   isDue,
-  isRateLimited,
   labelLine,
   newRun,
   newestEntries,
@@ -18,12 +16,13 @@ import {
 } from './summary.js'
 
 // createSummarizer is one load's summaries; `options` is the plugin's config
-// and `limiter` the session's request limit, shared with whatever else asks the
-// model. What it needs of the engine arrives as `ports`, because a hooks module
-// may not hand `$` to another module: surfaces(), now(), complete(request),
-// record(usage, runId), log(text) and labelSettled(runId), and optionally
-// isEnabled(), which overrides the summaries option.
-export function createSummarizer(options, limiter = createLimiter()) {
+// and `choice` the session's model choice and request limits, shared with the
+// recorded summaries. What it needs of the engine arrives as `ports`, because a
+// hooks module may not hand `$` to another module: surfaces(), now(),
+// candidates(), complete(request), completeCodex(request, call), record(usage,
+// runId, model), log(text) and labelSettled(runId), and optionally isEnabled(),
+// which overrides the summaries option.
+export function createSummarizer(options, choice = createSummaryChoice()) {
   const runs = new Map()
   // A cadence beyond the window could never be reached.
   const every = wholeWithin(options.liveEvery, 1, WINDOW_ENTRIES, ENTRIES_PER_REQUEST)
@@ -35,7 +34,7 @@ export function createSummarizer(options, limiter = createLimiter()) {
     if (!(await isAllowed(ports)) || (await ports.surfaces()).length === 0) return false
     let run = runs.get(runId)
     if (run === undefined) {
-      run = newRun()
+      run = { ...newRun(), controller: new AbortController() }
       runs.set(runId, run)
     }
     run.entries = newestEntries(run.entries.concat(lines))
@@ -51,31 +50,32 @@ export function createSummarizer(options, limiter = createLimiter()) {
   // so two runs cannot both take the last slot.
   async function startIfDue(ports, runId, run) {
     if (!isDue(run, every)) return
+    const candidates = await ports.candidates()
     const now = await ports.now()
-    if (!isDue(run, every) || !limiter.tryTake(now)) return
+    const lease = isDue(run, every) ? choice.take(candidates, now) : null
+    if (lease === null) return
 
     run.isInFlight = true
     run.hasRequested = true
     const sent = run.entries
     run.entries = []
-    run.settling = settle(ports, runId, run, sent).catch(() => {})
+    run.settling = settle(ports, runId, run, sent, { lease, candidates }).catch(() => {})
   }
 
-  async function settle(ports, runId, run, sent) {
+  // settle asks the choice for the label, which gives back the slot of `held`.
+  async function settle(ports, runId, run, sent, held) {
+    const call = { runId, signal: run.controller.signal, candidates: held.candidates }
     let outcome
     try {
-      const result = await ports.complete(summaryRequest(sent, run.label))
-      // Recorded whether or not the reply is a label, and never waited for.
-      if (isBilled(result)) void ports.record(result.usage, runId).catch(() => {})
-      outcome = outcomeOf(result)
-      if (isRateLimited(result)) limiter.pause(await ports.now())
+      outcome = outcomeOf(await choice.complete(ports, held.lease, summaryRequest(sent, run.label), call))
     } catch (error) {
       outcome = { failure: 'the request failed: ' + String(error && error.message ? error.message : error) }
     } finally {
-      limiter.release()
       run.isInFlight = false
     }
 
+    // A run that was forgotten has nobody to show a label or a failure to.
+    if (call.signal.aborted) return
     if (outcome.label !== undefined) {
       run.label = outcome.label
       run.isUnread = true
@@ -109,7 +109,9 @@ export function createSummarizer(options, limiter = createLimiter()) {
     return runs.get(runId)?.label ?? null
   }
 
+  // forget drops a run and stops the request in flight for it that can be stopped.
   function forget(runId) {
+    runs.get(runId)?.controller.abort()
     runs.delete(runId)
   }
 

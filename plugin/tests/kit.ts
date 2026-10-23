@@ -391,6 +391,8 @@ export function codex(slices: { kind: string; text: string }[][]) {
       }
       case 'status':
         return ok(JSON.stringify({ run_id: 'run-1', conversation_id: 'conv-1', state: 'done', outcome: 'ok', output_path: '/o' }))
+      case 'providers':
+        return ok(JSON.stringify({ providers: [], summary_models: [] }))
       default:
         return ok('Codex: done.')
     }

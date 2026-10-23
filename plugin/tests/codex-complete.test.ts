@@ -55,6 +55,19 @@ test('a codex call runs msgate complete with the model, effort, session, source,
   ])
 })
 
+test('a run id given to a codex call reaches msgate complete as --run-id, before the source', async () => {
+  const p = ports()
+
+  await ask(p, REQUEST, { ...CALL(), source: 'mod-summary', runId: 'run-7', callId: undefined, attrs: {} })
+
+  expect(p.seen.runs[0]!.argv).toEqual([
+    BIN, 'complete', '--provider', 'codex', '--json',
+    '--model', 'gpt-6-luna', '--effort', 'low',
+    '--session-id', 'sess-1', '--run-id', 'run-7', '--source', 'mod-summary',
+    '--timeout', '30',
+  ])
+})
+
 test('the system text and the prompt, its blocks joined, reach msgate complete on standard input as one user message', async () => {
   const p = ports()
 

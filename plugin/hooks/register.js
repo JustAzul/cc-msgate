@@ -79,7 +79,8 @@ import {
   refreshOutcome,
 } from './prices.js'
 import { BAND_REFRESH_MS, bandLine, flaggedRuns, followedRuns, labelled, withProgress } from './band.js'
-import { createLimiter } from './limiter.js'
+import { createAvailabilityCache, listingFor } from './availability.js'
+import { candidatesOf, createSummaryChoice } from './summary-choice.js'
 import { createRecorder, finishOnStop } from './recorder.js'
 import { summarySettings } from './settings.js'
 import { createSummarizer } from './summarizer.js'
@@ -87,7 +88,7 @@ import { backedTypeOf } from './backed.js'
 import { forgetEfforts, holdEffort, takeEffort } from './efforts.js'
 import { FOLLOW, admitSpawn, checkHiddenRow, endedText, followFailureText, hiddenRunIds, hiddenRunOf, isRewrittenPrompt, runIdOfPrompt, stoppedText } from './hidden.js'
 import { PROGRESS_SPEC, PROGRESS_TOOL, onProgressTool } from './progress.js'
-import { spawnRun } from './codex-complete.js'
+import { codexComplete, spawnRun } from './codex-complete.js'
 import { createService } from './service.js'
 import { createClaudeState } from './claude-state.js'
 import { INTERFACE, createModelsCache, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveModels, serveRun, serveVersion } from './iface.js'
@@ -202,14 +203,16 @@ let isNoticeFailureLogged = false
 let isSkippedRunLogged = false
 // Writes to the announced runs are read, changed and written back one at a time.
 let spawnWrites = Promise.resolve()
-// The requests this load's summaries may have out at once, live and recorded
-// alike, and the options the load was given.
-let limiter = createLimiter()
+// The model choice and the requests this load's summaries may have out at once
+// for each provider, live and recorded alike, the providers listing they choose
+// from, and the options the load was given.
+let summaryChoice = createSummaryChoice()
+let summaryListing = createAvailabilityCache()
 let loadOptions = {}
 // The notes on the options that this load has logged.
 const loggedNotes = new Set()
 // The progress summaries of this load, which the config of the load decides.
-let summaries = createSummarizer({}, limiter)
+let summaries = createSummarizer({}, summaryChoice)
 // The msgate.complete calls this load is serving.
 let service = createService()
 // What this load has told the cache of Claude's state.
@@ -222,9 +225,10 @@ let conversationWrites = Promise.resolve()
 
 export function register(on, options) {
   loadOptions = options ?? {}
-  limiter = createLimiter()
+  summaryChoice = createSummaryChoice()
+  summaryListing = createAvailabilityCache()
   loggedNotes.clear()
-  summaries = createSummarizer({ ...loadOptions, liveEvery: summarySettings({ options: loadOptions }).liveEvery }, limiter)
+  summaries = createSummarizer({ ...loadOptions, liveEvery: summarySettings({ options: loadOptions }).liveEvery }, summaryChoice)
   pendingRecordings.length = 0
   answeredTurns.clear()
   agentTypes.clear()
@@ -1225,8 +1229,10 @@ function summaryPorts($) {
     isEnabled: async () => (await summaryConfig($)).isEnabled,
     surfaces: () => $.session.surfaces(),
     now: () => $.clock.now(),
+    candidates: async () => candidatesOf(await listingFor($, summaryListing)),
     complete: (request) => completeAsClaude($, request),
-    record: (usage, runId) => recordSummary($, usage, runId),
+    completeCodex: (request, call) => completeAsCodex($, request, call),
+    record: (usage, runId, model) => recordSummary($, usage, runId, model),
     log: (text) => $.ui.log(text, { to: 'debug' }),
     labelSettled: (runId) => {
       if ([...turnAgents.values()].some((agent) => agent.runId === runId)) $.ui.invalidate('ui.render')
@@ -1276,16 +1282,23 @@ function codexPorts($) {
   return { bin: shimPath($.plugin.root), run: spawnRun((request) => $.process.spawn(request)) }
 }
 
+// completeAsCodex is a summary completion by Codex through `msgate complete`,
+// which records the call itself: `call` is { runId, signal }.
+async function completeAsCodex($, request, call) {
+  const sessionId = await $.session.id()
+  return codexComplete(codexPorts($), request, { sessionId, source: 'mod-summary', attrs: {}, runId: call.runId, signal: call.signal })
+}
+
 // recordSummary hands a billed summary call to `usage add`, for the session that
 // is running it now: the recording keeps that session, whatever a retry meets.
-async function recordSummary($, usage, runId) {
+async function recordSummary($, usage, runId, model) {
   let sessionId
   try {
     sessionId = await $.session.id()
   } catch (error) {
     return logRecordFailure($, messageOf(error))
   }
-  await recordCall($, summaryRecording(usage, sessionId, runId))
+  await recordCall($, summaryRecording(usage, sessionId, runId, model))
 }
 
 // recordCall hands a recording to `usage add`. It never throws; a recording that
@@ -1844,7 +1857,7 @@ function abandon($, recorder) {
 // are off, record nothing, or have no surface to draw on.
 async function recorderOf($, runId, config) {
   if (!config.isEnabled || config.recordedEvery === 0 || (await $.session.surfaces()).length === 0) return null
-  return createRecorder({ runId, every: config.recordedEvery, limiter })
+  return createRecorder({ runId, every: config.recordedEvery, choice: summaryChoice })
 }
 
 // finishRecords ends a follow's recorder, handing it the engine ports its last

@@ -2,8 +2,19 @@ import { expect, test } from 'claude-code/testing'
 import { cleanRecord, createRecorder, finishOnStop } from '../hooks/recorder.js'
 import { summarySettings } from '../hooks/settings.js'
 import { createSummarizer } from '../hooks/summarizer.js'
-import { createLimiter } from '../hooks/limiter.js'
+import { createSummaryChoice } from '../hooks/summary-choice.js'
 import { answered, apiError, emptyReply } from './kit'
+
+// The one candidate an empty ranking gives, and a choice that a 429 to Claude
+// has paused at time 0.
+const FALLBACK = { provider: 'anthropic', model: 'claude-haiku-5-5' }
+async function pausedChoice() {
+  const choice = createSummaryChoice()
+  const ports = { now: async () => 0, complete: async () => apiError(429), record: async () => {} }
+  const call = { runId: 'run-0', signal: new AbortController().signal, candidates: [FALLBACK] }
+  await choice.complete(ports, choice.take([FALLBACK], 0)!, {}, call)
+  return choice
+}
 
 // fakePorts is the engine beneath a recorder or a summarizer: every completion
 // waits until the test answers it, and no clock runs.
@@ -17,6 +28,7 @@ function fakePorts() {
   const ports = {
     surfaces: async () => ['terminal'],
     now: async () => now,
+    candidates: async () => [FALLBACK],
     complete: (request: unknown) => {
       requests.push(request)
       return new Promise((resolve, reject) => waiting.push({ resolve, reject }))
@@ -66,14 +78,14 @@ async function flush() {
 
 test('a live request in flight leaves one slot of the limiter the summarizer shares', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  const summarizer = createSummarizer({}, limiter)
+  const choice = createSummaryChoice()
+  const summarizer = createSummarizer({}, choice)
 
   await summarizer.observe(world.ports, 'run-1', ['e1'])
 
   expect(world.requests).toHaveLength(1)
-  expect(limiter.tryTake(0)).toBe(true)
-  expect(limiter.tryTake(0)).toBe(false)
+  expect(choice.take([FALLBACK], 0)).not.toBeNull()
+  expect(choice.take([FALLBACK], 0)).toBeNull()
 })
 
 test('the live summarizer asks again after the number of entries its options give', async () => {
@@ -91,14 +103,14 @@ test('the live summarizer asks again after the number of entries its options giv
 
 test('a 429 to a live summary pauses the limiter for a minute', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  const summarizer = createSummarizer({}, limiter)
+  const choice = createSummaryChoice()
+  const summarizer = createSummarizer({}, choice)
 
   await summarizer.observe(world.ports, 'run-1', ['e1'])
   await world.answer(apiError(429))
 
-  expect(limiter.tryTake(59999)).toBe(false)
-  expect(limiter.tryTake(60000)).toBe(true)
+  expect(choice.take([FALLBACK], 59999)).toBeNull()
+  expect(choice.take([FALLBACK], 60000)).not.toBeNull()
 })
 
 // A reply as a record.
@@ -172,7 +184,7 @@ const SYSTEM = [
 const entries = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => 'entry ' + (from + i))
 
 function recorderOf(world: ReturnType<typeof fakePorts>, over: Record<string, unknown> = {}) {
-  return createRecorder({ runId: 'run-1', every: 8, limiter: createLimiter(), ports: world.ports, ...over })
+  return createRecorder({ runId: 'run-1', every: 8, choice: createSummaryChoice(), ports: world.ports, ...over })
 }
 
 test('the recorder asks once eight entries have accumulated and not before, with the measured request', async () => {
@@ -237,9 +249,8 @@ test('a window of one entry prints its number once', async () => {
 
 test('a window carries the newest 24 unrecorded entries, and the older ones stay a gap', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  limiter.pause(0)
-  const recorder = recorderOf(world, { limiter })
+  const choice = await pausedChoice()
+  const recorder = recorderOf(world, { choice })
 
   recorder.add(entries(1, 31))
   await flush()
@@ -314,9 +325,9 @@ test('a window that failed is recorded by the next one, with the entries of both
 
 test('a 429 to a recorded request pauses the live summaries for a minute', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  const recorder = recorderOf(world, { limiter })
-  const summarizer = createSummarizer({}, limiter)
+  const choice = createSummaryChoice()
+  const recorder = recorderOf(world, { choice })
+  const summarizer = createSummarizer({}, choice)
 
   recorder.add(entries(1, 8))
   await flush()
@@ -331,9 +342,9 @@ test('a 429 to a recorded request pauses the live summaries for a minute', async
 
 test('a 429 to a live summary pauses the recorder for a minute', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  const summarizer = createSummarizer({}, limiter)
-  const recorder = recorderOf(world, { limiter })
+  const choice = createSummaryChoice()
+  const summarizer = createSummarizer({}, choice)
+  const recorder = recorderOf(world, { choice })
 
   await summarizer.observe(world.ports, 'run-2', ['e1'])
   await world.answer(apiError(429))
@@ -349,9 +360,9 @@ test('a 429 to a live summary pauses the recorder for a minute', async () => {
 
 test('a recorded request in flight takes one of the two slots the live summaries share', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  const summarizer = createSummarizer({}, limiter)
-  const recorder = recorderOf(world, { limiter })
+  const choice = createSummaryChoice()
+  const summarizer = createSummarizer({}, choice)
+  const recorder = recorderOf(world, { choice })
 
   recorder.add(entries(1, 8))
   await flush()
@@ -363,9 +374,9 @@ test('a recorded request in flight takes one of the two slots the live summaries
 
 test('a request the limiter refuses is made at the next add, with the entries since', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  const summarizer = createSummarizer({}, limiter)
-  const recorder = recorderOf(world, { limiter })
+  const choice = createSummaryChoice()
+  const summarizer = createSummarizer({}, choice)
+  const recorder = recorderOf(world, { choice })
 
   await summarizer.observe(world.ports, 'run-2', ['e1'])
   await summarizer.observe(world.ports, 'run-3', ['e1'])
@@ -564,9 +575,9 @@ test('finish of a run stopped while it waits resolves to no record and asks for 
 
 test('finish waits for a slot of the limiter and asks as soon as one frees', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  const summarizer = createSummarizer({}, limiter)
-  const recorder = recorderOf(world, { limiter })
+  const choice = createSummaryChoice()
+  const summarizer = createSummarizer({}, choice)
+  const recorder = recorderOf(world, { choice })
 
   await summarizer.observe(world.ports, 'run-2', ['e1'])
   await summarizer.observe(world.ports, 'run-3', ['e1'])
@@ -585,9 +596,8 @@ test('finish waits for a slot of the limiter and asks as soon as one frees', asy
 
 test('finish waits for a pause of the limiter that ends before the deadline', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  limiter.pause(0)
-  const recorder = recorderOf(world, { limiter })
+  const choice = await pausedChoice()
+  const recorder = recorderOf(world, { choice })
 
   world.advance(50000)
   recorder.add(entries(1, 3))
@@ -605,9 +615,8 @@ test('finish waits for a pause of the limiter that ends before the deadline', as
 
 test('finish skips the final request when the limiter never frees, with one line in the log', async () => {
   const world = fakePorts()
-  const limiter = createLimiter()
-  limiter.pause(0)
-  const recorder = recorderOf(world, { limiter })
+  const choice = await pausedChoice()
+  const recorder = recorderOf(world, { choice })
 
   recorder.add(entries(1, 3))
   const end = ending(recorder, world)
@@ -823,7 +832,7 @@ test('a request that was about to start when a stopped run finished is not made'
   let clockReads = 0
   let release!: (now: number) => void
   const slowClock = { ...world.ports, now: () => (++clockReads === 1 ? new Promise<number>((resolve) => (release = resolve)) : Promise.resolve(0)) }
-  const recorder = createRecorder({ runId: 'run-1', every: 8, limiter: createLimiter(), ports: slowClock })
+  const recorder = createRecorder({ runId: 'run-1', every: 8, choice: createSummaryChoice(), ports: slowClock })
 
   recorder.add(entries(1, 8))
   expect(await recorder.finish({ isAborted: () => true, ports: slowClock })).toEqual([])
@@ -838,7 +847,7 @@ test('a clock that fails when a window is due is logged once, and the next add a
   const world = fakePorts()
   let isBroken = true
   const clock = { ...world.ports, now: () => (isBroken ? Promise.reject(new Error('the clock is gone')) : Promise.resolve(0)) }
-  const recorder = createRecorder({ runId: 'run-1', every: 8, limiter: createLimiter(), ports: clock })
+  const recorder = createRecorder({ runId: 'run-1', every: 8, choice: createSummaryChoice(), ports: clock })
 
   recorder.add(entries(1, 8))
   await flush()
