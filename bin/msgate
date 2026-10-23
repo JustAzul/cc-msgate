@@ -1,0 +1,45 @@
+#!/bin/sh
+# msgate plugin shim: runs the static binary for this platform from ../libexec.
+# Only this file sits in bin/, so it is the only thing that lands on PATH.
+
+self=$0
+case $self in
+  */*) ;;
+  *) self=$(command -v "$self") || self=$0 ;;
+esac
+while [ -h "$self" ]; do
+  link=$(readlink "$self") || break
+  case $link in
+    /*) self=$link ;;
+    *) self=${self%/*}/$link ;;
+  esac
+done
+dir=${self%/*}
+dir=$(cd -P "$dir" 2>/dev/null && pwd -P) || {
+  echo "msgate: cannot resolve the location of $0" >&2
+  exit 70
+}
+
+sys=$(uname -s)
+mach=$(uname -m)
+case $sys in
+  Linux) os=linux ;;
+  Darwin) os=darwin ;;
+  *) os= ;;
+esac
+case $mach in
+  x86_64 | amd64) arch=amd64 ;;
+  aarch64 | arm64) arch=arm64 ;;
+  *) arch= ;;
+esac
+if [ -z "$os" ] || [ -z "$arch" ]; then
+  echo "msgate: unsupported platform $sys/$mach; supported: linux/amd64 linux/arm64 darwin/amd64 darwin/arm64" >&2
+  exit 70
+fi
+
+bin=$dir/../libexec/msgate-$os-$arch
+if [ ! -x "$bin" ]; then
+  echo "msgate: missing binary $bin" >&2
+  exit 70
+fi
+exec "$bin" "$@"

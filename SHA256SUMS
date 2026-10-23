@@ -1,0 +1,4 @@
+5b05760109c7f45346f3d697f31b2fe1c0b61fb3da47008defd6f62c51f0af65  libexec/msgate-linux-amd64
+590babaf2643cfc3af7ace79361cfa42a453e8669c3b5f6b972a0ec0b571297a  libexec/msgate-linux-arm64
+dacb25c77dd2f11cd6edba6a177115d59302c2958cfed5be1d698bed7e359082  libexec/msgate-darwin-amd64
+f0338a1dcf797c32fc59b072ee153567899751cc747bb5770773a599fe18c78d  libexec/msgate-darwin-arm64
