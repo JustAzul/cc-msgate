@@ -52,6 +52,8 @@ CLI itself.
 - [Purposes and settings](#purposes-and-settings)
 - [Telemetry](#telemetry)
 - [Cost](#cost)
+- [Provider health](#provider-health)
+- [One-off completions](#one-off-completions)
 - [Inside Claude Code](#inside-claude-code)
 - [Rows the engine answers](#rows-the-engine-answers)
 - [For plugin authors: the msgate interface](#for-plugin-authors-the-msgate-interface)
@@ -244,6 +246,8 @@ The commands:
 | `progress` | prints what a run's provider has done so far |
 | `prompt` | prints the prompt a run was started with, byte for byte |
 | `models` | prints the models a provider offers, as the provider lists them |
+| `providers` | shows which providers can take work now; `providers refresh` checks them, `providers mark` marks one down |
+| `complete` | answers one request from Codex, with no conversation and no run |
 | `runs` | prints the folded telemetry runs as JSONL |
 | `annotate` | attaches attributes to a finished run's telemetry |
 | `stats` | summarizes telemetry: volume, durations, usage and cost, and runs by purpose and origin |
@@ -390,6 +394,40 @@ as `flag`. Without `--effort` it changes nothing. `send` reuses the defaults of
 its conversation and their sources; a conversation recorded before the sandbox
 default existed, with no sandbox, continues read-only with source `default`.
 
+### Harness levels
+
+`--harness <full|lean|bare>` sets how much of the provider's own instructions,
+skills and tools a run keeps. `exec`, `send` and `review` take it. Without it a
+new conversation runs at `full`, which changes nothing: the provider runs as it
+would on its own.
+
+| Level | What a Codex run keeps |
+|---|---|
+| `full` | everything Codex adds on its own |
+| `lean` | Codex's base instructions are replaced by one line (`Follow the user's instructions. Be concise.`), and the skills catalog, the collaboration-mode instructions, the apps and plugins notes and the multi-agent role are off. The shell and editing tools stay. |
+| `bare` | `lean`, with the environment note, the shell tool, the other optional tools (browser, computer use, image viewing and generation, web search), hooks and every MCP server Codex would start for the run also off |
+
+Measured on Codex 0.162.1, in an empty directory, with the prompt "Say OK", a
+`lean` run sent 7,469 input tokens and a `bare` run 2,938.
+
+```sh
+msgate exec --purpose label --harness lean --prompt-file brief.md
+msgate send "$run" --harness bare "Now answer in one word."
+```
+
+- **The level is a conversation default.** `exec` and `review` store it, and
+  `send` runs at the stored level; a conversation with none runs at `full`.
+  `--harness` on `send` applies to that turn only and does not change the
+  stored level.
+- **A review needs the provider's tools.** `review --harness bare` exits 2;
+  `lean` runs.
+- **A level the provider does not run exits 2** as an unsupported capability.
+  Codex runs all three.
+- **Native flags cannot undo a level.** At `lean` and `bare`, a `-c` override
+  of a key the level sets, or a `--enable` or `--disable` of a feature it sets,
+  passed after `--` is refused with exit 2, like the other reserved flags. At
+  `full` the level sets nothing, so nothing is refused for it.
+
 ## Telemetry
 
 Each run appends one record to `telemetry/YYYY-MM.jsonl` under the home, one
@@ -417,7 +455,8 @@ Records, `status --json`, `eta --json` and the `runs` export name the field
 A model call made outside a run, such as one of the mod's progress summaries,
 appends a `model_call` record instead: provider, model, source, session id,
 the run it was about and its token usage. `msgate usage add` writes it;
-runs and their counts never include it.
+runs and their counts never include it. `msgate complete` writes one for its
+own call (see [One-off completions](#one-off-completions)).
 
 `usage add` also takes `--call-id <id>`, the call's own id (a call recorded
 twice under one id counts once), `--attr <key>=<value>`, repeatable, for an
@@ -507,8 +546,9 @@ msgate stats --session-id "$CLAUDE_CODE_SESSION_ID" --all --json | jq .usage_by_
   prompt caching does. Anthropic reports the writes it made, so a model call
   is priced exactly as reported.
 - `usage_totals` is what the runs cost. `usage_by_provider` splits it per
-  provider and adds the model calls (`anthropic`), each with its own
-  `cost_usd`. `model_calls_by_source` counts the model calls of each source
+  provider and adds the model calls under the provider that answered them
+  (`anthropic`, or `codex` for a call made with `msgate complete`), each with its
+  own `cost_usd`. `model_calls_by_source` counts the model calls of each source
   (`mod-summary`, `mod:<plugin>`) with their tokens and `cost_usd`; a call id
   recorded twice counts once.
 - Costs are exact (no floating point) and rounded once: 6 decimals in JSON,
@@ -521,6 +561,156 @@ msgate stats --session-id "$CLAUDE_CODE_SESSION_ID" --all --json | jq .usage_by_
 - `MSGATE_PRICES_URL` points the refresh at another copy of the list;
   `MSGATE_PRICES_URL=off` stops it from going to the network at all.
 
+## Provider health
+
+`msgate providers` says whether each provider can take work now. It knows
+`codex` and `anthropic` (Claude). It answers at once from a cache and never
+waits for a check:
+
+```sh
+msgate providers
+msgate providers --json
+```
+
+```
+anthropic: available, check 2026-10-23T14:02:11Z
+codex: unavailable (rate-limited) until 2026-10-23T18:00:00Z, check 2026-10-23T14:02:11Z
+summary codex/gpt-6-luna: $0.000412 per call, estimated
+```
+
+With `--json` it prints one object:
+- `providers` holds, per provider, `provider`, `available`, `reason`,
+  `checked_at`, `resets_at`, `source` and, when a check could not run, `skipped`.
+  `source` is `check`, `mark` or `none`. A provider with no cached entry reads as
+  available, with `source` `none` and `checked_at` null.
+- `summary_models` is the ranking described [below](#the-summary-ranking).
+
+The reasons a provider is unavailable are `not-installed`, `not-logged-in`,
+`rate-limited`, `quota-exhausted` and `provider-outage`. An available provider
+carries the reason `unknown` when none of its checks could run.
+
+### The cache
+
+The cache is `providers.json` in the msgate home. An entry goes stale after 5
+minutes when the provider is available and after 1 minute when it is not. Any
+stale or missing entry starts one detached `msgate providers refresh`, whose
+report goes to a log in the home; a mark with a `resets_at` in the future stays
+fresh until then.
+
+`msgate providers refresh` checks every provider at once, writes the cache and
+recomputes the summary ranking. It prints `providers: refreshed (<n> checked)`.
+When another refresh is running it prints `providers: another refresh is running`
+and exits 0. A check never replaces a mark whose `resets_at` is still in the
+future.
+
+What a check looks at:
+- **Codex:** the binary on the `PATH` (`not-installed`); `codex login status`
+  (`not-logged-in`); the account's rate-limit windows, read through the Codex app
+  server (`rate-limited`, with the time the used-up windows reset); and OpenAI's
+  status page (`provider-outage`, on a major outage of a component that serves
+  Codex). The first layer that fails decides. A layer that could not run is passed
+  over and named in `skipped`; when none could run, Codex is available with the
+  reason `unknown`.
+- **Claude:** Anthropic's status page only (`provider-outage`); with the page
+  unreadable or switched off, Claude is available with the reason `unknown`. The
+  plugin marks Claude down from its own rate-limit windows (see
+  [Claude's state](#claudes-state)).
+
+`MSGATE_STATUS_URL_OPENAI` and `MSGATE_STATUS_URL_ANTHROPIC` point the status
+page check at another source, and `off` switches it off, as `MSGATE_PRICES_URL`
+does for the price list. A check that is switched off is not listed in `skipped`.
+
+### Marking a provider down
+
+```sh
+msgate providers mark codex --reason rate-limited --until 2026-10-23T18:00:00Z
+```
+
+`providers mark <provider> --reason <reason> [--until <RFC 3339>]` writes the
+provider as unavailable, with the source `mark`, and prints
+`providers: <provider> marked unavailable (<reason>)`. `--reason` is one of
+`not-installed`, `not-logged-in`, `rate-limited`, `quota-exhausted` and
+`provider-outage`. Without `--until` the mark lasts until the next check, which
+is a minute; with it, until that time. An unknown provider, a reason outside the
+list or a time that is not RFC 3339 exits 2.
+
+A run that fails, and a `complete` that ends in an API error, mark their provider
+down when the provider classes the error text as authentication (`not-logged-in`),
+quota (`quota-exhausted`) or rate limit (`rate-limited`), without `--until`. Any
+other failure marks nothing. A mark that cannot be written is a warning.
+
+### The summary ranking
+
+`summary_models` lists the models that can write a summary, cheapest first, each
+as `{ provider, model, cost_usd, basis, calls }`: the cost of one summary call at
+the list prices of [Cost](#cost). The `basis` is `measured` when `cost_usd` is
+the mean of the model's own summary calls recorded in the last 30 days (`calls`
+counts them), and `estimated` when it has none and a typical call is priced
+instead. Codex models come from its catalog and Claude models from the price
+table; a model with no price is left out.
+
+Only `providers refresh` computes the ranking. `providers` prints what is stored,
+so it is `[]` before the first refresh. When a refresh finds no usable price
+table it leaves the stored ranking as it was.
+
+## One-off completions
+
+`msgate complete` asks Codex one question and prints the answer. It creates no
+conversation and no run, and writes one model-call record.
+
+```sh
+echo '{"system": "Answer in one word.", "messages": [{"role": "user", "text": "Is 7 prime?"}]}' |
+  msgate complete --provider codex --model gpt-6-luna --effort low --source my-hook
+```
+
+The request is a JSON object on standard input:
+- `system` is optional text that replaces the instructions of the call; without
+  it the call runs on the one-line instructions of the `lean` and `bare` levels
+  (see [Harness levels](#harness-levels)).
+- `messages` is a list of `{ "role": "user" | "assistant", "text": "<text>" }`,
+  each with non-empty text, ending on a `user` message. A single message is sent
+  as it is; several are sent as a transcript with a `User:` or `Assistant:` label
+  on each.
+
+A request that is not one such object exits 2.
+
+The flags are `--provider codex` (the default and the only value), `--model`,
+`--effort`, `--session-id` (default `$CLAUDE_CODE_SESSION_ID`), `--run-id`,
+`--source` (default `cli`), `--call-id`, `--attr <key>=<value>`, repeatable,
+`--timeout <seconds>` and `--json`. `--session-id`, `--run-id`, `--source`,
+`--call-id` and `--attr` are recorded as for [`usage add`](#telemetry); a call
+that names no model records `provider-default`.
+
+The call runs Codex at the `bare` level, ephemeral and read-only, in the
+directory `oneshot` of the msgate home.
+
+The answer goes to standard output. With `--json` it is one object:
+
+```json
+{"outcome": "answered", "text": "Yes.", "model": "gpt-6-luna",
+ "usage": {"input_tokens": 2950, "cached_input_tokens": 2432, "output_tokens": 4, "reasoning_output_tokens": 0}}
+```
+
+- `outcome` is `answered`, `empty-reply` (Codex ended well and said nothing) or
+  `api-error`.
+- `failure` is present only for an `api-error`: `auth`, `quota`, `rate-limit` or
+  `other`.
+- `usage` is what Codex reported for the call, all zeros when it reported none.
+
+The exit code is:
+
+| Code | Meaning |
+|---|---|
+| 0 | `answered` or `empty-reply` |
+| the provider's own | `api-error` |
+| 2 | usage error |
+| 70 | internal error, or an answer that cannot be read or printed |
+| 124 | `--timeout` ended the call |
+| 127 | the Codex binary was not found |
+| 130 | the call was cancelled (SIGINT or SIGTERM) |
+
+The call is recorded whenever Codex reported usage for it, an API error included.
+
 ## Inside Claude Code
 
 The plugin adds a mod. It has no skill and no agent type of its own; for those,
@@ -531,12 +721,13 @@ Claude wants to run directly; the third is internal:
 
 | Tool | Does |
 |---|---|
-| `mcp__msgate__run` | starts a job: `prompt` (required), and optionally `conversation_id`, `purpose`, `provider`, `model`, `effort`, `sandbox`, `cwd` |
+| `mcp__msgate__run` | starts a job: `prompt` (required), and optionally `conversation_id`, `purpose`, `provider`, `model`, `effort`, `sandbox`, `harness`, `cwd` |
 | `mcp__msgate__jobs` | `action` is `list`, `status`, `result` or `cancel`; `run_id` names the run for the last three |
 | `mcp__msgate__progress` | takes no arguments and returns nothing: the marker that ends a step of an agent row, which Claude never calls |
 
 `run` without a `conversation_id` starts a conversation (`exec`); with one it
-continues that conversation (`send`). The id may also be a Codex thread id that
+continues that conversation (`send`). Its `harness` is a
+[harness level](#harness-levels). The id may also be a Codex thread id that
 msgate did not start (see [Continuing a Codex thread msgate did not start](#continuing-a-codex-thread-msgate-did-not-start)).
 It returns at once with
 `{conversation_id, run_id, continued}`, `continued` being true when it continued
@@ -595,10 +786,12 @@ runs, and not those that have a [hidden row](#hidden-rows). Only you see the
 band: nothing about the run enters the conversation, and the caller that started
 it delivers its result.
 
-The summaries come from `claude-haiku-5-5` at low effort: the mod sends a run's
-newest entries, each cut to 300 characters, to the Anthropic API through the
-session's own sign-in. An **entry** is one item of a run's progress: a command
-the provider ran, a message, a reasoning step. (A **step**, below, is a request
+The summaries come from the cheapest model that can write one (see
+[Which model writes a summary](#which-model-writes-a-summary)), at low effort:
+the mod sends a run's newest entries, each cut to 300 characters, to Claude
+through the session's own sign-in or to Codex through `msgate complete`. An
+**entry** is one item of a run's progress: a command the provider ran, a
+message, a reasoning step. (A **step**, below, is a request
 Claude Code makes to an agent row within a turn.) There are two kinds, each with
 its own interval, and the plugin's `liveSummaryEvery` and `recordedSummaryEvery`
 options set them:
@@ -612,7 +805,8 @@ options set them:
   (`» 1–8: Read the worker and ran its tests.`), asked once eight entries have
   gathered (`recordedSummaryEvery`, from 1 to 24; `0` asks none), with every
   entry not yet recorded in its window, and once more, at the end of the run,
-  for the entries left over (waiting at most 15 seconds). The sentences are
+  for the entries left over (waiting at most 15 seconds for a Claude call and
+  30 for a Codex one). The sentences are
   stored in the history of the row that follows the run, an agent row or a
   [hidden row](#hidden-rows). A sentence whose request fails is missing, and the
   next one covers what was left. Nothing of them is in the report that returns
@@ -628,11 +822,14 @@ and adds nothing of its own to a row: it shows only what the provider emits
 `msgate · <type>` line and no elapsed-time line, and nothing for reasoning the
 provider encrypts. While summaries are on, no raw entry shows in a row or the
 band: a summary that fails leaves the last one in place, and before a run's
-first summary its band line ends after the cost.
+first summary its band line ends after the cost. The one exception is a band
+line while no provider can write a summary (see
+[Which model writes a summary](#which-model-writes-a-summary)).
 
 While the turn of a row the engine answers runs, the mod sets the row's
-spinner message to the newest summary, or to `msgate · <type>` until there is
-one, unless Claude Code has already set a message of its own there.
+spinner message to the newest summary, or its random word while no provider can
+write one, or to `msgate · <type>` until there is one, unless Claude Code has
+already set a message of its own there.
 
 Whenever a run of the session starts, whoever started it (an agent row, the
 tools, a hook, the CLI), the mod shows a toast and writes one line in the
@@ -662,6 +859,45 @@ no price). Both are estimates at API list prices. The mod refreshes the price
 cache when the session starts (at most once a day) and whenever the
 conversation is compacted. `/msgate-jobs` lists the session's jobs at once,
 even while Claude is working.
+
+### Which model writes a summary
+
+Live and recorded summaries take the first model of the
+[summary ranking](#the-summary-ranking) whose provider is available, at low
+effort. The mod reads the ranking and each provider's state from
+`msgate providers --json` and holds them for 5 minutes, or for 1 minute while a
+provider is down. A ranking that is empty or cannot be read leaves one
+candidate, `claude-haiku-5-5`.
+- **Slots.** Claude and Codex each have 2 summary requests in flight at once,
+  shared by the live and the recorded summaries.
+- **A refusal for rate limit.** A 429 pauses that provider alone, for a minute,
+  and the request goes once to the cheapest candidate of the other provider.
+- **Codex.** A Codex summary runs as `msgate complete --source mod-summary`,
+  which records the call; a Claude summary is recorded by the mod with the same
+  source.
+- **The end of a run.** The recorder waits up to 15 seconds for a Claude call
+  and up to 30 for a Codex one.
+- **No provider available.** When every candidate's provider is paused or
+  marked down, no model is asked; a provider whose slots are only busy is
+  waited for. A live summary that is due is then a random word
+  (`» Pondering…`), shown in the spinner and the thinking line only: the band
+  shows the run's newest raw entry instead, and no step of a row's history ends
+  on a word. A recorded window is spent as its newest message, else its newest
+  command (`» 9–16: $ go test ./...`), and a window of reasoning alone records
+  nothing; at the end of a run the recorder writes it at once instead of
+  waiting.
+
+### Claude's state
+
+Claude has no check of the CLI's own beyond its status page, so the plugin tells
+the [cache](#the-cache) what it sees. Before each Claude completion the mod
+makes, at most once a minute, it reads the session's rate-limit windows. When a
+`five_hour`, `seven_day` or `spend_limit` window is full, it runs
+`msgate providers mark anthropic --reason rate-limited --until <time>`, with the
+window's reset or one minute from now, whichever comes first, and renews the
+mark at the next look while a window stays full. A window limited to one model
+does not count. A completion Claude refuses with a 429 marks `anthropic` down
+without `--until`, so until the next check.
 
 ## Rows the engine answers
 
@@ -831,19 +1067,32 @@ Resolves to the engine's release version string, for example `"1.0.0"`.
 
 Makes a model completion for the caller and records it, so its cost shows in
 `stats` next to the runs.
-- `request` is a `$.model.complete` request, passed through unchanged (cache
-  marks and timeout included). The answer is that call's reply, unchanged.
+- `request` is a `$.model.complete` request. For Claude it is passed through
+  unchanged (cache marks and timeout included). The answer is that call's reply,
+  unchanged.
 - `meta` is `{ contract, callId, provider?, attrs? }`. `contract` must be `1`.
   `callId` is the caller's own id for the call (letters, digits and `:._-`,
   starting with a letter or digit, at most 200 characters). `provider`, when
-  given, must be `anthropic`. `attrs` is an object of strings; the engine keeps
+  given, must be `anthropic` (the default) or `codex`. `attrs` is an object of strings; the engine keeps
   at most 16 whose key is 1 to 32 characters of `a-z` and `_` and whose value
   has at most 200 characters, and drops the rest without refusing the call.
 - The model is called once per call: no retry, and a `callId` already being
   served is refused.
-- After a billed reply the call is recorded without being awaited, as a
+- With `provider: 'codex'` the call is answered by `msgate complete` (see
+  [One-off completions](#one-off-completions)). Only a text request goes: a text
+  `prompt` and, optionally, a text `system` (a string, or a list of text blocks
+  joined with nothing between them), with `model`, `effort` and `timeoutMs`
+  honoured (`timeoutMs` is rounded up to whole seconds; with none, the call ends
+  after 600 seconds). Cache marks and `maxTokens` are ignored. A request with tools, images or
+  a block that is not text is refused with `msgate:pre-model:request`. The reply
+  has the same arms as for Claude: answered, `empty-reply`, `api-error` and
+  `aborted`. An `api-error` carries the status 429 for a rate-limit failure and
+  the kind `rate_limit`, `authentication_failed` or `billing_error` for a
+  rate-limit, auth or quota one.
+- After a billed Claude reply the call is recorded without being awaited, as a
   best-effort model-call record with the source `mod:<calling plugin>`, the
-  caller's `callId` and attrs.
+  caller's `callId` and attrs. A Codex call is recorded by the CLI with the same
+  source, `callId` and attrs, so it is not recorded twice.
 - Refusals are `msgate:pre-model:<why>` when the model was not called and can
   no longer be (`contract`, `call-id`, `unsupported-provider`, `request`,
   `duplicate`, `cancelled`, `abandoned-<kind>`, `re-entry`), and
@@ -853,7 +1102,7 @@ Makes a model completion for the caller and records it, so its cost shows in
   that reaches the interface's own body because no hook answered it throws
   `msgate:unserved`.
 
-### `backType({ type, command, promptMode, model?, effort?, sandbox?, purpose?, stepped? })`
+### `backType({ type, command, promptMode, model?, effort?, sandbox?, harness?, purpose?, stepped? })`
 
 Marks the caller's agent type `<caller>:<type>` as backed, so the engine answers
 its rows (see [Rows the engine answers](#rows-the-engine-answers)). It resolves
@@ -870,6 +1119,9 @@ full type takes the caller's name.
   data: the engine passes them to the run as flags with the settings source
   `profile`. An `effort` in the Agent call that spawns a row replaces the
   profile's for that row.
+- `harness` is an optional [harness level](#harness-levels), `full`, `lean` or
+  `bare`, that the type's runs carry, recorded as the conversation's default. A
+  `follow` type takes none, and a `review` type cannot be `bare`.
 - `purpose` is optional non-empty text: the purpose the type's runs are
   recorded with (`--purpose`), the type's own name when it is left out. It sets
   nothing else, as for any purpose.
@@ -877,19 +1129,22 @@ full type takes the caller's name.
   followed [in steps](#rows-the-engine-answers); left out or `false`, a row is
   followed in one step.
 - Anything else is refused with `msgate:backType:<field>`, naming the field
-  (`type`, `command`, `promptMode`, `model`, `effort`, `sandbox`, `purpose` or
-  `stepped`).
+  (`type`, `command`, `promptMode`, `model`, `effort`, `sandbox`, `harness`,
+  `purpose` or `stepped`).
 - The backed types live in the engine's session state, keyed by full type, so an
   engine reload keeps them. A later call for the same type replaces its data.
   A plugin calls `backType` at every session start.
 
-### `run({ prompt, conversation_id?, purpose?, provider?, model?, effort?, sandbox?, cwd? })`
+### `run({ prompt, conversation_id?, purpose?, provider?, model?, effort?, sandbox?, harness?, cwd? })`
 
 Admits a job like the `run` tool and resolves
 `{ conversation_id, run_id, continued }`. As in the tool, `conversation_id` in
 the call may be a Codex thread id that msgate did not start. The run's source is
 `plugin:<caller>`. The engine does not deliver its result to Claude and adds no
-delivery-queue entry: the caller reads the result with `jobs`.
+delivery-queue entry: the caller reads the result with `jobs`. `harness` is a
+[harness level](#harness-levels): it sets the default of a new conversation, and
+on a continued one it applies to that turn only. Left out, the stored level
+applies.
 
 ### `jobs({ action, run_id? })`
 
@@ -901,16 +1156,30 @@ runs of Claude or of another plugin.
 
 ### `models({ provider? })`
 
-Resolves `{ provider, models: [{ id, name, visibility }] }`: the catalog
-`msgate models --json` prints for the provider, which is `codex` when none is
-named, in the provider's order and unfiltered. Any plugin can call it.
+Resolves `{ provider, models: [{ id, name, visibility }], available, reason?,
+checked_at? }`: the catalog `msgate models --json` prints for the provider, which
+is `codex` when none is named, in the provider's order and unfiltered, and
+whether the provider can take work. Any plugin can call it.
+- `available` and `checked_at` (an RFC 3339 instant) come from
+  `msgate providers --json` (see [Provider health](#provider-health)). A
+  provider that is unavailable answers `models: []` with the `reason` and the
+  `checked_at` of the check, and its catalog is not read. When the listing cannot
+  be read, does not name the provider or has no check time, the provider counts as
+  available and `checked_at` is left out.
+- A provider whose binary is not installed answers `models: []`, `available:
+  false`, `reason: "not-installed"` and the current time as `checked_at`, instead
+  of a refusal.
 - The engine reads a catalog once per load for each provider asked for and
   keeps it, since the read can take up to 10 seconds. A read that failed is not
-  kept: the next call makes it again.
+  kept: the next call makes it again. The provider's availability is held for 5
+  minutes, or 1 minute while any provider is down.
 - It is refused with `msgate:models:failed` when `provider` is given and is not
-  non-empty text, when the binary fails (a provider CLI that is not installed
-  included), and when what it prints is not a catalog (`id` must be non-empty
-  text, `name` and `visibility` text). The reason goes to the debug log.
+  non-empty text, when the binary fails for any reason but a missing provider
+  CLI, and when what it prints is not a catalog (`id` must be non-empty text,
+  `name` and `visibility` text). The reason goes to the debug log.
+- A consumer that keeps the first answer it gets per load now has an empty list
+  for the load when Codex was down at load time, and with it no per-model types
+  for that load. It should ask again once `available` is true.
 
 ### `flaggedRuns()`
 
@@ -999,6 +1268,8 @@ msgate prune --older-than 14      # remove finished runs that ended over 14 days
 | `MSGATE_NO_PRUNE` | `1` stops the daily automatic prune |
 | `MSGATE_RETENTION_DAYS` | how old a finished run must be to be pruned (default 30) |
 | `MSGATE_PRICES_URL` | another copy of the price list; `off` never goes to the network |
+| `MSGATE_STATUS_URL_OPENAI` | another source for the OpenAI status page that the Codex health check reads; `off` never goes to the network (see [Provider health](#provider-health)) |
+| `MSGATE_STATUS_URL_ANTHROPIC` | the same for the Anthropic status page that decides Claude's health |
 | `MSGATE_SUMMARIES` | the mod's summaries: `0` off, `1` on where there is a screen; it wins over the `summaries` option, and any other value leaves the option in force |
 | `MSGATE_ROW_MODE` | read by the mod at each spawn of a hidden row. Empty or unset: no override. `auto`: the spawn is refused (see [Hidden rows](#hidden-rows)). Any other value is accepted and refuses nothing, and one that is not the name of a permission mode (`default`, `acceptEdits`, `bypassPermissions`, `plan`, `dontAsk`, `auto`; exact spelling) adds a note to the debug log |
 | `MSGATE_TEST_*` | switches for the test suites; not for use |
@@ -1018,11 +1289,11 @@ No `AGENTCLI_*` variable is read.
 | 5 | `wait` reached its own `--timeout` (the run keeps going), or `result --report` on an unfinished run |
 | 6 | conversation not resumable yet |
 | 7 | `prices refresh` could not get the price list (the cache is kept) |
-| 70 | internal error, or a job whose worker never started |
-| 124 | the run hit `--timeout` |
+| 70 | internal error, a job whose worker never started, or a `complete` answer that cannot be read or printed |
+| 124 | the run or the `complete` call hit `--timeout` |
 | 125 | the run was lost (its worker died) |
 | 127 | provider CLI not found, or the launcher found no installed `msgate` plugin |
-| 130 | cancelled by `msgate cancel` |
+| 130 | cancelled by `msgate cancel`, or a `complete` call that got SIGINT or SIGTERM |
 | 128+n | stopped by signal n |
 
 With `--json`, every exit path prints exactly one JSON object with
@@ -1045,8 +1316,11 @@ with a usage error.
   row's session, which Claude Code keeps on disk.
 - A plugin using the interface sees only the runs it started.
 - With summaries on, the mod sends a run's newest entries, cut short, to the
-  Anthropic API (see [Inside Claude Code](#inside-claude-code)); the
+  Anthropic API or to Codex, whichever is the cheaper available (see
+  [Which model writes a summary](#which-model-writes-a-summary)); the
   `summaries` option and `MSGATE_SUMMARIES=0` turn that off.
+- `msgate complete` runs Codex bare, ephemeral and read-only, in a directory of
+  its own in the msgate home.
 
 ## How it is built
 
