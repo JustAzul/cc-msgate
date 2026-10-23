@@ -36,26 +36,35 @@ function ports(over: Record<string, unknown> = {}) {
   return p
 }
 
-test('a window at 100 percent marks anthropic rate-limited until its reset', async () => {
+test('a full seven_day window resetting days ahead marks anthropic rate-limited for one check only', async () => {
   const p = ports()
-  p.limits = [{ kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 3 * 3_600_000) }]
+  p.limits = [{ kind: 'seven_day', percentUsed: 100, resetsAt: iso(T0 + 3 * 24 * 3_600_000) }]
 
   await createClaudeState().look(p)
 
-  expect(p.seen.argvs).toEqual([[BIN, 'providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', iso(T0 + 3 * 3_600_000)]])
+  expect(p.seen.argvs).toEqual([[BIN, 'providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', iso(T0 + MINUTE)]])
 })
 
-test('with several windows at 100 percent the latest reset is the mark, and a window below 100 is left out', async () => {
+test('a five_hour window resetting within the check is marked until its reset', async () => {
+  const p = ports()
+  p.limits = [{ kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 30_000) }]
+
+  await createClaudeState().look(p)
+
+  expect(p.seen.argvs).toEqual([[BIN, 'providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', iso(T0 + 30_000)]])
+})
+
+test('with several windows at 100 percent the latest reset bounds the mark, and a window below 100 is left out', async () => {
   const p = ports()
   p.limits = [
-    { kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 1 * 3_600_000) },
-    { kind: 'seven_day', percentUsed: 100, resetsAt: iso(T0 + 50 * 3_600_000) },
+    { kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 10_000) },
+    { kind: 'seven_day', percentUsed: 100, resetsAt: iso(T0 + 40_000) },
     { kind: 'spend_limit', percentUsed: 99.5, resetsAt: iso(T0 + 90 * 3_600_000) },
   ]
 
   await createClaudeState().look(p)
 
-  expect(p.seen.argvs).toEqual([[BIN, 'providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', iso(T0 + 50 * 3_600_000)]])
+  expect(p.seen.argvs).toEqual([[BIN, 'providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', iso(T0 + 40_000)]])
 })
 
 test('no window at 100 percent marks nothing', async () => {
@@ -67,18 +76,54 @@ test('no window at 100 percent marks nothing', async () => {
   expect(p.seen.argvs).toEqual([])
 })
 
-test('the same mark is not written again while it is in force, however often the session looks', async () => {
+test('a second due look a minute later, with the window still full, writes a renewed mark', async () => {
   const p = ports()
   const state = createClaudeState()
-  p.limits = [{ kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 3 * 3_600_000) }]
+  p.limits = [{ kind: 'seven_day', percentUsed: 100, resetsAt: iso(T0 + 3 * 24 * 3_600_000) }]
 
   await state.look(p)
-  p.clock = T0 + 2 * MINUTE
+  p.clock = T0 + MINUTE
   await state.look(p)
-  p.clock = T0 + 90 * MINUTE
+
+  expect(p.seen.argvs.map((argv) => argv.at(-1))).toEqual([iso(T0 + MINUTE), iso(T0 + 2 * MINUTE)])
+})
+
+test('a due look after the window drops below 100 percent writes nothing, and the mark is left to lapse', async () => {
+  const p = ports()
+  const state = createClaudeState()
+  p.limits = [{ kind: 'seven_day', percentUsed: 100, resetsAt: iso(T0 + 3 * 24 * 3_600_000) }]
+
+  await state.look(p)
+  p.clock = T0 + MINUTE
+  p.limits = [{ kind: 'seven_day', percentUsed: 60, resetsAt: iso(T0 + 3 * 24 * 3_600_000) }]
   await state.look(p)
 
   expect(p.seen.argvs).toHaveLength(1)
+})
+
+test('a window of a kind that is not counted, such as seven_day_opus, marks nothing at 100 percent', async () => {
+  const p = ports()
+  p.limits = [
+    { kind: 'five_hour', percentUsed: 40, resetsAt: iso(T0 + 3_600_000) },
+    { kind: 'seven_day', percentUsed: 70, resetsAt: iso(T0 + 3 * 24 * 3_600_000) },
+    { kind: 'seven_day_opus', percentUsed: 100, resetsAt: iso(T0 + 3 * 24 * 3_600_000) },
+  ]
+
+  await createClaudeState().look(p)
+
+  expect(p.seen.argvs).toEqual([])
+})
+
+test('a look whose window resets before a refusal mark runs out writes nothing over it', async () => {
+  const p = ports()
+  const state = createClaudeState()
+
+  await state.refused(p, apiError(429))
+  p.clock = T0 + 10_000
+  p.limits = [{ kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 20_000) }]
+  await state.look(p)
+
+  expect(p.seen.argvs).toEqual([PLAIN_MARK])
 })
 
 test('the session looks at its windows at most once a minute', async () => {
@@ -104,7 +149,7 @@ test('a window at 100 percent whose reset has passed marks nothing', async () =>
   expect(p.seen.argvs).toEqual([])
 })
 
-test('a window at 100 percent with no reset is marked without a time, and again a minute later', async () => {
+test('a window at 100 percent with no reset is marked for one check, and again a minute later', async () => {
   const p = ports()
   const state = createClaudeState()
   p.limits = [{ kind: 'spend_limit', percentUsed: 120 }]
@@ -113,8 +158,7 @@ test('a window at 100 percent with no reset is marked without a time, and again 
   p.clock = T0 + MINUTE
   await state.look(p)
 
-  const plain = [BIN, 'providers', 'mark', 'anthropic', '--reason', 'rate-limited']
-  expect(p.seen.argvs).toEqual([plain, plain])
+  expect(p.seen.argvs.map((argv) => argv.at(-1))).toEqual([iso(T0 + MINUTE), iso(T0 + 2 * MINUTE)])
 })
 
 test('after the mark has run out, a window still at 100 percent marks again', async () => {
@@ -127,7 +171,7 @@ test('after the mark has run out, a window still at 100 percent marks again', as
   p.limits = [{ kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 5 * 3_600_000) }]
   await state.look(p)
 
-  expect(p.seen.argvs.map((argv) => argv.at(-1))).toEqual([iso(T0 + 2 * MINUTE), iso(T0 + 5 * 3_600_000)])
+  expect(p.seen.argvs.map((argv) => argv.at(-1))).toEqual([iso(T0 + MINUTE), iso(T0 + 4 * MINUTE)])
 })
 
 // A completion refused for want of rate-limit room marks Claude down until the next check.
@@ -181,7 +225,7 @@ test('a run of refusals writes one mark a minute, and none while a mark with a t
   p.clock = T0 + 2 * MINUTE
   p.limits = [{ kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 3 * 3_600_000) }]
   await state.look(p)
-  p.clock = T0 + 3 * MINUTE
+  p.clock = T0 + 3 * MINUTE - 1
   await state.refused(p, apiError(429))
   expect(p.seen.argvs).toHaveLength(3)
 })
@@ -221,8 +265,6 @@ test('a mark that failed is not held as written: the next look writes it once th
   p.reply = { exitCode: 0, stdout: '', stderr: '' }
   p.clock = T0 + MINUTE
   await state.look(p)
-  p.clock = T0 + 2 * MINUTE
-  await state.look(p)
 
   expect(p.seen.argvs).toHaveLength(2)
 })
@@ -255,7 +297,7 @@ test('every mark is run with the command timeout, so a caller waits no longer th
 
 // Two writers at once: a look at the windows and a refused completion.
 
-const TIMED_MARK = [BIN, 'providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', iso(T0 + 3 * 3_600_000)]
+const TIMED_MARK = [BIN, 'providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', iso(T0 + MINUTE)]
 
 // slow is a command that takes a while to finish, so that a second writer
 // starting meanwhile overlaps with it.
@@ -279,15 +321,17 @@ test('a look at 100 percent and a 429 refusal started together leave the timed m
   expect(p.seen.argvs).toEqual([TIMED_MARK])
 })
 
-test('a refusal mark written first is replaced by the timed mark of a look started with it', async () => {
+test('a refusal mark written first is replaced by the timed mark of a look whose window time is later', async () => {
   const p = ports()
   p.run = slow(p)
   p.limits = FULL_WINDOW
+  const times = [T0, T0 + 30_000]
+  p.now = async () => times.shift() as number
   const state = createClaudeState()
 
   await Promise.all([state.refused(p, apiError(429)), state.look(p)])
 
-  expect(p.seen.argvs.at(-1)).toEqual(TIMED_MARK)
+  expect(p.seen.argvs.at(-1)).toEqual([...TIMED_MARK.slice(0, -1), iso(T0 + 30_000 + MINUTE)])
   expect(p.seen.argvs.filter((argv) => !argv.includes('--until')).length).toBeLessThanOrEqual(1)
 })
 
@@ -311,7 +355,7 @@ test('marks are written one at a time, in the order the writers started', async 
   expect(most).toBe(1)
 })
 
-test('a timed mark that could not be replaced still holds: a refusal does not write an untimed one over it', async () => {
+test('a mark that could not be renewed makes a refusal wait for the next check instead of writing an untimed one', async () => {
   const p = ports()
   const state = createClaudeState()
   p.limits = FULL_WINDOW
@@ -321,7 +365,7 @@ test('a timed mark that could not be replaced still holds: a refusal does not wr
   p.limits = [{ kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 5 * 3_600_000) }]
   p.reply = new Error('spawn failed')
   await state.look(p)
-  p.clock = T0 + 2 * MINUTE
+  p.clock = T0 + MINUTE + 30_000
   p.reply = { exitCode: 0, stdout: '', stderr: '' }
   await state.refused(p, apiError(429))
 

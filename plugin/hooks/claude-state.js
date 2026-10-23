@@ -19,14 +19,17 @@ export function markCommand(bin, untilMs) {
 
 // A mark with no time holds until the next check, which is a minute.
 const CHECK_MS = 60000
+// The windows that say Claude is out of room: one limited to a model leaves
+// the others answering.
+const COUNTED_KINDS = ['five_hour', 'seven_day', 'spend_limit']
 
-// exhausted tells the windows at 100 percent: { isFull } when none is, else
-// { isFull, until } with the latest reset among them in milliseconds, absent
-// when none of them says when.
+// exhausted tells the counted windows at 100 percent: { isFull } when none is,
+// else { isFull, reset } with the latest reset among them in milliseconds,
+// absent when none of them says when.
 function exhausted(rateLimits) {
-  const full = rateLimits.filter((limit) => limit.percentUsed >= FULL)
+  const full = rateLimits.filter((limit) => COUNTED_KINDS.includes(limit.kind) && limit.percentUsed >= FULL)
   const resets = full.map((limit) => Date.parse(limit.resetsAt)).filter(Number.isFinite)
-  return { isFull: full.length > 0, until: resets.length === 0 ? undefined : Math.max(...resets) }
+  return { isFull: full.length > 0, reset: resets.length === 0 ? undefined : Math.max(...resets) }
 }
 
 // isRateLimited tells a completion the API refused with a 429 or the kind
@@ -77,7 +80,7 @@ export function createClaudeState() {
   }
 
   // look reads the session's rate-limit windows, at most once a minute, and
-  // marks Claude down when one is at 100 percent and no mark already holds.
+  // marks Claude down for a minute when one is at 100 percent.
   function look(ports) {
     return inTurn(() => lookNow(ports))
   }
@@ -92,16 +95,18 @@ export function createClaudeState() {
     } catch (error) {
       return logFailure(ports, messageOf(error))
     }
-    if (!isMarkDue(windows, now)) return
-    const { until } = windows
-    await write(ports, markCommand(ports.bin, until), now, until ?? now + CHECK_MS)
+    const until = markUntil(windows, now)
+    if (until === null) return
+    await write(ports, markCommand(ports.bin, until), now, until)
   }
 
-  // isMarkDue tells full windows that call for a mark: they have not reset
-  // yet, and no mark in force already holds as long.
-  function isMarkDue({ isFull, until }, now) {
-    if (!isFull || (until !== undefined && until <= now)) return false
-    return now >= markedUntil || (until !== undefined && until > markedUntil)
+  // markUntil tells until when full windows call for a mark, null when none
+  // does: they have not reset yet, and no mark in force already holds as long.
+  // A mark holds for one check at most, so that it lapses once the windows empty.
+  function markUntil({ isFull, reset }, now) {
+    if (!isFull || (reset !== undefined && reset <= now)) return null
+    const until = Math.min(reset ?? Infinity, now + CHECK_MS)
+    return now >= markedUntil || until > markedUntil ? until : null
   }
 
   // refused marks Claude down, until the next check, when a completion came

@@ -47,7 +47,7 @@ test('a summary refused for another reason marks nothing', LIVE_ONLY, async ($, 
   expect(marks(w)).toEqual([])
 })
 
-test('a window at 100 percent is marked before the summary request goes out, with its reset', LIVE_ONLY, async ($, on) => {
+test('a window at 100 percent is marked before the summary request goes out, for one check', LIVE_ONLY, async ($, on) => {
   reportWindows(on, [{ kind: 'five_hour', percentUsed: 100, resetsAt: RESET }])
   const w = await summarise($, on)
   const order: string[] = []
@@ -61,9 +61,11 @@ test('a window at 100 percent is marked before the summary request goes out, wit
     return answered('Reading auth.go')
   }
 
+  const at = await w.clock.now()
+
   await step($, 'ag-1')
 
-  expect(marks(w).map((r) => r.argv.slice(1))).toEqual([['providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', RESET]])
+  expect(marks(w).map((r) => r.argv.slice(1))).toEqual([['providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', new Date(at + 60_000).toISOString()]])
   expect(order).toEqual(['mark', 'model'])
 })
 
