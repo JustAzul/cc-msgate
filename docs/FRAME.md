@@ -634,6 +634,15 @@ agentcli · spawned <scenario> · trigger <source> · finished in 3s
     (exit 0). When unset, `debug models` prints an error and exits 1.
   - `FAKECODEX_MCP_LIST`: path of a JSON file printed as-is by `codex mcp list --json`
     (exit 0). When unset, it prints `[]`. It records nothing.
+  - `FAKECODEX_LOGIN_EXIT`: the exit code of `codex login status` (0 when unset; it
+    prints "Logged in using ChatGPT" on 0, "Not logged in" to stderr otherwise).
+  - `FAKECODEX_RATE_LIMITS`: path of a JSON file served as the `result` of the
+    `account/rateLimits/read` reply of `codex app-server` (stdio, one JSON object
+    per line; it answers `initialize` too and ignores notifications). When unset
+    it answers that request with a JSON-RPC error; a file that is not JSON is
+    sent as it is. The fake exits when its stdin closes.
+  - `FAKECODEX_SLEEP_MS` also delays `login status` before it exits and
+    `app-server` before its first reply.
 - Every e2e sandbox sets `AGENTCLI_PRICES_URL=off` unless the test sets it to the
   URL of an `httptest` server on 127.0.0.1 that serves a fixture price list
   (`testdata/prices/`).

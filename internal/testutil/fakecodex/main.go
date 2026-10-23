@@ -42,7 +42,26 @@ func dispatch() int {
 	if len(os.Args) == 4 && os.Args[1] == "mcp" && os.Args[2] == "list" && os.Args[3] == "--json" {
 		return mcpList()
 	}
+	if len(os.Args) == 3 && os.Args[1] == "login" && os.Args[2] == "status" {
+		return loginStatus()
+	}
+	if len(os.Args) == 2 && os.Args[1] == "app-server" {
+		return appServer()
+	}
 	return run()
+}
+
+// loginStatus is `codex login status`: after FAKECODEX_SLEEP_MS it exits with
+// the code FAKECODEX_LOGIN_EXIT names, 0 when unset. It never reads stdin.
+func loginStatus() int {
+	sleepFor("FAKECODEX_SLEEP_MS")
+	code, _ := strconv.Atoi(os.Getenv("FAKECODEX_LOGIN_EXIT"))
+	if code == 0 {
+		fmt.Println("Logged in using ChatGPT")
+	} else {
+		fmt.Fprintln(os.Stderr, "Not logged in")
+	}
+	return code
 }
 
 func run() int {
