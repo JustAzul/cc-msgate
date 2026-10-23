@@ -1,0 +1,1 @@
+You hit your spend cap set by the owner of your workspace. Ask an owner to increase your spend cap to continue.

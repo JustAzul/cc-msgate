@@ -24,7 +24,8 @@ func buildJob(ctx *Context, st *store.Store, prov provider.Provider, req request
 		Timeout:  timeout,
 		Shutdown: runner.ShutdownFromEnv(ctx.Getenv),
 		Warn:     func(msg string) { ctx.Warnf("%s", msg) }, Now: ctx.Now,
-		Record: telemetryRecord(req, state.Background),
+		Record:    telemetryRecord(req, state.Background),
+		OnFailure: markOnFailure(st, prov, ctx.Now, func(msg string) { ctx.Warnf("%s", msg) }),
 	}
 }
 

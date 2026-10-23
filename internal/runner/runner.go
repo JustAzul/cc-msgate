@@ -47,6 +47,10 @@ type Job struct {
 	// DefaultShutdown.
 	Shutdown Shutdown
 
+	// OnFailure, when set, is called with the error excerpt of a run that ends
+	// failed, after the run is settled. It has no say in the run's outcome.
+	OnFailure func(excerpt string)
+
 	// Record carries the telemetry fields known before the run starts; the
 	// runner fills in the rest and appends it when the run is terminal.
 	Record telemetry.Record
@@ -644,6 +648,9 @@ func (j *Job) finish(st store.State, o outcome) Result {
 		j.Warn(fmt.Sprintf("could not clear the conversation's active run: %v", err))
 	}
 	j.appendTelemetry(st, label, excerpt, o)
+	if state == "failed" && j.OnFailure != nil {
+		j.OnFailure(excerpt)
+	}
 	return Result{State: st, ProviderExit: o.providerExit, ExitCode: exit, SDKStatus: o.sdkStatus, Usage: o.usage}
 }
 

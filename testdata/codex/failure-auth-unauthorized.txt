@@ -1,0 +1,1 @@
+unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: 0000000000000000-AAA, request id: req_00000000000000000000000000000000
