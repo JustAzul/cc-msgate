@@ -28,10 +28,25 @@ type ProviderEntry struct {
 	Skipped []string `json:"skipped,omitempty"`
 }
 
-// ProviderCache is the content of the provider cache file.
+// SummaryModel is one model of the summary ranking: what one summary call of
+// it costs in US dollars, and whether that cost is "measured" over Calls
+// recorded summary calls or "estimated" over a typical call.
+type SummaryModel struct {
+	Provider string  `json:"provider"`
+	Model    string  `json:"model"`
+	CostUSD  float64 `json:"cost_usd"`
+	Basis    string  `json:"basis"`
+	Calls    int64   `json:"calls"`
+}
+
+// ProviderCache is the content of the provider cache file. SummaryModels is
+// the ranking of the models by the cost of a summary call, cheapest first,
+// as it stood at RankedAt; it is empty until a refresh has ranked.
 type ProviderCache struct {
-	Version   int                      `json:"version"`
-	Providers map[string]ProviderEntry `json:"providers"`
+	Version       int                      `json:"version"`
+	Providers     map[string]ProviderEntry `json:"providers"`
+	SummaryModels []SummaryModel           `json:"summary_models"`
+	RankedAt      *time.Time               `json:"ranked_at,omitempty"`
 }
 
 func (s *Store) providersPath() string { return filepath.Join(s.Home, "providers.json") }
@@ -75,7 +90,7 @@ func (s *Store) LockProvidersRefresh() (func(), error) {
 // a version 1 cache, is an empty cache; only a file that cannot be read is an
 // error.
 func (s *Store) ReadProviders() (ProviderCache, error) {
-	empty := ProviderCache{Version: providersVersion, Providers: map[string]ProviderEntry{}}
+	empty := ProviderCache{Version: providersVersion, Providers: map[string]ProviderEntry{}, SummaryModels: []SummaryModel{}}
 	data, err := os.ReadFile(s.providersPath())
 	if errors.Is(err, os.ErrNotExist) {
 		return empty, nil
@@ -89,6 +104,9 @@ func (s *Store) ReadProviders() (ProviderCache, error) {
 	}
 	if cache.Providers == nil {
 		cache.Providers = map[string]ProviderEntry{}
+	}
+	if cache.SummaryModels == nil {
+		cache.SummaryModels = []SummaryModel{}
 	}
 	return cache, nil
 }

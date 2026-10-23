@@ -69,7 +69,13 @@ func runProvidersRefresh(ctx *Context, args []string) int {
 
 	checked := checkAll(ctx)
 	now := ctx.Now()
-	if err := st.UpdateProviders(func(c *store.ProviderCache) { c.Providers = mergedEntries(c.Providers, checked, now) }); err != nil {
+	ranking, ranked := rankSummaryModels(ctx, st, home, now)
+	if err := st.UpdateProviders(func(c *store.ProviderCache) {
+		c.Providers = mergedEntries(c.Providers, checked, now)
+		if ranked {
+			c.SummaryModels, c.RankedAt = ranking, &now
+		}
+	}); err != nil {
 		refreshLog(ctx, "failed")
 		return ctx.Fail(ExitInternal, "writing the provider cache: %v", err)
 	}

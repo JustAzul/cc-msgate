@@ -55,8 +55,8 @@ type providerView struct {
 // providersAnswer is what `providers --json` prints.
 type providersAnswer struct {
 	Providers []providerView `json:"providers"`
-	// SummaryModels is the cost ranking, which a later change fills.
-	SummaryModels []struct{} `json:"summary_models"`
+	// SummaryModels is the stored cost ranking, cheapest first.
+	SummaryModels []store.SummaryModel `json:"summary_models"`
 }
 
 // runProvidersShow answers at once from the cache. A provider with no entry
@@ -94,10 +94,13 @@ func runProvidersShow(ctx *Context, args []string) int {
 		startRefresh(ctx, st)
 	}
 	if ctx.JSON {
-		return printJSON(ctx, providersAnswer{Providers: views, SummaryModels: []struct{}{}})
+		return printJSON(ctx, providersAnswer{Providers: views, SummaryModels: cache.SummaryModels})
 	}
 	for _, v := range views {
 		fmt.Fprintln(ctx.Stdout, viewLine(v))
+	}
+	for _, m := range cache.SummaryModels {
+		fmt.Fprintln(ctx.Stdout, summaryLine(m))
 	}
 	return ExitOK
 }
@@ -138,6 +141,15 @@ func viewLine(v providerView) string {
 		return line + ", not checked yet"
 	}
 	return fmt.Sprintf("%s, %s %s", line, v.Source, v.CheckedAt.UTC().Format(time.RFC3339))
+}
+
+// summaryLine is one ranked model as a line of text.
+func summaryLine(m store.SummaryModel) string {
+	line := fmt.Sprintf("summary %s/%s: $%.6f per call, %s", m.Provider, m.Model, m.CostUSD, m.Basis)
+	if m.Calls > 0 {
+		line += fmt.Sprintf(" over %s", plural(int(m.Calls), "call"))
+	}
+	return line
 }
 
 // startRefresh starts one detached `msgate providers refresh` in its own
