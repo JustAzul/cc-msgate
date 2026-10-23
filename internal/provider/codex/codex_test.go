@@ -141,6 +141,22 @@ func TestBuildPlanNeverEphemeral(t *testing.T) {
 	}
 }
 
+func TestBuildPlanEphemeralLeavesNoSessionAndSkipsTheRepoCheckEverywhere(t *testing.T) {
+	for name, cwd := range map[string]string{"outside a repository": t.TempDir(), "inside a repository": gitDir(t)} {
+		t.Run(name, func(t *testing.T) {
+			plan, err := codex.New().BuildPlan(provider.Request{Command: "exec", Cwd: cwd, OutputPath: "/o", Ephemeral: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, flag := range []string{"--ephemeral", "--skip-git-repo-check"} {
+				if n := strings.Count(strings.Join(plan.Argv, " "), flag); n != 1 {
+					t.Errorf("%s appears %d times in %q, want once", flag, n, plan.Argv)
+				}
+			}
+		})
+	}
+}
+
 func TestCapabilities(t *testing.T) {
 	c := codex.New().Capabilities()
 	if !c.Supports("exec") || !c.SupportsSandbox("read-only") || !c.SupportsSandbox("workspace-write") || c.SupportsSandbox("danger-full-access") {

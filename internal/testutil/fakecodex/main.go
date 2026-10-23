@@ -169,8 +169,22 @@ func record(path string, stdin []byte) {
 	}
 	data, _ := json.Marshal(map[string]any{
 		"argv": os.Args, "stdin": string(stdin), "env": env, "cwd": cwd,
+		"pid": os.Getpid(), "instructions": instructionsText(),
 	})
 	_ = os.WriteFile(path, data, 0o600)
+}
+
+// instructionsText is what the file named by a model_instructions_file override
+// holds right now, or "" when there is no such override or file. It is read at
+// the call, because the caller may remove the file once the call is over.
+func instructionsText() string {
+	for _, arg := range os.Args[1:] {
+		if path, ok := strings.CutPrefix(arg, "model_instructions_file="); ok {
+			text, _ := os.ReadFile(path)
+			return string(text)
+		}
+	}
+	return ""
 }
 
 // spawnChild starts a sleeping grandchild in this process's group, detached

@@ -504,39 +504,56 @@ type streamResult struct {
 // provider session id as soon as it is seen and appends what the provider
 // does to the run's progress file.
 func (j *Job) consume(r io.Reader, st store.State) streamResult {
-	var res streamResult
 	progress := j.openProgress(st.RunID)
 	if progress != nil {
 		defer progress.Close()
 	}
+	return readStream(r, j.Provider, func(ev provider.Event, newSession bool) {
+		if newSession {
+			j.persistSession(st.ConversationID, ev.SessionID)
+		}
+		if ev.Progress != nil && progress != nil {
+			j.appendProgress(progress, ev.Progress)
+		}
+	})
+}
+
+// readStream parses r line by line with prov and folds what the events reveal
+// into the result. seen is called with each parsed event once it is folded in,
+// and with whether the event revealed a session id not seen before.
+func readStream(r io.Reader, prov provider.Provider, seen func(ev provider.Event, newSession bool)) streamResult {
+	var res streamResult
 	br := bufio.NewReader(r)
 	for {
 		line, err := br.ReadBytes('\n')
 		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
-			ev, ok := j.Provider.ParseEvent(trimmed)
-			switch {
-			case !ok:
+			ev, ok := prov.ParseEvent(trimmed)
+			if !ok {
 				res.unparsed++
-			default:
-				if ev.SessionID != "" && ev.SessionID != res.sessionID {
-					res.sessionID = ev.SessionID
-					j.persistSession(st.ConversationID, res.sessionID)
-				}
-				if ev.Usage != nil {
-					res.usage = ev.Usage
-				}
-				if ev.ErrorMsg != "" {
-					res.lastError = ev.ErrorMsg
-				}
-				if ev.Progress != nil && progress != nil {
-					j.appendProgress(progress, ev.Progress)
-				}
+			} else {
+				seen(ev, res.fold(ev))
 			}
 		}
 		if err != nil {
 			return res
 		}
 	}
+}
+
+// fold takes in what ev reveals and reports whether that is a session id not
+// seen before.
+func (res *streamResult) fold(ev provider.Event) (newSession bool) {
+	if ev.SessionID != "" && ev.SessionID != res.sessionID {
+		res.sessionID = ev.SessionID
+		newSession = true
+	}
+	if ev.Usage != nil {
+		res.usage = ev.Usage
+	}
+	if ev.ErrorMsg != "" {
+		res.lastError = ev.ErrorMsg
+	}
+	return newSession
 }
 
 // openProgress opens the run's progress file, or returns nil when it cannot:

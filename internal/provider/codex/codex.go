@@ -119,9 +119,7 @@ func (adapter) BuildPlan(req provider.Request) (provider.Plan, error) {
 	}
 	argv = append(argv, configArgs(levelSettings)...)
 	argv = append(argv, "--json", "-o", req.OutputPath)
-	if !insideGitWorkTree(req.Cwd) {
-		argv = append(argv, "--skip-git-repo-check")
-	}
+	argv = append(argv, sessionFlags(req)...)
 	argv = append(argv, req.Passthrough...)
 	argv = append(argv, tail...)
 	return provider.Plan{
@@ -131,6 +129,20 @@ func (adapter) BuildPlan(req provider.Request) (provider.Plan, error) {
 		EnvAdd:    map[string]string{},
 		EnvRemove: []string{},
 	}, nil
+}
+
+// sessionFlags are the flags that say where the turn runs and whether it keeps
+// a session: an ephemeral turn keeps none and skips the repository check
+// wherever it runs, any other skips it outside a git work tree.
+func sessionFlags(req provider.Request) []string {
+	var flags []string
+	if req.Ephemeral {
+		flags = append(flags, "--ephemeral")
+	}
+	if req.Ephemeral || !insideGitWorkTree(req.Cwd) {
+		flags = append(flags, "--skip-git-repo-check")
+	}
+	return flags
 }
 
 // planTail is the part of the argv that follows the shared flags, and what

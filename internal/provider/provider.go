@@ -109,6 +109,9 @@ type Request struct {
 	// Env is the environment the planned process runs under; a provider reads
 	// its own configuration through it when a plan depends on that.
 	Env []string
+	// Ephemeral asks for a turn that leaves no session behind and runs where no
+	// repository is expected, such as a scratch directory.
+	Ephemeral bool
 }
 
 // Plan is how to start the provider process.

@@ -207,6 +207,10 @@ type fakeRecord struct {
 	Stdin string            `json:"stdin"`
 	Env   map[string]string `json:"env"`
 	Cwd   string            `json:"cwd"`
+	// Pid is the fake's process id; it leads its own process group.
+	Pid int `json:"pid"`
+	// Instructions is what the model_instructions_file named held at the call.
+	Instructions string `json:"instructions"`
 }
 
 func readRecord(t *testing.T, path string) fakeRecord {
