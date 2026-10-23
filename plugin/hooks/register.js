@@ -1747,6 +1747,7 @@ async function* watchSlice($, follow, signal, window) {
   if (step.isDone || signal.aborted) return { records: await finishFollow($, follow) }
 
   labels.push(...(await followLabels(follow)))
+  await follow.recording?.closeStep(summaryPorts($))
   return { progress: [...labels.map((label) => label + '\n'), ...freshRecords(follow).map((record) => record.text)] }
 }
 

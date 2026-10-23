@@ -73,6 +73,19 @@ test('a stepped row followed with no provider available keeps no random word in 
   for (const out of [...steps, last]) expect(out.result.answer).not.toMatch(/» [A-Za-z]+…/)
 })
 
+test('at the default cadences every step that closes before the run ends carries the proxy line of its own entries', async ($, on) => {
+  const w = world(on, { backed: STEPPED })
+  await openRow($, w, [3, 3, 3])
+
+  const steps = [await stepAt($, 0), await stepAt($, 1), await stepAt($, 2)]
+  const last = await stepAt($, 3)
+
+  expect(w.modelRequests).toEqual([])
+  expect(steps.map((out) => textsOf(out.chunks))).toEqual([['» 1–3: entry 3\n'], ['» 4–6: entry 6\n'], ['» 7–9: entry 9\n']])
+  expect(textsOf(last.chunks)).toEqual(['msgate run run-hook ended ok'])
+  for (const out of [...steps, last]) expect(out.result.answer).not.toMatch(/» [A-Za-z]+…/)
+})
+
 test('a row followed with no provider available shows a random word as its thinking, with no model call', { options: { recordedSummaryEvery: 0 } }, async ($, on) => {
   const w = world(on, { backed: PLAIN })
   await openRow($, w, [3, 3])

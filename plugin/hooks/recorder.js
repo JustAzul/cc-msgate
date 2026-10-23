@@ -198,6 +198,23 @@ export function createRecorder({ runId, every: asked, choice, ports }) {
     if (lease !== null) start(through, lease, candidates)
   }
 
+  // closeStep is for a step that ends before its run does: when no provider can
+  // be asked, the entries so far are recorded as their proxy line now, below the
+  // cadence, so the step closes on it. With a provider available it does nothing,
+  // and the cadence stays. It never throws.
+  async function closeStep(through) {
+    try {
+      if (!isClosable()) return
+      const candidates = await through.candidates()
+      const now = await through.now()
+      if (isClosable() && choice.isNoneAvailable(candidates, now)) writeProxy()
+    } catch (error) {
+      logFailure(through, 'could not close the step: ' + String(error && error.message ? error.message : error))
+    }
+  }
+
+  const isClosable = () => every > 0 && !isFinishing && !isInFlight && unrecorded.length > 0
+
   // writeProxy records the unrecorded window as its proxy line, with no request.
   // The window is spent, whether or not it has a line.
   function writeProxy() {
@@ -318,7 +335,7 @@ export function createRecorder({ runId, every: asked, choice, ports }) {
     }
   }
 
-  return { add, finish, records: () => settled.slice() }
+  return { add, closeStep, finish, records: () => settled.slice() }
 }
 
 // finishOnStop ends a follow's recorder and returns the records it settled: none

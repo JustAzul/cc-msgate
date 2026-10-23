@@ -308,3 +308,111 @@ test('a recorder with candidates still asks the model, not the proxy', async () 
   expect(w.requests).toHaveLength(1)
   expect(recorder.records()).toEqual([])
 })
+
+// The close of a step.
+
+test('closing a step with none available writes the proxy line of the entries so far, below the cadence, with no request', async () => {
+  const w = fakePorts([])
+  const recorder = recorderOf(w, 8)
+
+  recorder.add([msg('Read auth.go.'), cmd('go test ./auth'), msg('Tests pass.')])
+  await recorder.closeStep(w.ports)
+
+  expect(w.requests).toEqual([])
+  expect(textsOf(recorder)).toEqual(['» 1–3: Tests pass.\n'])
+})
+
+test('closing a step spends the window, so the next step starts after it', async () => {
+  const w = fakePorts([])
+  const recorder = recorderOf(w, 8)
+
+  recorder.add([msg('a'), msg('b')])
+  await recorder.closeStep(w.ports)
+  recorder.add([msg('c'), msg('d')])
+  await recorder.closeStep(w.ports)
+
+  expect(textsOf(recorder)).toEqual(['» 1–2: b\n', '» 3–4: d\n'])
+})
+
+test('closing a step with a provider available writes nothing and asks nothing', async () => {
+  const w = fakePorts([CLAUDE])
+  const recorder = recorderOf(w, 8)
+
+  recorder.add([msg('a'), msg('b')])
+  await recorder.closeStep(w.ports)
+
+  expect(w.requests).toEqual([])
+  expect(recorder.records()).toEqual([])
+})
+
+test('closing a step of a recorder that is told never to record writes nothing', async () => {
+  const w = fakePorts([])
+  const recorder = recorderOf(w, 0)
+
+  recorder.add([msg('a'), msg('b')])
+  await recorder.closeStep(w.ports)
+
+  expect(recorder.records()).toEqual([])
+})
+
+test('closing a step while a request is in flight writes nothing', async () => {
+  const w = fakePorts([CLAUDE])
+  const recorder = recorderOf(w, 2)
+  recorder.add([msg('a'), msg('b')])
+  await flush()
+  expect(w.requests).toHaveLength(1)
+
+  w.state.candidates = []
+  recorder.add([msg('c')])
+  await recorder.closeStep(w.ports)
+
+  expect(recorder.records()).toEqual([])
+  expect(w.requests).toHaveLength(1)
+})
+
+test('closing a step after the run began to finish writes nothing', async () => {
+  const w = fakePorts([])
+  const recorder = recorderOf(w, 8)
+  recorder.add([msg('a'), msg('b')])
+
+  void recorder.finish({ isAborted: () => true, ports: w.ports })
+  await recorder.closeStep(w.ports)
+
+  expect(recorder.records()).toEqual([])
+})
+
+test('a step that closes while a finish began during its reads writes nothing', async () => {
+  const w = fakePorts([])
+  const recorder = recorderOf(w, 8)
+  recorder.add([msg('a'), msg('b')])
+
+  const closing = recorder.closeStep(w.ports)
+  void recorder.finish({ isAborted: () => true, ports: w.ports })
+  await closing
+
+  expect(recorder.records()).toEqual([])
+})
+
+test('closing a step with a window of reasoning only spends it and writes no record', async () => {
+  const w = fakePorts([])
+  const recorder = recorderOf(w, 8)
+
+  recorder.add([reasoning('a'), reasoning('b')])
+  await recorder.closeStep(w.ports)
+  expect(recorder.records()).toEqual([])
+
+  recorder.add([msg('c')])
+  await recorder.closeStep(w.ports)
+  expect(textsOf(recorder)).toEqual(['» 3: c\n'])
+})
+
+test('closing a step with nothing unrecorded asks nothing of the engine', async () => {
+  const w = fakePorts([])
+  const recorder = recorderOf(w, 8)
+  let reads = 0
+  w.ports.candidates = async () => (reads++, [])
+
+  await recorder.closeStep(w.ports)
+
+  expect(reads).toBe(0)
+})
