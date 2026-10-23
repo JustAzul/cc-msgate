@@ -3,13 +3,15 @@
 // touches the mods API: the engine comes in through ports, so the decisions
 // can be read and tested on their own.
 
+import { codexComplete, isTextRequest } from './codex-complete.js'
 import { isBilled } from './summary.js'
 
 const PRE = 'msgate:pre-model:'
 const AFTER = 'msgate:after-model:'
 const UNKNOWN = 'msgate:unknown-state:'
 const CONTRACT = 1
-const PROVIDER = 'anthropic'
+const ANTHROPIC = 'anthropic'
+const CODEX = 'codex'
 const CALL_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,199}$/
 // What the record of a call takes of the caller's attrs; the rest is left out.
 const ATTR_KEY = /^[a-z_]{1,32}$/
@@ -33,14 +35,18 @@ export const NOUN = {
 
 const isObject = (value) => typeof value === 'object' && value !== null
 
+// isSupported tells a provider the service answers; none given is anthropic.
+const isSupported = (provider) => provider === undefined || provider === ANTHROPIC || provider === CODEX
+
 // why names the first thing wrong with a call, as the <why> of a pre-model
 // denial, or null when there is none.
 function why(e) {
   const meta = e?.meta
   if (!isObject(meta) || meta.contract !== CONTRACT) return 'contract'
   if (typeof meta.callId !== 'string' || !CALL_ID.test(meta.callId)) return 'call-id'
-  if (meta.provider !== undefined && meta.provider !== PROVIDER) return 'unsupported-provider'
+  if (!isSupported(meta.provider)) return 'unsupported-provider'
   if (!isObject(e.request)) return 'request'
+  if (meta.provider === CODEX && !isTextRequest(e.request)) return 'request'
   return null
 }
 
@@ -70,6 +76,27 @@ async function pricedModel(ports, requested) {
   }
 }
 
+// ask makes the completion with the provider the call names. A Codex call is
+// recorded by the command that makes it, with the caller as its source.
+function ask(ports, e, ctx, sessionId) {
+  if (e.meta.provider !== CODEX) return ports.complete(e.request, ctx.signal)
+  const call = { sessionId, source: 'mod:' + ctx.caller, callId: e.meta.callId, attrs: recordedAttrs(e.meta.attrs), signal: ctx.signal }
+  return codexComplete(ports.codex, e.request, call)
+}
+
+// recordBilled hands a completion that used tokens to the record, without
+// waiting for it. The recording is best effort.
+function recordBilled(ports, e, ctx, held, result) {
+  try {
+    if (!isBilled(result)) return
+    const attrs = { ...recordedAttrs(e.meta.attrs), ...held.model.attrs }
+    const source = 'mod:' + ctx.caller
+    void ports.record({ usage: result.usage, sessionId: held.sessionId, model: held.model.id, source, callId: e.meta.callId, attrs, at: held.at }).catch(() => {})
+  } catch {
+    // The recording is best effort.
+  }
+}
+
 // kindWhy writes the kind of a hook failure as a <why>: [a-z0-9-]+.
 function kindWhy(kind) {
   return String(kind).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown'
@@ -96,7 +123,9 @@ export function createService() {
 
     const sessionId = await ports.sessionId()
     const at = await ports.now()
-    const model = await pricedModel(ports, e.request.model)
+    const isCodex = e.meta.provider === CODEX
+    // Haiku is an alias of Claude's, so only its calls are priced here.
+    const model = isCodex ? null : await pricedModel(ports, e.request.model)
 
     // The proof that the model was not called when this denies: nothing awaits
     // between this check and the dispatch, so a handler that cancelled the call
@@ -105,21 +134,13 @@ export function createService() {
     call.phase = 'dispatched'
     let result
     try {
-      result = await ports.complete(e.request, ctx.signal)
+      result = await ask(ports, e, ctx, sessionId)
     } catch {
       // That the engine sent nothing is only the type's word, so not pre-model.
       return finish(callId, call, { deny: AFTER + 'refused' })
     }
     // Nothing after the model call may reach the caller, whose answer this is.
-    try {
-      if (isBilled(result)) {
-        const attrs = { ...recordedAttrs(e.meta.attrs), ...model.attrs }
-        const source = 'mod:' + ctx.caller
-        void ports.record({ usage: result.usage, sessionId, model: model.id, source, callId, attrs, at }).catch(() => {})
-      }
-    } catch {
-      // The recording is best effort.
-    }
+    if (!isCodex) recordBilled(ports, e, ctx, { sessionId, model, at }, result)
     return finish(callId, call, { value: result })
   }
 

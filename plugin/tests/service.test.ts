@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { NOUN, createService } from '../hooks/service.js'
 import { answered } from './kit'
+import { isBilled } from '../hooks/summary.js'
 
 // The plugin test harness gives a test only core nouns on `$`, so a plugin's
 // own noun cannot be called from here: the service is driven through its ports,
@@ -75,7 +76,7 @@ test('an unknown contract version, call id, provider or request is denied before
     ['call-id', { ...META, callId: 'has a space' }, REQUEST],
     ['call-id', { ...META, callId: 'x'.repeat(201) }, REQUEST],
     ['call-id', { ...META, callId: 7 }, REQUEST],
-    ['unsupported-provider', { ...META, provider: 'codex' }, REQUEST],
+    ['unsupported-provider', { ...META, provider: 'gemini' }, REQUEST],
     ['unsupported-provider', { ...META, provider: null }, REQUEST],
     ['request', META, 'not a request'],
   ]
@@ -328,4 +329,144 @@ test('every member of the interface is a function, and the body that stands in f
   for (const [name, member] of Object.entries(NOUN)) expect([name, typeof member]).toEqual([name, 'function'])
 
   await expect(NOUN.complete()).rejects.toThrow('msgate:unserved')
+})
+
+// The codex path: the request is answered by `msgate complete`, which records
+// the call itself, so the service records nothing and never asks Claude.
+const CODEX_META = { ...META, provider: 'codex', attrs: { check_id: 'chk-1', stage: 'v0plus' } }
+const CODEX_REQUEST = { model: 'gpt-6-luna', effort: 'low', system: 'Answer with one word.', prompt: [{ text: 'Stage one: ', cache: true }, { text: 'answer ok.' }], maxTokens: 16 }
+const CODEX_BODY = { outcome: 'answered', text: 'ok', model: 'gpt-6-luna', usage: { input_tokens: 3349, cached_input_tokens: 2432, output_tokens: 10, reasoning_output_tokens: 4 } }
+
+function codexPorts(over: Record<string, unknown> = {}) {
+  const p = ports({
+    complete: async () => {
+      throw new Error('the Claude path was reached')
+    },
+    record: async () => {
+      throw new Error('a second record was written')
+    },
+    haikuPin: async () => {
+      throw new Error('the Claude model was priced')
+    },
+  })
+  const runs: { argv: string[]; init: any }[] = []
+  const codex = {
+    bin: '/plugin/bin/msgate',
+    run: async (argv: string[], init: any) => {
+      runs.push({ argv, init })
+      return { exitCode: 0, stdout: JSON.stringify(CODEX_BODY), stderr: '' }
+    },
+    ...over,
+  }
+  return { ...p, codex, runs }
+}
+
+const callCodex = (p: ReturnType<typeof codexPorts>, request: unknown = CODEX_REQUEST, ctx = CTX()) => call(createService(), p as any, CODEX_META, ctx, request)
+
+test('a codex completion is answered by msgate complete, with the plugin that asked as the source and the attrs the record takes', async () => {
+  const p = codexPorts()
+
+  const got = await callCodex(p)
+
+  expect(got).toEqual({ value: { isAnswered: true, text: 'ok', usage: { input_tokens: 917, output_tokens: 10, cache_read_input_tokens: 2432, cache_creation_input_tokens: 0 } } })
+  expect(p.runs).toHaveLength(1)
+  expect(p.runs[0]!.argv).toEqual([
+    '/plugin/bin/msgate', 'complete', '--provider', 'codex', '--json',
+    '--model', 'gpt-6-luna', '--effort', 'low',
+    '--session-id', 'sess-1', '--source', 'mod:followups', '--call-id', META.callId,
+    '--attr', 'check_id=chk-1', '--attr', 'stage=v0plus', '--timeout', '600',
+  ])
+})
+
+test('a codex completion that used tokens writes no second record and never reaches the Claude path', async () => {
+  const p = codexPorts()
+  const claude: string[] = []
+  p.complete = async () => void claude.push('complete') as never
+  p.record = async () => void claude.push('record') as never
+  p.haikuPin = async () => void claude.push('haikuPin') as never
+
+  const got = (await callCodex(p)) as any
+
+  expect(isBilled(got.value)).toBe(true)
+  expect(claude).toEqual([])
+})
+
+test('a codex request with tools is denied as pre-model request, and no process is run', async () => {
+  const p = codexPorts()
+
+  const got = await callCodex(p, { ...CODEX_REQUEST, tools: [{ name: 'search' }] })
+
+  expect(got).toEqual({ deny: 'msgate:pre-model:request' })
+  expect(p.runs).toHaveLength(0)
+})
+
+test('a codex request with an image is denied as pre-model request, and no process is run', async () => {
+  const p = codexPorts()
+
+  const got = await callCodex(p, { ...CODEX_REQUEST, prompt: [{ text: 'look' }, { type: 'image', source: { type: 'base64', data: 'AAAA' } }] })
+
+  expect(got).toEqual({ deny: 'msgate:pre-model:request' })
+  expect(p.runs).toHaveLength(0)
+})
+
+test('a codex request with any other non-text block is denied as pre-model request, and no process is run', async () => {
+  const p = codexPorts()
+
+  const got = await callCodex(p, { ...CODEX_REQUEST, system: [{ type: 'document', text: 'x' }] })
+
+  expect(got).toEqual({ deny: 'msgate:pre-model:request' })
+  expect(p.runs).toHaveLength(0)
+})
+
+test('a refused codex request leaves its call id free', async () => {
+  const service = createService()
+  const p = codexPorts()
+
+  expect(await call(service, p as any, CODEX_META, CTX(), { ...CODEX_REQUEST, tools: [] })).toEqual({ deny: 'msgate:pre-model:request' })
+
+  expect(await call(service, p as any, CODEX_META, CTX(), CODEX_REQUEST)).toHaveProperty('value')
+})
+
+test('an aborted codex completion kills the process and answers aborted', async () => {
+  const stop = new AbortController()
+  let isKilled = false
+  const reached = deferred<void>()
+  const p = codexPorts({
+    run: (_argv: string[], init: any) =>
+      new Promise((resolve) => {
+        reached.release()
+        init.signal.addEventListener('abort', () => {
+          isKilled = true
+          resolve({ exitCode: 130, stdout: JSON.stringify({ sdk_status: 'cancelled', exit_code: 130, error: 'cancelled' }), stderr: '' })
+        })
+      }),
+  })
+
+  const pending = callCodex(p, CODEX_REQUEST, { signal: stop.signal, caller: 'followups' })
+  await reached.promise
+  stop.abort()
+
+  expect(await pending).toEqual({ value: { isAnswered: false, reason: 'aborted', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } })
+  expect(isKilled).toBe(true)
+})
+
+test('a codex process that cannot be run is denied as after-model, and the call id is free again', async () => {
+  const service = createService()
+  const p = codexPorts({
+    run: async () => {
+      throw new Error('spawn failed')
+    },
+  })
+
+  expect(await call(service, p as any, CODEX_META, CTX(), CODEX_REQUEST)).toEqual({ deny: 'msgate:after-model:refused' })
+
+  expect(await call(service, codexPorts() as any, CODEX_META, CTX(), CODEX_REQUEST)).toHaveProperty('value')
+})
+
+test('an unknown provider is still denied, and a call without one is still served as anthropic with no codex port', async () => {
+  const p = ports()
+  const { provider: _, ...meta } = META
+
+  expect(await call(createService(), p, { ...meta, provider: 'openai' })).toEqual({ deny: 'msgate:pre-model:unsupported-provider' })
+  expect(await call(createService(), p, meta)).toHaveProperty('value')
 })

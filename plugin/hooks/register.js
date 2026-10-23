@@ -87,6 +87,7 @@ import { backedTypeOf } from './backed.js'
 import { forgetEfforts, holdEffort, takeEffort } from './efforts.js'
 import { FOLLOW, admitSpawn, checkHiddenRow, endedText, followFailureText, hiddenRunIds, hiddenRunOf, isRewrittenPrompt, runIdOfPrompt, stoppedText } from './hidden.js'
 import { PROGRESS_SPEC, PROGRESS_TOOL, onProgressTool } from './progress.js'
+import { spawnRun } from './codex-complete.js'
 import { createService } from './service.js'
 import { createClaudeState } from './claude-state.js'
 import { INTERFACE, createModelsCache, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveModels, serveRun, serveVersion } from './iface.js'
@@ -1263,7 +1264,16 @@ function servicePorts($) {
     haikuPin: () => $.env.get('ANTHROPIC_DEFAULT_HAIKU_MODEL'),
     complete: (request, signal) => completeAsClaude($, request, { signal }),
     record: (recording) => recordCall($, recording),
+    codex: codexPorts($),
   }
+}
+
+// codexPorts is what a Codex completion uses of the engine: the shim, and a run
+// of it that never passes through `completeAsClaude`, so a Codex 429 is no mark
+// on Claude. The run streams the child through `$.process.spawn`, whose loop is
+// the child's life: the caller's signal aborting ends the loop and the child.
+function codexPorts($) {
+  return { bin: shimPath($.plugin.root), run: spawnRun((request) => $.process.spawn(request)) }
 }
 
 // recordSummary hands a billed summary call to `usage add`, for the session that

@@ -2,7 +2,7 @@
 // it keeps in the session's $.state.
 
 /** The providers a completion can be asked of today. */
-export type MsgateProvider = 'anthropic'
+export type MsgateProvider = 'anthropic' | 'codex'
 
 /** The versions of this call's contract that msgate answers: 1. */
 export type MsgateContract = 1
@@ -21,9 +21,9 @@ export type MsgateCompleteMeta = {
    */
   callId: string
   /**
-   * Whose model answers. Left out it is `anthropic`, the only value accepted
-   * today; any other is denied before the model is called, so the caller can
-   * make the call itself.
+   * Whose model answers. Left out it is `anthropic`; `codex` is answered by the
+   * `msgate complete` command; any other is denied before the model is called,
+   * so the caller can make the call itself.
    */
   provider?: MsgateProvider
   /**
@@ -168,6 +168,18 @@ declare module 'claude-code' {
        * or `msgate:after-model:<why>`, the model called; <why> matches
        * [a-z0-9-]+. A message of any other form says nothing about whether the
        * model was called.
+       *
+       * With `meta.provider: 'codex'` the completion is Codex's, run bare. It
+       * honours `prompt` (a string, or text blocks joined), `system`, `model`,
+       * `effort` and `timeoutMs`, and ignores cache marks and `maxTokens`. It
+       * refuses, before anything is run, a request with `tools` or `images`, a
+       * block that is not text, or an empty prompt: `msgate:pre-model:request`.
+       * The arms are the same: `answered`, `empty-reply`, `api-error` (status
+       * 429 when Codex rate-limits, else null) and `aborted` (the caller's
+       * signal, or `timeoutMs`). `usage` is `input_tokens` uncached,
+       * `cache_read_input_tokens` cached and `output_tokens` with its reasoning;
+       * `cache_creation_input_tokens` is 0. The command records the call (provider
+       * `codex`), not the plugin.
        */
       complete: (args: { request: ModelCompleteRequest; meta: MsgateCompleteMeta }) => Promise<ModelCompleteResult>
       /**
