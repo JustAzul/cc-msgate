@@ -111,6 +111,7 @@ const TURN_PROPERTIES = {
   model: { type: 'string', description: 'Model (default: the provider\'s own).' },
   effort: { type: 'string', description: 'Reasoning effort (default: the provider\'s own).' },
   sandbox: { type: 'string', description: 'Sandbox mode, read-only or workspace-write (default: read-only).' },
+  harness: { type: 'string', enum: ['full', 'lean', 'bare'], description: 'How much of the provider\'s own instructions and tools the run keeps: full (default), lean (instruction layers off, tools kept) or bare (tools off too). Left out, the conversation\'s level applies.' },
   cwd: { type: 'string', description: 'Working directory for the run (default: the session directory).' },
 }
 

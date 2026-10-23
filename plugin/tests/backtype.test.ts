@@ -61,6 +61,22 @@ test('a follow type is backed with the run-id prompt mode and needs no model, ef
   expect(registry(w)).toEqual({ 'msgate-agents:run': { command: 'follow', promptMode: 'run-id' } })
 })
 
+test('a harness the call names is stored with the type, bare on an exec type and lean on a review type included', async ($, on) => {
+  const w = world(on, { backed: {} })
+  await $.session.start(START)
+  const msgate = msgateAs(w, 'msgate-agents')
+
+  await msgate.backType({ type: 'scratch', command: 'exec', promptMode: 'free', harness: 'bare' })
+  await msgate.backType({ type: 'code-review', command: 'review', promptMode: 'review-target', harness: 'lean' })
+  await msgate.backType({ type: 'plain', command: 'exec', promptMode: 'free', harness: 'full' })
+
+  expect(registry(w)).toEqual({
+    'msgate-agents:scratch': { command: 'exec', promptMode: 'free', harness: 'bare' },
+    'msgate-agents:code-review': { command: 'review', promptMode: 'review-target', harness: 'lean' },
+    'msgate-agents:plain': { command: 'exec', promptMode: 'free', harness: 'full' },
+  })
+})
+
 const REFUSALS: [string, Record<string, unknown>, string][] = [
   ['a type with a space and capitals', { ...SECOND_OPINION, type: 'Bad Type' }, 'type'],
   ['an empty type', { ...SECOND_OPINION, type: '' }, 'type'],
@@ -87,6 +103,12 @@ const REFUSALS: [string, Record<string, unknown>, string][] = [
   ['a purpose that is not text', { ...SECOND_OPINION, purpose: 3 }, 'purpose'],
   ['a stepped that is a word', { ...SECOND_OPINION, stepped: 'yes' }, 'stepped'],
   ['a stepped that is a number', { ...SECOND_OPINION, stepped: 1 }, 'stepped'],
+  ['a harness level that is none of full, lean and bare', { ...SECOND_OPINION, harness: 'medium' }, 'harness'],
+  ['an empty harness', { ...SECOND_OPINION, harness: '' }, 'harness'],
+  ['a harness that is not text', { ...SECOND_OPINION, harness: 1 }, 'harness'],
+  ['a bare harness on a review type', { type: 'code-review', command: 'review', promptMode: 'review-target', harness: 'bare' }, 'harness'],
+  ['a lean harness on a follow type', { type: 'run', command: 'follow', promptMode: 'run-id', harness: 'lean' }, 'harness'],
+  ['a full harness on a follow type', { type: 'run', command: 'follow', promptMode: 'run-id', harness: 'full' }, 'harness'],
 ]
 
 for (const [name, args, field] of REFUSALS) {

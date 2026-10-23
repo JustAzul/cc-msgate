@@ -79,7 +79,7 @@ function admissionFlags(name, sessionId, backed, effort) {
     if (setting === 'effort' && effort !== undefined) return ['--effort', effort, '--effort-source', 'flag']
     return backed[setting] === undefined ? [] : ['--' + setting, backed[setting]]
   }
-  const settings = ['model', 'effort', 'sandbox'].flatMap(flagsOf)
+  const settings = ['model', 'effort', 'sandbox', 'harness'].flatMap(flagsOf)
   const [background, json, ...rest] = jobFlags(sessionId)
   return [background, json, '--purpose', backed.purpose ?? name, ...rest, '--settings-source', 'profile', ...settings]
 }

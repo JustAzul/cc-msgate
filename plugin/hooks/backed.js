@@ -12,11 +12,20 @@ const TYPE_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 // follow reads the id of a run, and only those do.
 const PROMPT_MODE_OF = { exec: 'free', review: 'review-target', follow: 'run-id' }
 const SANDBOXES = ['read-only', 'workspace-write']
+const HARNESSES = ['full', 'lean', 'bare']
 // A write that another one beat is made again on the new value; this many tries.
 const WRITE_ATTEMPTS = 20
 
 const isText = (value) => typeof value === 'string' && value !== ''
 const isOptionalText = (value) => value === undefined || isText(value)
+
+// A harness is one of the levels; a review has no bare one, and a follow runs
+// nothing of its own, so it has none.
+function invalidHarness(call) {
+  if (call.harness === undefined) return null
+  if (!HARNESSES.includes(call.harness) || call.command === 'follow') return 'harness'
+  return call.command === 'review' && call.harness === 'bare' ? 'harness' : null
+}
 
 const invalidPurpose = (call) => (isOptionalText(call.purpose) ? null : 'purpose')
 const invalidStepped = (call) => (call.stepped === undefined || typeof call.stepped === 'boolean' ? null : 'stepped')
@@ -31,7 +40,7 @@ function invalidField(args) {
   if (!isOptionalText(call.model)) return 'model'
   if (!isOptionalText(call.effort)) return 'effort'
   if (call.sandbox !== undefined && !SANDBOXES.includes(call.sandbox)) return 'sandbox'
-  return invalidDescription(call)
+  return invalidHarness(call) ?? invalidDescription(call)
 }
 
 // backedData checks a backType call and returns the data the registry keeps for
@@ -40,7 +49,7 @@ export function backedData(args) {
   const field = invalidField(args)
   if (field !== null) return { field }
   const data = { command: args.command, promptMode: args.promptMode }
-  for (const name of ['model', 'effort', 'sandbox', 'purpose', 'stepped']) {
+  for (const name of ['model', 'effort', 'sandbox', 'harness', 'purpose', 'stepped']) {
     if (args[name] !== undefined) data[name] = args[name]
   }
   return { data }

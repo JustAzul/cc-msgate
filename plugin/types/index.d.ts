@@ -34,6 +34,13 @@ export type MsgateCompleteMeta = {
   attrs?: { readonly [key: string]: string }
 }
 
+/**
+ * How much of the provider's own instructions and tools a run keeps: `full`
+ * (the default), `lean` (instruction layers off, tools kept) or `bare` (tools
+ * off too).
+ */
+export type MsgateHarness = 'full' | 'lean' | 'bare'
+
 /** What a plugin backs one of its agent types with; see `backType`. */
 export type MsgateBackedType = {
   command: 'exec' | 'review' | 'follow'
@@ -41,6 +48,11 @@ export type MsgateBackedType = {
   model?: string
   effort?: string
   sandbox?: 'read-only' | 'workspace-write'
+  /**
+   * The harness the type's runs carry. A review type has no `bare`, and a
+   * `follow` type none; a follow-up leaves the level to its conversation.
+   */
+  harness?: MsgateHarness
   /** The purpose the type's runs are recorded with; left out, the type's own name. */
   purpose?: string
   /** Whether the type's agents follow the run in several steps; see `backType`. */
@@ -51,8 +63,9 @@ export type MsgateBackedType = {
  * The arguments of `backType`. `type` matches ^[a-z0-9][a-z0-9-]{0,63}$; `exec`
  * needs the `free` prompt mode, `review` the `review-target` one and `follow` the
  * `run-id` one; `model`, `effort` and `sandbox` are the settings the engine runs
- * the type's agents with, and a `follow` type needs none; `purpose` is non-empty
- * text and `stepped` a boolean.
+ * the type's agents with, and a `follow` type needs none; `harness` is not
+ * `bare` on a review type and not given on a `follow` type; `purpose` is
+ * non-empty text and `stepped` a boolean.
  */
 export type MsgateBackTypeArgs = MsgateBackedType & { type: string }
 
@@ -66,6 +79,8 @@ export type MsgateRunArgs = {
   model?: string
   effort?: string
   sandbox?: 'read-only' | 'workspace-write'
+  /** Left out, the CLI's default and the conversation's stored level apply. */
+  harness?: MsgateHarness
   cwd?: string
 }
 

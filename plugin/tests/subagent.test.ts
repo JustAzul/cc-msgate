@@ -502,6 +502,37 @@ test('the rows of any plugin\'s backed type are answered, with the type\'s own n
   expect(w.modelSteps).toEqual([])
 })
 
+test('the first turn of a type backed with a harness carries it after the settings, and a follow-up leaves it to the conversation', async ($, on) => {
+  const w = world(on, { backed: { 'p2:scratch': { command: 'exec', promptMode: 'free', sandbox: 'read-only', harness: 'lean' } } })
+  w.respond = codex('done')
+  subagent(w, 'ag-1', 'p2:scratch', [{ role: 'user', text: 'q' }])
+  await $.session.start(START)
+  await step($, 'ag-1')
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['exec', ...ADMISSION('scratch'), '--sandbox', 'read-only', '--harness', 'lean', '-'])
+
+  w.messages['ag-1'] = [
+    { role: 'user', text: 'q' },
+    { role: 'assistant', text: 'done' },
+    { role: 'user', text: 'and then?' },
+  ]
+  w.runs.length = 0
+  await step($, 'ag-1', { turnId: 'turn-2' })
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['send', 'conv-1', ...JOB_FLAGS, '-'])
+})
+
+test('a review type backed with a harness carries it on its review', async ($, on) => {
+  const w = world(on, { backed: { 'p2:code-review': { command: 'review', promptMode: 'review-target', harness: 'lean' } } })
+  w.respond = codex('[P2] auth.go:12 token not checked')
+  subagent(w, 'ag-1', 'p2:code-review', [{ role: 'user', text: 'uncommitted' }])
+  await $.session.start(START)
+
+  await step($, 'ag-1')
+
+  expect(w.runs[0]!.argv.slice(1)).toEqual(['review', '--uncommitted', ...ADMISSION('code-review'), '--harness', 'lean'])
+})
+
 test('a row of a type backed with a purpose records that purpose, not the type\'s name', async ($, on) => {
   const w = world(on, { backed: { 'p2:second-opinion-gpt-6-astra': { command: 'exec', promptMode: 'free', purpose: 'second-opinion' } } })
   w.respond = codex('done')

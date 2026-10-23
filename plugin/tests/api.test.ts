@@ -34,8 +34,18 @@ test('the run tool\'s description prefers a plugin\'s agent type and names what 
   }
   expect(run.description).toContain('agent row')
   expect(Object.keys(run.inputSchema.properties).sort()).toEqual(
-    ['conversation_id', 'cwd', 'effort', 'model', 'prompt', 'provider', 'purpose', 'sandbox'],
+    ['conversation_id', 'cwd', 'effort', 'harness', 'model', 'prompt', 'provider', 'purpose', 'sandbox'],
   )
+})
+
+test('the run tool\'s harness is optional and one of full, lean and bare', async ($, on) => {
+  const w = world(on)
+  await $.session.start(START)
+
+  const run = w.tools.find((t) => t.name === 'run')
+  expect(run.inputSchema.properties.harness.type).toBe('string')
+  expect(run.inputSchema.properties.harness.enum).toEqual(['full', 'lean', 'bare'])
+  expect(run.inputSchema.required).toEqual(['prompt'])
 })
 
 test('the mod registers exactly one command, /msgate-jobs, that runs mid-turn', async ($, on) => {

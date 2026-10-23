@@ -51,6 +51,25 @@ test('run with a conversation sends the next turn and passes the settings as fla
   ])
 })
 
+const HARNESS_CASES: [string, Record<string, string>, string, string[]][] = [
+  ['a new conversation', { harness: 'lean' }, 'exec', ['--harness', 'lean', '-']],
+  ['the next turn of a conversation', { conversation_id: 'conv-1', harness: 'bare' }, 'send', ['--harness', 'bare', '-']],
+  ['a turn that names no harness', { conversation_id: 'conv-1' }, 'send', ['-']],
+]
+
+for (const [name, args, command, tail] of HARNESS_CASES) {
+  test(`run on ${name} ends its argv with ${JSON.stringify(tail)}`, async ($, on) => {
+    const w = world(on)
+    w.respond = () => ok(JSON.stringify(ADMITTED))
+
+    await msgateAs(w).run({ prompt: 'q', ...args })
+
+    expect(w.runs[0]!.argv[1]).toBe(command)
+    expect(w.runs[0]!.argv.slice(-tail.length)).toEqual(tail)
+    expect(w.runs[0]!.argv.includes('--harness')).toBe(tail.includes('--harness'))
+  })
+}
+
 const REFUSED: [string, any, (argv: string[]) => any, string][] = [
   ['an empty prompt', { prompt: '  ' }, () => ok('{}'), 'msgate:run:prompt is required and must be a non-empty string'],
   ['no arguments', undefined, () => ok('{}'), 'msgate:run:prompt is required and must be a non-empty string'],

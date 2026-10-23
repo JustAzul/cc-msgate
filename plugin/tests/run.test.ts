@@ -120,3 +120,23 @@ test('run with an empty conversation id starts a new conversation', async ($, on
   expect(w.runs[0]!.argv[1]).toBe('exec')
   expect(JSON.parse(out.result).continued).toBe(false)
 })
+
+const HARNESS_CASES: [string, Record<string, string>, string, string[]][] = [
+  ['a new conversation', { harness: 'lean' }, 'exec', ['--harness', 'lean', '-']],
+  ['the next turn of a conversation', { conversation_id: 'conv-1', harness: 'bare' }, 'send', ['--harness', 'bare', '-']],
+  ['a turn that names no harness', { conversation_id: 'conv-1' }, 'send', ['-']],
+]
+
+for (const [name, args, command, tail] of HARNESS_CASES) {
+  test(`run on ${name} ends its argv with ${JSON.stringify(tail)}`, async ($, on) => {
+    const w = world(on)
+    w.respond = () => ok(JSON.stringify(ADMITTED))
+    await $.session.start(START)
+
+    await $.tool.call({ tool: TOOL('run'), prompt: 'q', ...args })
+
+    const run = w.runs.find((r) => r.argv[1] === command)!
+    expect(run.argv.slice(-tail.length)).toEqual(tail)
+    expect(run.argv.includes('--harness')).toBe(tail.includes('--harness'))
+  })
+}

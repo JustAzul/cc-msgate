@@ -21,7 +21,7 @@ const TERMINAL_STATES = ['done', 'failed', 'cancelled', 'timeout', 'lost']
 const JOBS_ACTIONS = ['list', 'status', 'result', 'cancel']
 // Ids start with a letter, digit or underscore so they can never read as a flag.
 const ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/
-const OPTIONAL_FLAGS = ['provider', 'purpose', 'model', 'effort', 'sandbox', 'cwd']
+const OPTIONAL_FLAGS = ['provider', 'purpose', 'model', 'effort', 'sandbox', 'harness', 'cwd']
 
 export function isTerminal(state) {
   return TERMINAL_STATES.includes(state)
