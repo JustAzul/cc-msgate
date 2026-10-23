@@ -203,3 +203,16 @@ func TestDryRunOfAHarnessShowsTheOverridesAndWritesNothing(t *testing.T) {
 		}
 	}
 }
+
+func TestExecHarnessBareWithoutCodexExitsProviderMissingLikeFull(t *testing.T) {
+	s := newSandbox(t).withoutProvider()
+
+	r := s.run("exec", "--json", "--run-id", "hb1", "--harness", "bare", "--cwd", gitRepo(t), "q")
+
+	if r.code != 127 {
+		t.Fatalf("exit %d, want 127; stdout %q, stderr %q", r.code, r.stdout, r.stderr)
+	}
+	if m := r.json(t); m["sdk_status"] != "provider_missing" || m["exit_code"] != float64(127) {
+		t.Errorf("error object = %v, want provider_missing with exit_code 127", m)
+	}
+}

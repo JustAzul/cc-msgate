@@ -94,6 +94,9 @@ func (t *turn) plan(ctx *Context) (provider.Plan, int) {
 		return provider.Plan{}, ctx.Fail(ExitInternal, "writing the harness instructions: %v", err)
 	}
 	plan, err := t.prov.BuildPlan(t.req)
+	if errors.Is(err, provider.ErrBinaryMissing) {
+		return provider.Plan{}, ctx.Fail(ExitProviderMissing, "building the provider plan: %v", err)
+	}
 	if err != nil {
 		return provider.Plan{}, ctx.Fail(ExitInternal, "building the provider plan: %v", err)
 	}
