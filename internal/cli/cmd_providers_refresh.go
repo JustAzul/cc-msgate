@@ -76,8 +76,9 @@ func runProvidersRefresh(ctx *Context, args []string) int {
 			c.SummaryModels, c.RankedAt = ranking, &now
 		}
 	}); err != nil {
-		refreshLog(ctx, "failed")
-		return ctx.Fail(ExitInternal, "writing the provider cache: %v", err)
+		code := ctx.Fail(ExitInternal, "writing the provider cache: %v", err)
+		refreshLog(ctx, "failed") // after the report: a test that sees failed finds it written
+		return code
 	}
 	refreshLog(ctx, "ran")
 	fmt.Fprintf(ctx.Stdout, "providers: refreshed (%d checked)\n", len(checked))
