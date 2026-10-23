@@ -884,8 +884,9 @@ candidate, `claude-haiku-5-5`.
   shows the run's newest raw entry instead, and no step of a row's history ends
   on a word. A recorded window is spent as its newest message, else its newest
   command (`» 9–16: $ go test ./...`), and a window of reasoning alone records
-  nothing; at the end of a run the recorder writes it at once instead of
-  waiting.
+  nothing. The window is written at once, without waiting for its interval,
+  when a step of a `stepped` row ends, so the step ends on that line, and at
+  the end of a run.
 
 ### Claude's state
 
