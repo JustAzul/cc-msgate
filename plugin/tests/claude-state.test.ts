@@ -252,3 +252,78 @@ test('every mark is run with the command timeout, so a caller waits no longer th
 
   expect(p.seen.timeouts).toEqual([5000, 5000])
 })
+
+// Two writers at once: a look at the windows and a refused completion.
+
+const TIMED_MARK = [BIN, 'providers', 'mark', 'anthropic', '--reason', 'rate-limited', '--until', iso(T0 + 3 * 3_600_000)]
+
+// slow is a command that takes a while to finish, so that a second writer
+// starting meanwhile overlaps with it.
+function slow(p: ReturnType<typeof ports>) {
+  return async (argv: string[], init?: { timeoutMs?: number }) => {
+    p.seen.argvs.push(argv)
+    p.seen.timeouts.push(init?.timeoutMs)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    return { exitCode: 0, stdout: '', stderr: '' }
+  }
+}
+
+test('a look at 100 percent and a 429 refusal started together leave the timed mark written, and the untimed one not written', async () => {
+  const p = ports()
+  p.run = slow(p)
+  p.limits = FULL_WINDOW
+  const state = createClaudeState()
+
+  await Promise.all([state.look(p), state.refused(p, apiError(429))])
+
+  expect(p.seen.argvs).toEqual([TIMED_MARK])
+})
+
+test('a refusal mark written first is replaced by the timed mark of a look started with it', async () => {
+  const p = ports()
+  p.run = slow(p)
+  p.limits = FULL_WINDOW
+  const state = createClaudeState()
+
+  await Promise.all([state.refused(p, apiError(429)), state.look(p)])
+
+  expect(p.seen.argvs.at(-1)).toEqual(TIMED_MARK)
+  expect(p.seen.argvs.filter((argv) => !argv.includes('--until')).length).toBeLessThanOrEqual(1)
+})
+
+test('marks are written one at a time, in the order the writers started', async () => {
+  const p = ports()
+  let running = 0
+  let most = 0
+  p.run = async (argv: string[]) => {
+    p.seen.argvs.push(argv)
+    running += 1
+    most = Math.max(most, running)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    running -= 1
+    return { exitCode: 0, stdout: '', stderr: '' }
+  }
+  p.limits = FULL_WINDOW
+  const state = createClaudeState()
+
+  await Promise.all([state.look(p), state.refused(p, apiError(429)), state.refused(p, apiError(429))])
+
+  expect(most).toBe(1)
+})
+
+test('a timed mark that could not be replaced still holds: a refusal does not write an untimed one over it', async () => {
+  const p = ports()
+  const state = createClaudeState()
+  p.limits = FULL_WINDOW
+
+  await state.look(p)
+  p.clock = T0 + MINUTE
+  p.limits = [{ kind: 'five_hour', percentUsed: 100, resetsAt: iso(T0 + 5 * 3_600_000) }]
+  p.reply = new Error('spawn failed')
+  await state.look(p)
+  p.clock = T0 + 2 * MINUTE
+  p.reply = { exitCode: 0, stdout: '', stderr: '' }
+  await state.refused(p, apiError(429))
+
+  expect(p.seen.argvs.filter((argv) => !argv.includes('--until'))).toEqual([])
+})

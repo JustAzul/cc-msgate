@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { NO_USAGE, answered, apiError, cmd, codex, isShim, msg, ok, step, world } from './kit'
+import { answered, apiError, cmd, codex, isShim, msg, ok, step, world } from './kit'
 import type { Reply } from './kit'
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
@@ -77,16 +77,17 @@ test('windows below 100 percent mark nothing', LIVE_ONLY, async ($, on) => {
   expect(marks(w)).toEqual([])
 })
 
-test('a mark that cannot be written is logged once and the label still settles', LIVE_ONLY, async ($, on) => {
-  reportWindows(on, [])
+test('a mark that cannot be written is reported once at debug level and the label still settles', LIVE_ONLY, async ($, on) => {
+  reportWindows(on, [{ kind: 'five_hour', percentUsed: 100, resetsAt: RESET }])
   const w = await summarise($, on, () => ({ exitCode: 7, stdout: '', stderr: 'msgate: cannot write the cache' }))
-  w.respondModel = () => ({ ...apiError(429), usage: NO_USAGE })
+  w.respondModel = () => answered('Reading auth.go')
 
   const out = await step($, 'ag-1')
 
   expect(marks(w)).toHaveLength(1)
-  expect(w.debugLogs.filter((text) => text.includes('could not mark'))).toHaveLength(1)
-  expect(out.text).toContain('Codex: done.')
+  // The mark is the only thing in this session that reports at debug level.
+  expect(w.debugLogs).toHaveLength(1)
+  expect(out.chunks.filter((c: any) => c.kind === 'thinking').map((c: any) => c.text.trim())).toContain('» Reading auth.go')
 })
 
 test('the mark command carries its own timeout', LIVE_ONLY, async ($, on) => {

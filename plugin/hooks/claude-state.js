@@ -41,6 +41,15 @@ export function createClaudeState() {
   let lookedAt = null
   let markedUntil = 0
   let isFailureLogged = false
+  // The writers run one at a time, in the order they came: each checks the
+  // mark in force only once the one before it has finished.
+  let queue = Promise.resolve()
+
+  function inTurn(task) {
+    const turn = queue.then(task)
+    queue = turn.catch(() => {})
+    return turn
+  }
 
   // logFailure logs the first failure, at debug level.
   function logFailure(ports, why) {
@@ -62,13 +71,18 @@ export function createClaudeState() {
     } catch (error) {
       logFailure(ports, messageOf(error))
     }
-    // Not in force: the next look tries again, and a refusal waits a check.
-    markedUntil = now + CHECK_MS
+    // Not in force: the next look tries again, and a refusal waits a check. A
+    // mark written earlier still holds, though.
+    markedUntil = Math.max(markedUntil, now + CHECK_MS)
   }
 
   // look reads the session's rate-limit windows, at most once a minute, and
   // marks Claude down when one is at 100 percent and no mark already holds.
-  async function look(ports) {
+  function look(ports) {
+    return inTurn(() => lookNow(ports))
+  }
+
+  async function lookNow(ports) {
     const now = await ports.now()
     if (lookedAt !== null && now - lookedAt < CHECK_MS) return
     lookedAt = now
@@ -78,16 +92,25 @@ export function createClaudeState() {
     } catch (error) {
       return logFailure(ports, messageOf(error))
     }
-    const { isFull, until } = windows
-    if (!isFull || (until !== undefined && until <= now)) return
-    if (now < markedUntil && (until === undefined || until <= markedUntil)) return
+    if (!isMarkDue(windows, now)) return
+    const { until } = windows
     await write(ports, markCommand(ports.bin, until), now, until ?? now + CHECK_MS)
+  }
+
+  // isMarkDue tells full windows that call for a mark: they have not reset
+  // yet, and no mark in force already holds as long.
+  function isMarkDue({ isFull, until }, now) {
+    if (!isFull || (until !== undefined && until <= now)) return false
+    return now >= markedUntil || (until !== undefined && until > markedUntil)
   }
 
   // refused marks Claude down, until the next check, when a completion came
   // back refused for want of room in the rate limit.
-  async function refused(ports, result) {
-    if (!isRateLimited(result)) return
+  function refused(ports, result) {
+    return isRateLimited(result) ? inTurn(() => refusedNow(ports)) : Promise.resolve()
+  }
+
+  async function refusedNow(ports) {
     const now = await ports.now()
     if (now < markedUntil) return
     await write(ports, markCommand(ports.bin), now, now + CHECK_MS)
