@@ -31,6 +31,7 @@ func (adapter) Capabilities() provider.Capabilities {
 		ReviewTargets: []string{"base", "uncommitted", "commit"},
 		Sandboxes:     []string{"read-only", "workspace-write"},
 		ReportsUsage:  true,
+		Harnesses:     []string{provider.HarnessFull, provider.HarnessLean, provider.HarnessBare},
 	}
 }
 
@@ -102,6 +103,10 @@ func (adapter) BuildPlan(req provider.Request) (provider.Plan, error) {
 	if err != nil {
 		return provider.Plan{}, err
 	}
+	levelSettings, err := harnessSettings(req)
+	if err != nil {
+		return provider.Plan{}, err
+	}
 	argv := []string{"codex", "exec", "-C", req.Cwd}
 	if req.Sandbox != "" {
 		argv = append(argv, "-s", req.Sandbox)
@@ -112,6 +117,7 @@ func (adapter) BuildPlan(req provider.Request) (provider.Plan, error) {
 	if req.Effort != "" {
 		argv = append(argv, "-c", "model_reasoning_effort="+req.Effort)
 	}
+	argv = append(argv, configArgs(levelSettings)...)
 	argv = append(argv, "--json", "-o", req.OutputPath)
 	if !insideGitWorkTree(req.Cwd) {
 		argv = append(argv, "--skip-git-repo-check")

@@ -47,6 +47,27 @@ func (s *Store) RunDir(runID string) string { return filepath.Join(s.Home, "runs
 // OutputPath is the provider's final-message file for a run.
 func (s *Store) OutputPath(runID string) string { return filepath.Join(s.RunDir(runID), "output.md") }
 
+// HarnessInstructionsPath is the file holding the instructions a provider runs
+// on in place of its own at the lean and bare harness levels.
+func (s *Store) HarnessInstructionsPath() string {
+	return filepath.Join(s.Home, "harness", "instructions.md")
+}
+
+// EnsureHarnessInstructions leaves HarnessInstructionsPath holding text,
+// writing it only when the file is missing or different. The write replaces the
+// file whole, so a run reading it concurrently sees the old text or the new,
+// never a part.
+func (s *Store) EnsureHarnessInstructions(text string) error {
+	path := s.HarnessInstructionsPath()
+	if current, err := os.ReadFile(path); err == nil && string(current) == text {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
+		return err
+	}
+	return writeFileAtomic(path, []byte(text))
+}
+
 // RunExists reports whether a run directory exists.
 func (s *Store) RunExists(runID string) bool {
 	_, err := os.Lstat(s.RunDir(runID))

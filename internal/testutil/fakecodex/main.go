@@ -34,7 +34,15 @@ func main() {
 	if len(os.Args) == 3 && os.Args[1] == "debug" && os.Args[2] == "models" {
 		os.Exit(debugModels())
 	}
-	os.Exit(run())
+	os.Exit(dispatch())
+}
+
+// dispatch runs the subcommands that take no prompt, else a turn.
+func dispatch() int {
+	if len(os.Args) == 4 && os.Args[1] == "mcp" && os.Args[2] == "list" && os.Args[3] == "--json" {
+		return mcpList()
+	}
+	return run()
 }
 
 func run() int {
@@ -104,6 +112,24 @@ func debugModels() int {
 	if path == "" {
 		fmt.Fprintln(os.Stderr, "fakecodex: no model catalog (FAKECODEX_MODELS is unset)")
 		return 1
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fakecodex: %v\n", err)
+		return 1
+	}
+	os.Stdout.Write(data)
+	return 0
+}
+
+// mcpList is `codex mcp list --json`: it prints the file FAKECODEX_MCP_LIST
+// names, verbatim, or an empty list when that variable is unset. It records
+// nothing, so a run's own record is not overwritten, and never reads stdin.
+func mcpList() int {
+	path := os.Getenv("FAKECODEX_MCP_LIST")
+	if path == "" {
+		fmt.Println("[]")
+		return 0
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

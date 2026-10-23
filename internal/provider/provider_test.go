@@ -35,3 +35,25 @@ func TestCapabilitiesUnsupportedNamesTheCapability(t *testing.T) {
 		}
 	}
 }
+
+func TestCapabilitiesRefuseAHarnessLevelTheyDoNotList(t *testing.T) {
+	caps := provider.Capabilities{Commands: []string{"exec"}, Harnesses: []string{"lean"}}
+	cases := []struct {
+		level   string
+		refused bool
+	}{
+		{"", false},
+		{"full", false},
+		{"lean", false},
+		{"bare", true},
+	}
+	for _, c := range cases {
+		err := caps.Unsupported(provider.Needs{Command: "exec", Harness: c.level})
+		if (err != nil) != c.refused {
+			t.Errorf("level %q: refused = %v (err %v), want %v", c.level, err != nil, err, c.refused)
+		}
+	}
+	if err := (provider.Capabilities{Commands: []string{"exec"}}).Unsupported(provider.Needs{Command: "exec", Harness: "lean"}); err == nil {
+		t.Error("a provider that lists no harness level accepted lean")
+	}
+}

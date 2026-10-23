@@ -43,9 +43,9 @@ func runTurn(ctx *Context, t turn) int {
 		return code
 	}
 	t.req.OutputPath = t.st.OutputPath(runID)
-	plan, err := t.prov.BuildPlan(t.req)
-	if err != nil {
-		return ctx.Fail(ExitInternal, "building the provider plan: %v", err)
+	plan, code := t.plan(ctx)
+	if code != 0 {
+		return code
 	}
 
 	if p.dryRun {
@@ -84,6 +84,20 @@ func runTurn(ctx *Context, t turn) int {
 	}
 	io.WriteString(ctx.Stdout, res.State.OutputPath+"\n")
 	return res.ExitCode
+}
+
+// plan is the provider plan for the turn, once the harness instructions it
+// names are in place.
+func (t *turn) plan(ctx *Context) (provider.Plan, int) {
+	t.req.Env = ctx.Env
+	if err := t.withHarnessInstructions(); err != nil {
+		return provider.Plan{}, ctx.Fail(ExitInternal, "writing the harness instructions: %v", err)
+	}
+	plan, err := t.prov.BuildPlan(t.req)
+	if err != nil {
+		return provider.Plan{}, ctx.Fail(ExitInternal, "building the provider plan: %v", err)
+	}
+	return plan, 0
 }
 
 // admission is the turn's admission as run runID with plan.

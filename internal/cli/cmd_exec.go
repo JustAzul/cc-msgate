@@ -30,10 +30,10 @@ func runExec(ctx *Context, args []string) int {
 		return ctx.Fail(ExitUsage, "unknown provider %q (known: %v)", p.provider, provider.Names())
 	}
 	eff := settings.Resolve(settings.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox, EffortSource: p.effortSource}, p.settingsSource)
-	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "exec", Sandbox: eff.Sandbox}); err != nil {
+	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "exec", Sandbox: eff.Sandbox, Harness: p.harness}); err != nil {
 		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
 	}
-	if flagText, reserved := reservedPassthrough(prov, p.passthrough); reserved {
+	if flagText, reserved := reservedPassthrough(prov, p.harness, p.passthrough); reserved {
 		return ctx.Fail(ExitUsage, "native flag %q is reserved by msgate and cannot be passed after --", flagText)
 	}
 
@@ -58,7 +58,7 @@ func runExec(ctx *Context, args []string) int {
 		command: "exec", flags: p, prov: prov, eff: eff, cwd: cwd, prompt: prompt, st: store.Open(home),
 		req: provider.Request{
 			Command: "exec", Cwd: cwd, Model: eff.Model, Effort: eff.Effort, Sandbox: eff.Sandbox,
-			Passthrough: p.passthrough,
+			Passthrough: p.passthrough, Harness: p.harness,
 		},
 	})
 }
@@ -168,16 +168,18 @@ func chooseRunID(ctx *Context, st *store.Store, supplied string, now time.Time) 
 	return "", ctx.Fail(ExitInternal, "could not generate a unique run id")
 }
 
-// reservedPassthrough returns the first native token the provider reserves.
-// Each token is checked alone and joined to its successor, so option/value
-// pairs such as "-c model=x" are seen as one string.
-func reservedPassthrough(prov provider.Provider, args []string) (string, bool) {
+// reservedPassthrough returns the first native token the provider reserves, or
+// that sets a config key the harness level sets. Each token is checked alone and
+// joined to its successor, so option/value pairs such as "-c model=x" are seen
+// as one string.
+func reservedPassthrough(prov provider.Provider, level string, args []string) (string, bool) {
+	reserved := func(arg string) bool { return prov.ReservedFlag(arg) || harnessReserved(prov, level, arg) }
 	for i, a := range args {
-		if prov.ReservedFlag(a) {
+		if reserved(a) {
 			return a, true
 		}
 		if i+1 < len(args) {
-			if pair := a + " " + args[i+1]; prov.ReservedFlag(pair) {
+			if pair := a + " " + args[i+1]; reserved(pair) {
 				return pair, true
 			}
 		}

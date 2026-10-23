@@ -16,6 +16,20 @@ type Capabilities struct {
 	Sandboxes         []string `json:"sandboxes"`
 	ReportsUsage      bool     `json:"reports_usage"`
 	PreassignsSession bool     `json:"preassigns_session"`
+	Harnesses         []string `json:"harnesses"`
+}
+
+// Harness levels: how much of its own instructions, skills and tools a
+// provider adds to a request. Every provider runs HarnessFull.
+const (
+	HarnessFull = "full"
+	HarnessLean = "lean"
+	HarnessBare = "bare"
+)
+
+// ValidHarness reports whether level is one of the three harness levels.
+func ValidHarness(level string) bool {
+	return level == HarnessFull || level == HarnessLean || level == HarnessBare
 }
 
 // Supports reports whether the provider supports the command.
@@ -29,6 +43,7 @@ type Needs struct {
 	Command      string // "exec", "review" or "resume"
 	Sandbox      string // empty when no sandbox mode is requested
 	ReviewTarget string // empty when no review target is requested
+	Harness      string // empty when no harness level is requested; full needs nothing
 }
 
 // Unsupported returns an error naming the first capability the request needs
@@ -43,7 +58,16 @@ func (c Capabilities) Unsupported(n Needs) error {
 	if n.ReviewTarget != "" && !contains(c.ReviewTargets, n.ReviewTarget) {
 		return fmt.Errorf("does not support review target %q (supported: %v)", n.ReviewTarget, c.ReviewTargets)
 	}
+	if !c.SupportsHarness(n.Harness) {
+		return fmt.Errorf("does not support harness level %q (supported: %v)", n.Harness, c.Harnesses)
+	}
 	return nil
+}
+
+// SupportsHarness reports whether the provider runs the harness level. Every
+// provider runs full, which asks nothing of it, and an empty level means full.
+func (c Capabilities) SupportsHarness(level string) bool {
+	return level == "" || level == HarnessFull || contains(c.Harnesses, level)
 }
 
 func contains(list []string, v string) bool {
@@ -77,6 +101,14 @@ type Request struct {
 	ReviewRef    string
 	Passthrough  []string
 	OutputPath   string
+	// Harness is the level the turn runs at; empty means full. At any other
+	// level HarnessInstructions is the absolute path of the instructions file
+	// the caller provides to replace the provider's own base instructions.
+	Harness             string
+	HarnessInstructions string
+	// Env is the environment the planned process runs under; a provider reads
+	// its own configuration through it when a plan depends on that.
+	Env []string
 }
 
 // Plan is how to start the provider process.
@@ -233,6 +265,14 @@ func HasImplicitCacheWrites(name string) bool {
 	}
 	caching, ok := p.(ImplicitCaching)
 	return ok && caching.ImplicitCacheWrites()
+}
+
+// HarnessReserver is a provider whose lean and bare levels set native config
+// keys. HarnessReservedFlag reports whether a native passthrough token, in the
+// form ReservedFlag receives, sets one of those keys at level; a caller must not
+// pass it, because it would undo the level.
+type HarnessReserver interface {
+	HarnessReservedFlag(level, arg string) bool
 }
 
 // Provider adapts one agent CLI.

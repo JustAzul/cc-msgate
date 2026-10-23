@@ -45,6 +45,7 @@ type requestRecord struct {
 	EffortSource  string         `json:"effort_source"`
 	Sandbox       *string        `json:"sandbox"`
 	SandboxSource string         `json:"sandbox_source"`
+	Harness       string         `json:"harness"`
 	Cwd           string         `json:"cwd"`
 	Source        string         `json:"source"`
 	SessionID     string         `json:"session_id"`
@@ -108,6 +109,7 @@ func reserve(st *store.Store, a admission) (int, error) {
 		Defaults: store.Defaults{
 			Purpose: f.purpose, Model: e.Model, Effort: e.Effort, Sandbox: e.Sandbox,
 			ModelSource: e.ModelSource, EffortSource: e.EffortSource, SandboxSource: e.SandboxSource,
+			Harness: f.harness,
 		},
 		CreatedAt: ts, UpdatedAt: ts,
 	}
@@ -140,7 +142,7 @@ func (a admission) request() requestRecord {
 		Command: a.command, Provider: f.provider, Purpose: f.purpose,
 		Model: nullable(e.Model), ModelSource: e.ModelSource,
 		Effort: nullable(e.Effort), EffortSource: e.EffortSource,
-		Sandbox: nullable(e.Sandbox), SandboxSource: e.SandboxSource,
+		Sandbox: nullable(e.Sandbox), SandboxSource: e.SandboxSource, Harness: f.harness,
 		Cwd: a.cwd, Source: f.source, SessionID: f.sessionID, AgentFeedback: f.agentFeedback, TimeoutS: timeoutSeconds(f.timeoutS),
 		CleanSentinel: f.cleanSentinel, MaterialLabel: f.materialLabel,
 		Attrs: f.attrs.object(), Passthrough: passthrough, Plan: a.plan, Relay: a.relay,

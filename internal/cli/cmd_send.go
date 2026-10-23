@@ -77,6 +77,7 @@ func sendTurn(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversati
 	if !p.given["purpose"] {
 		p.purpose = conv.Defaults.Purpose
 	}
+	p.harness = turnHarness(conv, p)
 	eff := turnSettings(st, conv, p)
 	if code := checkedTurn(ctx, prov, p, eff); code != 0 {
 		return code
@@ -106,7 +107,7 @@ func sendTurn(ctx *Context, st *store.Store, p parsedTurn, conv store.Conversati
 		command: "send", flags: p, prov: prov, eff: eff, cwd: cwd, prompt: prompt, st: st, existing: &conv, relay: relay,
 		req: provider.Request{
 			Command: "resume", Cwd: cwd, Model: eff.Model, Effort: eff.Effort, Sandbox: eff.Sandbox,
-			SessionID: *conv.ProviderSessionID, Passthrough: p.passthrough,
+			SessionID: *conv.ProviderSessionID, Passthrough: p.passthrough, Harness: p.harness,
 		},
 	})
 }
@@ -137,10 +138,10 @@ func checkedPrompt(ctx *Context, prov provider.Provider, p parsedTurn, eff setti
 // checkedTurn refuses a turn the provider cannot run with the effective
 // settings and the native flags, or that does not name exactly one prompt.
 func checkedTurn(ctx *Context, prov provider.Provider, p parsedTurn, eff settings.Resolved) int {
-	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "resume", Sandbox: eff.Sandbox}); err != nil {
+	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "resume", Sandbox: eff.Sandbox, Harness: p.harness}); err != nil {
 		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
 	}
-	if flagText, reserved := reservedPassthrough(prov, p.passthrough); reserved {
+	if flagText, reserved := reservedPassthrough(prov, p.harness, p.passthrough); reserved {
 		return ctx.Fail(ExitUsage, "native flag %q is reserved by msgate and cannot be passed after --", flagText)
 	}
 	if len(p.positional)+boolToInt(p.promptFile != "") != 1 {
@@ -211,7 +212,7 @@ func adoptSession(ctx *Context, st *store.Store, p parsedTurn, prov provider.Pro
 		onHolder: func(holder store.Conversation) int { return sendToHolder(ctx, st, p, holder, route.relay, prompt) },
 		req: provider.Request{
 			Command: "resume", Cwd: cwd, Model: eff.Model, Effort: eff.Effort, Sandbox: eff.Sandbox,
-			SessionID: route.id, Passthrough: p.passthrough,
+			SessionID: route.id, Passthrough: p.passthrough, Harness: p.harness,
 		},
 	})
 }
@@ -295,6 +296,15 @@ func turnSettings(st *store.Store, conv store.Conversation, p parsedTurn) settin
 	r.Effort, r.EffortSource = pick("effort", p.effort, firstNonEmpty(p.effortSource, p.settingsSource), conv.Defaults.Effort, first.effort, "", settings.SourceProviderDefault)
 	r.Sandbox, r.SandboxSource = pick("sandbox", p.sandbox, p.settingsSource, conv.Defaults.Sandbox, first.sandbox, settings.DefaultSandbox, settings.SourceDefault)
 	return r
+}
+
+// turnHarness is the level the turn runs at: the one it passes, else the
+// conversation's, else full for a record written before levels existed.
+func turnHarness(conv store.Conversation, p parsedTurn) string {
+	if p.given["harness"] {
+		return p.harness
+	}
+	return firstNonEmpty(conv.Defaults.Harness, provider.HarnessFull)
 }
 
 type settingSources struct{ model, effort, sandbox string }

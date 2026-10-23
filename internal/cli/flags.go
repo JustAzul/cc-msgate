@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/JustAzul/cc-msgate/internal/provider"
 	"github.com/JustAzul/cc-msgate/internal/settings"
 )
 
@@ -21,6 +22,7 @@ type turnFlags struct {
 	model          string
 	effort         string
 	sandbox        string
+	harness        string // full, lean or bare; on send, the conversation's stored level unless passed
 	cwd            string
 	source         string
 	sessionID      string
@@ -194,6 +196,8 @@ func parseTurnArgs(ctx *Context, spec turnSpec, args []string) (p parsedTurn, ex
 	fs.StringVar(&f.model, "model", "", "model")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort")
 	fs.StringVar(&f.sandbox, "sandbox", "", "read-only or workspace-write")
+	f.harness = provider.HarnessFull
+	fs.Var(harnessFlag{&f.harness}, "harness", "how much of the provider's own instructions, skills and tools the run keeps: full, lean or bare (default full)")
 	fs.StringVar(&f.cwd, "cwd", "", "working directory (default: current)")
 	fs.StringVar(&f.source, "source", "cli", "who dispatched the run")
 	fs.StringVar(&f.sessionID, "session-id", ctx.Getenv("CLAUDE_CODE_SESSION_ID"), "Claude Code session id")

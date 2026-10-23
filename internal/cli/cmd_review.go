@@ -41,11 +41,8 @@ func runReview(ctx *Context, args []string) int {
 		return ctx.Fail(ExitUsage, "review targets take no prompt: pass a target flag and no prompt source")
 	}
 	eff := settings.Resolve(settings.Flags{Model: p.model, Effort: p.effort, Sandbox: p.sandbox, EffortSource: p.effortSource}, p.settingsSource)
-	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "review", Sandbox: eff.Sandbox, ReviewTarget: target}); err != nil {
-		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
-	}
-	if flagText, reserved := reservedPassthrough(prov, p.passthrough); reserved {
-		return ctx.Fail(ExitUsage, "native flag %q is reserved by msgate and cannot be passed after --", flagText)
+	if code := checkedReview(ctx, prov, p, eff, target); code != 0 {
+		return code
 	}
 
 	cwd, code := resolveCwd(ctx, p.cwd, p.dryRun)
@@ -60,9 +57,25 @@ func runReview(ctx *Context, args []string) int {
 		command: "review", flags: p, prov: prov, eff: eff, cwd: cwd, st: store.Open(home),
 		req: provider.Request{
 			Command: "review", Cwd: cwd, Model: eff.Model, Effort: eff.Effort, Sandbox: eff.Sandbox,
-			Passthrough: p.passthrough, ReviewTarget: target, ReviewRef: ref,
+			Passthrough: p.passthrough, ReviewTarget: target, ReviewRef: ref, Harness: p.harness,
 		},
 	})
+}
+
+// checkedReview refuses a review the provider cannot run with the effective
+// settings, the harness level and the native flags. A review reads the tree
+// with the provider's tools, so it never runs at the bare level.
+func checkedReview(ctx *Context, prov provider.Provider, p parsedTurn, eff settings.Resolved, target string) int {
+	if p.harness == provider.HarnessBare {
+		return ctx.Fail(ExitUsage, "a review cannot run at the %s harness level: it needs the provider's tools", provider.HarnessBare)
+	}
+	if err := prov.Capabilities().Unsupported(provider.Needs{Command: "review", Sandbox: eff.Sandbox, ReviewTarget: target, Harness: p.harness}); err != nil {
+		return ctx.Fail(ExitUsage, "provider %q %v", p.provider, err)
+	}
+	if flagText, reserved := reservedPassthrough(prov, p.harness, p.passthrough); reserved {
+		return ctx.Fail(ExitUsage, "native flag %q is reserved by msgate and cannot be passed after --", flagText)
+	}
+	return 0
 }
 
 // reviewTarget returns the one target the caller chose; ok is false when none

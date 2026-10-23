@@ -37,6 +37,9 @@ type Defaults struct {
 	ModelSource   string `json:"model_source"`
 	EffortSource  string `json:"effort_source"`
 	SandboxSource string `json:"sandbox_source"`
+	// Harness is the level the conversation runs at; a record written before
+	// the level existed has it empty, which reads as full.
+	Harness string `json:"harness,omitempty"`
 }
 
 // UnmarshalJSON reads a record written before the purpose had its name: its

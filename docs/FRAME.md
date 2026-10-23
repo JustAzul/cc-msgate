@@ -632,6 +632,8 @@ agentcli · spawned <scenario> · trigger <source> · finished in 3s
   - `FAKECODEX_CHILD_IGNORE_TERM=1`: the spawned grandchild ignores SIGTERM.
   - `FAKECODEX_MODELS`: path of a JSON file printed as-is by `codex debug models`
     (exit 0). When unset, `debug models` prints an error and exits 1.
+  - `FAKECODEX_MCP_LIST`: path of a JSON file printed as-is by `codex mcp list --json`
+    (exit 0). When unset, it prints `[]`. It records nothing.
 - Every e2e sandbox sets `AGENTCLI_PRICES_URL=off` unless the test sets it to the
   URL of an `httptest` server on 127.0.0.1 that serves a fixture price list
   (`testdata/prices/`).
