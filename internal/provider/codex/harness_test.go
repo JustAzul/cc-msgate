@@ -11,7 +11,7 @@ import (
 	"github.com/JustAzul/cc-msgate/internal/provider/codex"
 )
 
-const harnessInstructions = "/home/msgate/harness/instructions.md"
+const harnessInstructions = "/msgate-home/harness/instructions.md"
 
 // harnessRequest is an exec request at level with the instructions file the
 // CLI provides for any level but full.
