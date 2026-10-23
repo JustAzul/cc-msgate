@@ -108,11 +108,38 @@ export type MsgateModel = {
   visibility: string
 }
 
-export type MsgateModels = {
+/** The catalog of a provider that can take work. */
+export type MsgateModelsAvailable = {
   provider: string
   /** In the order the provider lists them. */
   models: MsgateModel[]
+  available: true
+  /**
+   * When the provider's health was last checked, as an RFC 3339 instant. Absent
+   * when it never was, or when the providers listing could not be read: a
+   * provider with no word against it counts as available.
+   */
+  checked_at?: string
 }
+
+/** A provider that cannot take work now: no models, and why. */
+export type MsgateModelsUnavailable = {
+  provider: string
+  models: []
+  available: false
+  /** `not-installed`, `not-logged-in`, `rate-limited`, `quota-exhausted` or `provider-outage`. */
+  reason: string
+  /** When the provider was found unavailable, as an RFC 3339 instant. */
+  checked_at: string
+}
+
+/**
+ * What `models()` answers. The catalog of a provider is read once per load; its
+ * availability is read again once the answer held is older than 5 minutes (1
+ * minute while a provider is unavailable), so a consumer that wants it current
+ * calls `models()` again instead of keeping the first answer.
+ */
+export type MsgateModels = MsgateModelsAvailable | MsgateModelsUnavailable
 
 /** A run as `status --json` prints it: these keys, and others the binary adds. */
 export type MsgateRun = {
@@ -183,9 +210,14 @@ declare module 'claude-code' {
       flaggedRuns: () => Promise<MsgateFlaggedRun[]>
       /**
        * The model catalog of a provider (`codex` when none is named), as the
-       * provider lists it. The engine reads a catalog once per load and keeps it;
-       * a read that failed is made again by the next call. It rejects with
-       * `msgate:models:failed`.
+       * provider lists it, with whether the provider is available. The engine
+       * reads a catalog once per load and keeps it; a read that failed is made
+       * again by the next call. Availability comes from `msgate providers` and is
+       * read again once the answer held is older than its time to live, so call
+       * `models()` again rather than keeping the first answer. A provider that is
+       * not available answers no models and a `reason`; a missing binary answers
+       * `reason: 'not-installed'`. It rejects with `msgate:models:failed` when
+       * the catalog of an available provider cannot be read.
        */
       models: (args?: { provider?: string }) => Promise<MsgateModels>
     }

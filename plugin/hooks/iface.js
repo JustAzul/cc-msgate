@@ -4,6 +4,7 @@
 
 import { backType, backedData } from './backed.js'
 import { admitJob } from './admission.js'
+import { availabilityOf, createAvailabilityCache } from './availability.js'
 import { admittedRunIds, forgetRuns, recordAdmitted } from './admitted.js'
 import { flaggedRuns } from './band.js'
 import { hiddenRunIds } from './hidden.js'
@@ -24,9 +25,13 @@ async function releaseVersion($) {
 
 const jobsDenial = (reason) => ({ deny: 'msgate:jobs:' + reason })
 
+// `msgate models` exits with this code when the provider's own binary is not on PATH.
+const EXIT_PROVIDER_MISSING = 127
+
 // readReply runs a command of the binary: { reply } for one that exited 0, or
 // { error } with why it did not, plus `isNotFound` when the run asked for is not
-// known to it. It never throws.
+// known to it and `isProviderMissing` when the provider's binary is not
+// installed. It never throws.
 async function readReply($, argv) {
   let reply
   try {
@@ -34,7 +39,8 @@ async function readReply($, argv) {
   } catch (error) {
     return { error: 'msgate could not run: ' + messageOf(error) }
   }
-  return reply.exitCode === 0 ? { reply } : { error: failureText(reply), isNotFound: reply.exitCode === EXIT_RUN_NOT_FOUND }
+  if (reply.exitCode === 0) return { reply }
+  return { error: failureText(reply), isNotFound: reply.exitCode === EXIT_RUN_NOT_FOUND, isProviderMissing: reply.exitCode === EXIT_PROVIDER_MISSING }
 }
 
 // The runs of a record read together; each read is a process of its own.
@@ -123,10 +129,14 @@ function versionOnce($, cache) {
 
 // The catalogs a load has read, by the provider asked for ('' for the default),
 // shared by every call of the load. The binary takes up to 10 s to read one. A
-// read that failed is forgotten, so the next call tries again.
+// read that failed is forgotten, so the next call tries again. The providers'
+// availability is held beside them, for a time of its own.
 export function createModelsCache() {
-  return { pending: new Map() }
+  return { pending: new Map(), availability: createAvailabilityCache() }
 }
+
+// The provider `models` reads when none is named.
+const DEFAULT_PROVIDER = 'codex'
 
 const isTextOf = (value, { isEmptyOk }) => typeof value === 'string' && (isEmptyOk || value !== '')
 
@@ -151,10 +161,14 @@ function catalogOf(stdout) {
   return { provider: printed.provider, models: printed.models.map(catalogModel) }
 }
 
+// ProviderMissingError is a catalog read that found the provider's binary missing.
+class ProviderMissingError extends Error {}
+
 async function readCatalog($, provider) {
   const argv = [shimPath($.plugin.root), 'models', '--json']
   if (provider !== '') argv.push('--provider', provider)
   const read = await readReply($, argv)
+  if (read.isProviderMissing) throw new ProviderMissingError(read.error)
   if (read.error !== undefined) throw new Error(read.error)
   return catalogOf(read.reply.stdout)
 }
@@ -170,15 +184,32 @@ function modelsOnce($, cache, provider) {
   return cache.pending.get(provider)
 }
 
-// serveModels is the model catalog of a provider, the default one when none is named.
+// serveModels is the model catalog of a provider, the default one when none is
+// named, with whether the provider is available. A provider that is not has no
+// models, and its catalog is not read.
 export async function serveModels($, args, cache) {
   try {
     const asked = args?.provider
     if (asked !== undefined && !isTextOf(asked, { isEmptyOk: false })) throw new Error('the provider is not text')
-    return { value: await modelsOnce($, cache, asked ?? '') }
+    const provider = asked ?? DEFAULT_PROVIDER
+    const health = await availabilityOf($, cache.availability, provider)
+    if (!health.available) return { value: { provider, models: [], ...health } }
+    return { value: await catalogAnswer($, cache, asked ?? '', health) }
   } catch (error) {
     await $.ui.log('could not read the model catalog: ' + messageOf(error), { to: 'debug' })
     return { deny: 'msgate:models:failed' }
+  }
+}
+
+// catalogAnswer is the catalog of an available provider, or the answer of one
+// whose binary turned out to be missing.
+async function catalogAnswer($, cache, provider, health) {
+  try {
+    return { ...(await modelsOnce($, cache, provider)), ...health }
+  } catch (error) {
+    if (!(error instanceof ProviderMissingError)) throw error
+    const checkedAt = new Date(await $.clock.now()).toISOString()
+    return { provider: provider === '' ? DEFAULT_PROVIDER : provider, models: [], available: false, reason: 'not-installed', checked_at: checkedAt }
   }
 }
 
