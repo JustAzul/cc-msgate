@@ -258,3 +258,57 @@ func TestEverythingThatRanLeavesNothingSkipped(t *testing.T) {
 		t.Errorf("health = %+v, want available with nothing skipped", got)
 	}
 }
+
+// launcherDir holds an executable named codex that behaves as Codex does when
+// it is a launcher script: `login status` passes, and any other subcommand runs
+// the fake Codex as a background child and waits for it. The child inherits the
+// launcher's standard output, so killing the launcher alone leaves it holding
+// the pipe.
+func launcherDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\n[ \"$1\" = login ] && exit 0\n\"$FAKECODEX_REAL\" \"$@\" &\nwait\n"
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestAnAppServerWhoseChildHoldsTheOutputIsGivenUpOnAtTheDeadline(t *testing.T) {
+	env := []string{
+		"PATH=" + launcherDir(t), "MSGATE_STATUS_URL_OPENAI=off",
+		"FAKECODEX_REAL=" + filepath.Join(fakeBinDir, "codex"), "FAKECODEX_SLEEP_MS=5000",
+	}
+	start := time.Now()
+
+	got := checkHealthWithin(t, mustTimeout(t, time.Second), env)
+
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("the check took %v, want it to give up within 3s of a 1s deadline", elapsed)
+	}
+	if want := []string{"app-server: timed out"}; !got.Available || got.Reason != "" || !slices.Equal(got.Skipped, want) {
+		t.Errorf("health = %+v, want available, skipped %q", got, want)
+	}
+}
+
+func TestALoginStatusWhoseChildOutlivesTheLauncherDoesNotHoldTheCheck(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\n\"$FAKECODEX_REAL\" \"$@\" &\nwait\n"
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{
+		"PATH=" + dir, "MSGATE_STATUS_URL_OPENAI=off",
+		"FAKECODEX_REAL=" + filepath.Join(fakeBinDir, "codex"), "FAKECODEX_SLEEP_MS=5000",
+	}
+	start := time.Now()
+
+	got := checkHealthWithin(t, mustTimeout(t, time.Second), env)
+
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("the check took %v, want it to give up within 3s of a 1s deadline", elapsed)
+	}
+	if want := []string{"login status: timed out", "app-server: timed out"}; got.Reason != "unknown" || !slices.Equal(got.Skipped, want) {
+		t.Errorf("health = %+v, want unknown, skipped %q", got, want)
+	}
+}

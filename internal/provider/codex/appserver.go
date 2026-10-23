@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/JustAzul/cc-msgate/internal/provider"
@@ -92,13 +93,24 @@ func latestReset(windows []*rateLimitWindow) *time.Time {
 	return &at
 }
 
+// leadOwnGroup makes cmd lead a process group of its own and makes the end of
+// its context kill the whole group. Codex can be a launcher script that starts
+// the real binary as a child: killing the launcher alone leaves the child
+// holding the pipes.
+func leadOwnGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+}
+
 // readRateLimits starts `codex app-server` on stdio, performs the handshake and
-// reads the account's rate limits. The process is stopped once it has answered.
+// reads the account's rate limits. The process group is killed, and the read
+// end of its output closed, when the context ends or the answer is in.
 func readRateLimits(ctx context.Context, bin string, env []string) (rateLimitSnapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, appServerTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "app-server")
 	cmd.Env, cmd.WaitDelay = env, waitDelay
+	leadOwnGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return rateLimitSnapshot{}, errCouldNotStart
@@ -113,6 +125,9 @@ func readRateLimits(ctx context.Context, bin string, env []string) (rateLimitSna
 		}
 		return rateLimitSnapshot{}, errCouldNotStart
 	}
+	// A reader blocked on the pipe returns once the context ends, whoever else
+	// still holds the write end.
+	defer context.AfterFunc(ctx, func() { _ = stdout.Close() })()
 	snap, err := rateLimitExchange(stdin, stdout)
 	timedOut := ctx.Err() != nil
 	cancel()
