@@ -88,6 +88,7 @@ import { forgetEfforts, holdEffort, takeEffort } from './efforts.js'
 import { FOLLOW, admitSpawn, checkHiddenRow, endedText, followFailureText, hiddenRunIds, hiddenRunOf, isRewrittenPrompt, runIdOfPrompt, stoppedText } from './hidden.js'
 import { PROGRESS_SPEC, PROGRESS_TOOL, onProgressTool } from './progress.js'
 import { createService } from './service.js'
+import { createClaudeState } from './claude-state.js'
 import { INTERFACE, createModelsCache, createVersionCache, serveBackType, serveFlaggedRuns, serveJobs, serveModels, serveRun, serveVersion } from './iface.js'
 import { summaryRecording } from './summary.js'
 import { modelCallCommand } from './modelcall.js'
@@ -210,6 +211,8 @@ const loggedNotes = new Set()
 let summaries = createSummarizer({}, limiter)
 // The msgate.complete calls this load is serving.
 let service = createService()
+// What this load has told the cache of Claude's state.
+let claudeState = createClaudeState()
 // The version this load has read for the interface.
 let versionCache = createVersionCache()
 // Conversation records are read, changed and written back; one write at a time
@@ -233,6 +236,7 @@ export function register(on, options) {
   forgetEfforts()
   isLossToastShown = false
   service = createService()
+  claudeState = createClaudeState()
   versionCache = createVersionCache()
   // Only the spread and the noun: a step that fails unloads the whole plugin.
   on('engine.create', async (_$, e, next) => ({ ...(await next(e)), msgate: INTERFACE }))
@@ -1220,7 +1224,7 @@ function summaryPorts($) {
     isEnabled: async () => (await summaryConfig($)).isEnabled,
     surfaces: () => $.session.surfaces(),
     now: () => $.clock.now(),
-    complete: (request) => $.model.complete(request),
+    complete: (request) => completeAsClaude($, request),
     record: (usage, runId) => recordSummary($, usage, runId),
     log: (text) => $.ui.log(text, { to: 'debug' }),
     labelSettled: (runId) => {
@@ -1229,13 +1233,35 @@ function summaryPorts($) {
   }
 }
 
+// claudePorts is what Claude's state uses of the engine.
+function claudePorts($) {
+  return {
+    bin: shimPath($.plugin.root),
+    now: () => $.clock.now(),
+    usage: () => $.session.usage(),
+    run: (argv, init) => $.process.run(argv, init),
+    log: (text) => $.ui.log(text, { to: 'debug' }),
+  }
+}
+
+// completeAsClaude is a completion by Claude's model that also keeps the cache's
+// view of Claude: the session's rate-limit windows are read before it, and a
+// refusal for want of rate-limit room is marked after it. Neither changes the
+// result, and neither can fail the completion.
+async function completeAsClaude($, request, options) {
+  await claudeState.look(claudePorts($)).catch(() => {})
+  const result = await $.model.complete(request, options)
+  await claudeState.refused(claudePorts($), result).catch(() => {})
+  return result
+}
+
 // servicePorts is what the msgate.complete service uses of the engine.
 function servicePorts($) {
   return {
     sessionId: () => $.session.id(),
     now: () => $.clock.now(),
     haikuPin: () => $.env.get('ANTHROPIC_DEFAULT_HAIKU_MODEL'),
-    complete: (request, signal) => $.model.complete(request, { signal }),
+    complete: (request, signal) => completeAsClaude($, request, { signal }),
     record: (recording) => recordCall($, recording),
   }
 }
