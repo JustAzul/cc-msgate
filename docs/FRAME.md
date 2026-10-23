@@ -273,7 +273,10 @@ like the other locks. A model-call provider's models sit under its own key
 `providers.json`, written whole (temp file and rename) by `providers refresh`
 and `providers mark`, each read-modify-write under a blocking `flock(2)` on
 `providers.write.lock`. A refresh takes `providers.refresh.lock` without
-blocking and exits 0 when another refresh holds it:
+blocking and exits 0 when another refresh holds it. A refresh that
+`msgate providers` starts in the background writes what it reports to
+`providers.refresh.log`, kept to its last 64 KiB; one run by hand reports on
+its own stderr:
 
 ```json
 {"version": 1, "providers": {"codex": {"available": true, "reason": "", "checked_at": "RFC3339 UTC", "resets_at": null, "source": "check", "skipped": ["status page: unreachable"]}}}
@@ -672,7 +675,8 @@ agentcli · spawned <scenario> · trigger <source> · finished in 3s
   tests set them to an `httptest` server or to `off`.
 - `MSGATE_TEST_REFRESH_LOG` names a file the provider refresh machinery appends
   to: `spawned` when `msgate providers` starts a refresh, `busy` when a refresh
-  finds the lock held, `ran` when a refresh has written the cache. A test counts
+  finds the lock held, `ran` when a refresh has written the cache, `failed`
+  when it could not write the cache. A test counts
   lines instead of waiting on wall time.
 - `MSGATE_TEST_REFRESH_GATE` names a path: a refresh that holds the lock creates
   `<path>.reached` and waits for `<path>.release` (at most 10 seconds) before

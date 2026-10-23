@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +36,7 @@ var anthropicComponents = []string{"Claude API (api.anthropic.com)", "Claude Cod
 func runProvidersRefresh(ctx *Context, args []string) int {
 	fset := flag.NewFlagSet("providers refresh", flag.ContinueOnError)
 	fset.SetOutput(io.Discard)
+	detached := fset.Bool(strings.TrimPrefix(detachedFlag, "--"), false, "")
 	positional, err := parseInterspersed(fset, args)
 	if err != nil {
 		return failFlagParse(ctx, providersUsage, err)
@@ -47,6 +49,12 @@ func runProvidersRefresh(ctx *Context, args []string) int {
 		return ctx.Fail(ExitInternal, "%v", err)
 	}
 	st := store.Open(home)
+	if *detached {
+		if log, err := st.OpenProvidersRefreshLog(); err == nil {
+			defer log.Close()
+			ctx.Stderr = store.NewTailWriter(log, store.WorkerLogLimit) // what a refresh says stays within the log's bound
+		}
+	}
 	release, err := st.LockProvidersRefresh()
 	if errors.Is(err, store.ErrProvidersRefreshLockHeld) {
 		refreshLog(ctx, "busy")
@@ -62,6 +70,7 @@ func runProvidersRefresh(ctx *Context, args []string) int {
 	checked := checkAll(ctx)
 	now := ctx.Now()
 	if err := st.UpdateProviders(func(c *store.ProviderCache) { c.Providers = mergedEntries(c.Providers, checked, now) }); err != nil {
+		refreshLog(ctx, "failed")
 		return ctx.Fail(ExitInternal, "writing the provider cache: %v", err)
 	}
 	refreshLog(ctx, "ran")

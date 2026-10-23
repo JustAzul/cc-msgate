@@ -21,6 +21,9 @@ const (
 	providersUsage = "usage: msgate providers [--json]\n       msgate providers refresh\n       msgate providers mark <provider> --reason <reason> [--until <RFC3339>]"
 	// refreshCommand is the argument that makes `msgate providers` a refresh.
 	refreshCommand = "refresh"
+	// detachedFlag marks a refresh started in the background, whose reports go
+	// to the refresh log instead of a terminal.
+	detachedFlag = "--detached"
 )
 
 func runProviders(ctx *Context, args []string) int {
@@ -81,13 +84,14 @@ func runProvidersShow(ctx *Context, args []string) int {
 	if err != nil {
 		return ctx.Fail(ExitInternal, "%v", err)
 	}
-	cache, err := store.Open(home).ReadProviders()
+	st := store.Open(home)
+	cache, err := st.ReadProviders()
 	if err != nil {
 		ctx.Warnf("reading the provider cache: %v", err)
 	}
 	views, stale := viewProviders(cache, ctx.Now())
 	if stale {
-		startRefresh(ctx)
+		startRefresh(ctx, st)
 	}
 	if ctx.JSON {
 		return printJSON(ctx, providersAnswer{Providers: views, SummaryModels: []struct{}{}})
@@ -137,17 +141,23 @@ func viewLine(v providerView) string {
 }
 
 // startRefresh starts one detached `msgate providers refresh` in its own
-// session, like the run worker. A refresh that cannot start is a warning: the
-// answer in hand is still good.
-func startRefresh(ctx *Context) {
+// session, like the run worker, with its stderr in the refresh log. A refresh
+// that cannot start is a warning: the answer in hand is still good.
+func startRefresh(ctx *Context, st *store.Store) {
 	exe, err := os.Executable()
 	if err != nil {
 		ctx.Warnf("starting a provider refresh: %v", err)
 		return
 	}
-	cmd := exec.Command(exe, "providers", refreshCommand)
+	cmd := exec.Command(exe, "providers", refreshCommand, detachedFlag)
 	cmd.Env = ctx.Env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // its own session: the caller's terminal and group never reach it
+	if log, err := st.OpenProvidersRefreshLog(); err != nil {
+		ctx.Warnf("could not open the provider refresh log: %v", err)
+	} else {
+		defer log.Close()
+		cmd.Stderr = log
+	}
 	refreshLog(ctx, "spawned")
 	if err := cmd.Start(); err != nil {
 		ctx.Warnf("starting a provider refresh: %v", err)

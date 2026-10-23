@@ -20,7 +20,9 @@ func healthSandbox(t *testing.T) (*sandbox, string) {
 	log := filepath.Join(t.TempDir(), "refreshes.log")
 	s.set("MSGATE_TEST_REFRESH_LOG", log)
 	t.Cleanup(func() {
-		if !waitFor(func() bool { return logCount(log, "spawned") <= logCount(log, "ran")+logCount(log, "busy") }) {
+		if !waitFor(func() bool {
+			return logCount(log, "spawned") <= logCount(log, "ran")+logCount(log, "busy")+logCount(log, "failed")
+		}) {
 			t.Errorf("a refresh started by a reader never finished; log:\n%s", logText(log))
 		}
 	})

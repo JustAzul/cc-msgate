@@ -42,6 +42,21 @@ func (s *Store) providersWriteLockPath() string {
 	return filepath.Join(s.Home, "providers.write.lock")
 }
 
+// ProvidersRefreshLogPath is the file a detached provider refresh writes its
+// diagnostics to.
+func (s *Store) ProvidersRefreshLogPath() string {
+	return filepath.Join(s.Home, "providers.refresh.log")
+}
+
+// OpenProvidersRefreshLog opens the refresh log for appending, creating it
+// and the home with user-only permissions.
+func (s *Store) OpenProvidersRefreshLog() (*os.File, error) {
+	if err := os.MkdirAll(s.Home, dirMode); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(s.ProvidersRefreshLogPath(), os.O_RDWR|os.O_CREATE|os.O_APPEND, fileMode)
+}
+
 // LockProvidersRefresh takes the home's provider-refresh lock without waiting
 // and returns the function releasing it. The home is created when missing. A
 // lock already held yields ErrProvidersRefreshLockHeld.
