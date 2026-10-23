@@ -47,7 +47,7 @@ func TestCompleteRunsCodexBareOnceAndPrintsTheAnswer(t *testing.T) {
 			t.Errorf("argv %q lacks %q", got.Argv, want)
 		}
 	}
-	if got.Cwd != oneshot {
+	if !samePath(t, got.Cwd, oneshot) {
 		t.Errorf("cwd = %q, want %q", got.Cwd, oneshot)
 	}
 	if got.Stdin != "ping" {

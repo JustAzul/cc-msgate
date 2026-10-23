@@ -126,8 +126,13 @@ func TestBuildPlanBareAlsoTurnsOffTheToolsAndEveryMCPServerCodexListsForTheDirec
 	if want := argvAround(cwd, overrides); !reflect.DeepEqual(plan.Argv, want) {
 		t.Errorf("argv\n got %q\nwant %q", plan.Argv, want)
 	}
-	if got, err := os.ReadFile(ranIn); err != nil || strings.TrimSpace(string(got)) != cwd {
-		t.Errorf("codex mcp list ran in %q (read error %v), want the run's directory %q", got, err, cwd)
+	// The fake reports its directory with symlinks resolved, as `pwd -P` does.
+	resolved, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(ranIn); err != nil || strings.TrimSpace(string(got)) != resolved {
+		t.Errorf("codex mcp list ran in %q (read error %v), want the run's directory %q", got, err, resolved)
 	}
 }
 
