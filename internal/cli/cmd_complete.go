@@ -215,7 +215,10 @@ func finishComplete(ctx *Context, st *store.Store, prov provider.Provider, f com
 			ctx.Warnf("could not write the model call: %v", err)
 		}
 	}
-	answer := completeAnswerOf(prov, f, res, outputPath)
+	answer, err := completeAnswerOf(prov, f, res, outputPath)
+	if err != nil {
+		return ctx.Fail(ExitInternal, "reading the answer: %v", err)
+	}
 	if answer.Outcome == outcomeAPIError {
 		ctx.Errorf("%s", res.Error)
 		if err := markProviderDown(st, prov, res.Error, now); err != nil {
@@ -226,8 +229,9 @@ func finishComplete(ctx *Context, st *store.Store, prov provider.Provider, f com
 }
 
 // completeAnswerOf is the outcome of a call whose provider ran to an exit: an
-// API error when the exit was not zero, else the text of the final message.
-func completeAnswerOf(prov provider.Provider, f completeFlags, res runner.OneShotResult, outputPath string) completeAnswer {
+// API error when the exit was not zero, else the text of the final message. A
+// final message that cannot be read, other than for being absent, is an error.
+func completeAnswerOf(prov provider.Provider, f completeFlags, res runner.OneShotResult, outputPath string) (completeAnswer, error) {
 	answer := completeAnswer{Model: f.model, Usage: completeUsageOf(res.Usage)}
 	if answer.Model == "" {
 		answer.Model = unnamedModel
@@ -235,15 +239,18 @@ func completeAnswerOf(prov provider.Provider, f completeFlags, res runner.OneSho
 	if res.ExitCode != 0 {
 		answer.Outcome = outcomeAPIError
 		answer.Failure = string(provider.ClassifyFailure(prov, res.Error))
-		return answer
+		return answer, nil
 	}
-	text, _ := os.ReadFile(outputPath) // no file: the provider wrote no final message
+	text, err := os.ReadFile(outputPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) { // no file: the provider wrote no final message
+		return answer, err
+	}
 	answer.Text = string(text)
 	answer.Outcome = outcomeAnswered
 	if strings.TrimSpace(answer.Text) == "" {
 		answer.Outcome = outcomeEmptyReply
 	}
-	return answer
+	return answer, nil
 }
 
 func completeUsageOf(u *provider.Usage) completeUsage {
@@ -262,6 +269,8 @@ func printComplete(ctx *Context, answer completeAnswer, exit int) int {
 		}
 		return exit
 	}
-	io.WriteString(ctx.Stdout, answer.Text)
+	if _, err := io.WriteString(ctx.Stdout, answer.Text); err != nil {
+		return ctx.Fail(ExitInternal, "printing the answer: %v", err)
+	}
 	return exit
 }
