@@ -372,7 +372,7 @@ export function register(on, options) {
     const agent = turnAgents.get(e.requestId)
     // A message the engine set is not the run's to replace.
     if (agent === undefined || e.props.message != null) return next(e)
-    const message = summaries.shown(agent.runId) ?? 'msgate · ' + agent.type
+    const message = summaries.spinner(agent.runId) ?? 'msgate · ' + agent.type
     return next({ ...e, props: { ...e.props, message } })
   }).catch(($, e, next) => next(e))
 
@@ -1051,11 +1051,13 @@ async function readFollowed($) {
 
 // bandLabels is what each followed run shows in place of its newest raw step
 // while summaries are active: its label, or null before one. A run whose
-// summaries are not active has no entry and keeps its raw step.
+// summaries are not active, or whose label gave way to a random word, has no
+// entry and keeps its raw step.
 async function bandLabels($, read) {
   const labels = new Map()
   for (const run of followed) {
-    if (!(await summaries.observe(summaryPorts($), run.run_id, read.get(run.run_id)?.text ?? []))) continue
+    if (!(await summaries.observe(summaryPorts($), run.run_id, read.get(run.run_id)?.entries ?? []))) continue
+    if (summaries.isOnWord(run.run_id)) continue
     labels.set(run.run_id, summaries.shown(run.run_id))
   }
   return labels
@@ -1234,6 +1236,7 @@ function summaryPorts($) {
     completeCodex: (request, call) => completeAsCodex($, request, call),
     record: (usage, runId, model) => recordSummary($, usage, runId, model),
     log: (text) => $.ui.log(text, { to: 'debug' }),
+    random: () => Math.random(),
     labelSettled: (runId) => {
       if ([...turnAgents.values()].some((agent) => agent.runId === runId)) $.ui.invalidate('ui.render')
     },
@@ -1795,11 +1798,12 @@ export async function advanceFollow($, follow) {
   follow.from = progress.next
   const config = await summaryConfig($)
   if (follow.recording !== null && !config.isEnabled) follow.recording = abandon($, follow.recording)
-  if (follow.recording !== null && progress.text.length > 0) follow.recording.add(progress.text, summaryPorts($))
+  if (follow.recording !== null && progress.entries.length > 0) follow.recording.add(progress.entries, summaryPorts($))
   // With summaries active the row shows labels, not the entries.
-  const isLive = await summaries.observe(summaryPorts($), runId, progress.text)
+  const isLive = await summaries.observe(summaryPorts($), runId, progress.entries)
   const labels = isLive ? summaries.take(runId) : []
-  const lines = await withHeartbeat($, follow, isLive ? labels : progress.text, config)
+  const words = isLive ? summaries.takeWords(runId) : []
+  const lines = await withHeartbeat($, follow, isLive ? [...labels, ...words] : progress.text, config)
   return { lines, labels, entries: progress.text.length, isDone: !(isWaitTimeout(reply) && !follow.signal.aborted) }
 }
 
@@ -1867,17 +1871,21 @@ function finishRecords($, runId, recorder, signal) {
   return finishOnStop({ recorder, runId, signal, ports })
 }
 
-// newProgress reads the run's progress entries from `from` on, and the run's
-// state and cost so far (no cost key when the read failed). A read that fails
-// shows nothing new, leaves `from` where it was and is logged once per run: the
-// wait goes on, and the answer does not depend on progress.
+// typedEntry is what the summaries take of a progress entry: its kind and text.
+const typedEntry = (entry) => ({ kind: entry.kind, text: String(entry.text ?? '') })
+
+// newProgress reads the run's progress entries from `from` on, as display lines
+// (`text`) and typed entries (`entries`), and the run's state and cost so far
+// (no cost key when the read failed). A read that fails shows nothing new,
+// leaves `from` where it was and is logged once per run: the wait goes on, and
+// the answer does not depend on progress.
 async function newProgress($, bin, runId, from) {
   let failure
   try {
     const reply = await $.process.run(progressCommand(bin, runId, from))
     const progress = reply.exitCode === 0 ? readProgress(reply.stdout) : null
     if (progress !== null) {
-      return { next: progress.next, text: progress.entries.map(progressLine), state: progress.state, cost: progress.cost }
+      return { next: progress.next, text: progress.entries.map(progressLine), entries: progress.entries.map(typedEntry), state: progress.state, cost: progress.cost }
     }
     failure = failureText(reply)
   } catch (error) {
@@ -1888,7 +1896,7 @@ async function newProgress($, bin, runId, from) {
     loggedProgressFailures.add(runId)
     $.ui.log('could not read the progress of run ' + runId + ': ' + failure, { to: 'debug' })
   }
-  return { next: from, text: [], state: null }
+  return { next: from, text: [], entries: [], state: null }
 }
 
 // readFinished reads a run that should have ended: { run }, or { failure } with

@@ -453,3 +453,21 @@ export function msgateAs(w: ReturnType<typeof world>, caller: string = CALLER, v
     models: (args?: unknown) => serveModels($, args, catalogs),
   }
 }
+
+// serveSpawn answers `$.process.spawn` with a child that writes `pieces`, then
+// either ends with { code, signal } or stays running until the loop is left, as
+// the engine's stream does. `requests` are the spawn requests, and `returned`
+// counts the times the loop was left before the child ended.
+export type SpawnPiece = { stream: 'stdout' | 'stderr'; text: string }
+export function serveSpawn(on: any, child: { pieces: SpawnPiece[]; end: { code: number | null; signal: string | null } | 'hangs' }) {
+  const state = { requests: [] as any[], returned: 0 }
+  on('process.spawn', async function* (_$: any, e: any, next: any) {
+    state.requests.push(e)
+    for (const piece of child.pieces) yield piece
+    if (child.end !== 'hangs') return { value: child.end }
+    await new Promise<void>((resolve) => next.signal.addEventListener('abort', () => resolve(), { once: true }))
+    state.returned += 1
+    return { value: { code: null, signal: 'SIGTERM' } }
+  })
+  return state
+}

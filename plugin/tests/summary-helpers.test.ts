@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { SYSTEM, cleanLabel, isDue, newRun, outcomeOf, summaryPrompt } from '../hooks/summary.js'
+import { cmd, msg } from './kit'
 
 test('a label is the reply trimmed, with control and ANSI characters stripped', () => {
   expect(cleanLabel('  Reading auth.go \n')).toBe('Reading auth.go')
@@ -18,15 +19,20 @@ test('a reply that is empty, longer than a line, marked up or over 100 character
 })
 
 test('the prompt lists the newest ten entries oldest first, cut to 300 characters', () => {
-  const entries = Array.from({ length: 12 }, (_, i) => 'entry ' + (i + 1))
+  const entries = Array.from({ length: 12 }, (_, i) => msg('entry ' + (i + 1)))
   const lines = summaryPrompt(entries, null).split('\n')
   expect(lines[0]).toBe('Newest activity of the agent, oldest first:')
   expect(lines.slice(1)).toEqual(Array.from({ length: 10 }, (_, i) => '- entry ' + (i + 3)))
-  expect(summaryPrompt(['y'.repeat(301)], null)).toBe('Newest activity of the agent, oldest first:\n- ' + 'y'.repeat(300))
+  expect(summaryPrompt([msg('y'.repeat(301))], null)).toBe('Newest activity of the agent, oldest first:\n- ' + 'y'.repeat(300))
+})
+
+test('the prompt shows a command entry as a shell line and the other kinds as their text', () => {
+  const entries = [cmd('rg -n token auth.go'), msg('I will read auth.go'), { kind: 'reasoning', text: 'Thinking about tokens' }]
+  expect(summaryPrompt(entries, null).split('\n').slice(1)).toEqual(['- $ rg -n token auth.go', '- I will read auth.go', '- Thinking about tokens'])
 })
 
 test('the previous label closes the prompt as its own paragraph', () => {
-  expect(summaryPrompt(['a'], 'Reading a.go')).toBe(
+  expect(summaryPrompt([msg('a')], 'Reading a.go')).toBe(
     'Newest activity of the agent, oldest first:\n- a\n\nPrevious label: Reading a.go (say something NEW).',
   )
 })

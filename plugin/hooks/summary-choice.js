@@ -32,7 +32,9 @@ export function candidatesOf(listing) {
 }
 
 // createSummaryChoice is one load's limits and picks: a limiter for each
-// provider, shared by the live summaries and the recorded ones.
+// provider, shared by the live summaries and the recorded ones. A candidate list
+// that was left empty, because every provider is down, reads as none available
+// just as paused providers do.
 export function createSummaryChoice() {
   const limiters = new Map(PROVIDERS.map((provider) => [provider, createLimiter()]))
 
@@ -45,6 +47,13 @@ export function createSummaryChoice() {
       if (candidate.provider !== except && limiters.get(candidate.provider).tryTake(now)) return { ...candidate }
     }
     return null
+  }
+
+  // isNoneAvailable tells that no candidate can be asked at `now`: each one's
+  // provider is paused, or there is no candidate. A provider whose slots are all
+  // taken is busy, not unavailable, and its request waits for one.
+  function isNoneAvailable(candidates, now) {
+    return candidates.every((candidate) => limiters.get(candidate.provider).pausedFor(now) > 0)
   }
 
   const release = (lease) => limiters.get(lease.provider).release()
@@ -102,5 +111,5 @@ export function createSummaryChoice() {
     }
   }
 
-  return { take, wait, complete }
+  return { take, wait, complete, isNoneAvailable }
 }

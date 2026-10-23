@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { createRecorder, finishOnStop } from '../hooks/recorder.js'
 import { createSummarizer } from '../hooks/summarizer.js'
 import { candidatesOf, createSummaryChoice } from '../hooks/summary-choice.js'
-import { NO_USAGE, answered, apiError } from './kit'
+import { NO_USAGE, answered, apiError, msg } from './kit'
 
 const CLAUDE = { provider: 'anthropic', model: 'claude-haiku-5-5' }
 const CODEX = { provider: 'codex', model: 'gpt-6-luna' }
@@ -39,6 +39,7 @@ function fakePorts(candidates: { provider: string; model: string }[] = [CLAUDE])
     },
     log: (text: string) => void logs.push(text),
     labelSettled: () => {},
+    random: () => 0,
     after: (ms: number, callback: () => void) => {
       const timer = { ms, callback, isCancelled: false }
       timers.push(timer)
@@ -70,7 +71,7 @@ async function flush() {
   for (let i = 0; i < 50; i++) await Promise.resolve()
 }
 
-const entries = (count: number) => Array.from({ length: count }, (_, i) => 'entry ' + (i + 1))
+const entries = (count: number) => Array.from({ length: count }, (_, i) => msg('entry ' + (i + 1)))
 const summarizerOf = () => createSummarizer({}, createSummaryChoice())
 
 // The candidates.
@@ -106,7 +107,7 @@ test('a listing that could not be read falls back to anthropic and claude-haiku-
 test('the cheapest candidate is asked, a Codex one included, at effort low', async () => {
   const w = fakePorts([CODEX, CLAUDE])
 
-  await summarizerOf().observe(w.ports, 'run-1', ['e1'])
+  await summarizerOf().observe(w.ports, 'run-1', [msg('e1')])
 
   expect(w.claude).toHaveLength(0)
   expect(w.codex).toHaveLength(1)
@@ -116,7 +117,7 @@ test('the cheapest candidate is asked, a Codex one included, at effort low', asy
 test('a request to a Claude candidate carries that candidate\'s model', async () => {
   const w = fakePorts([{ provider: 'anthropic', model: 'claude-sonnet-5' }])
 
-  await summarizerOf().observe(w.ports, 'run-1', ['e1'])
+  await summarizerOf().observe(w.ports, 'run-1', [msg('e1')])
 
   expect(w.claude[0]!.request).toMatchObject({ model: 'claude-sonnet-5', effort: 'low' })
 })
@@ -124,7 +125,7 @@ test('a request to a Claude candidate carries that candidate\'s model', async ()
 test('no candidate at all asks for nothing', async () => {
   const w = fakePorts([])
 
-  await summarizerOf().observe(w.ports, 'run-1', ['e1'])
+  await summarizerOf().observe(w.ports, 'run-1', [msg('e1')])
 
   expect(w.claude).toHaveLength(0)
   expect(w.codex).toHaveLength(0)
@@ -136,7 +137,7 @@ test('after a rate-limited refusal the same request goes at once to the next pro
   const w = fakePorts([CLAUDE, CODEX])
   const summarizer = summarizerOf()
 
-  await summarizer.observe(w.ports, 'run-1', ['e1'])
+  await summarizer.observe(w.ports, 'run-1', [msg('e1')])
   const asked = w.claude[0]!.request
   await w.answer(w.claude, apiError(429))
 
@@ -148,7 +149,7 @@ test('the pause of the refusing provider does not carry over to the one that tak
   const w = fakePorts([CLAUDE, CODEX])
   const summarizer = summarizerOf()
 
-  await summarizer.observe(w.ports, 'run-1', ['e1'])
+  await summarizer.observe(w.ports, 'run-1', [msg('e1')])
   await w.answer(w.claude, apiError(429))
   await w.answer(w.codex, answered('Reading auth.go'))
   await summarizer.observe(w.ports, 'run-1', entries(3))
@@ -161,7 +162,7 @@ test('only one hand-off happens per request', async () => {
   const w = fakePorts([CLAUDE, CODEX])
   const summarizer = summarizerOf()
 
-  await summarizer.observe(w.ports, 'run-1', ['e1'])
+  await summarizer.observe(w.ports, 'run-1', [msg('e1')])
   await w.answer(w.claude, apiError(429))
   await w.answer(w.codex, apiError(429))
 
@@ -175,7 +176,7 @@ test('a failure other than a rate limit gets no hand-off', async () => {
   const w = fakePorts([CLAUDE, CODEX])
   const summarizer = summarizerOf()
 
-  await summarizer.observe(w.ports, 'run-1', ['e1'])
+  await summarizer.observe(w.ports, 'run-1', [msg('e1')])
   await w.answer(w.claude, apiError(500))
 
   expect(w.codex).toHaveLength(0)
@@ -187,7 +188,7 @@ test('a refused request with no other provider to take it is reported once and s
   const w = fakePorts([CLAUDE])
   const summarizer = summarizerOf()
 
-  await summarizer.observe(w.ports, 'run-1', ['e1'])
+  await summarizer.observe(w.ports, 'run-1', [msg('e1')])
   await w.answer(w.claude, apiError(429))
 
   expect(w.logs).toHaveLength(1)
@@ -241,7 +242,7 @@ test('a third concurrent summary finds the Claude slots taken and goes to the Co
   const w = fakePorts([CLAUDE, CODEX])
   const summarizer = summarizerOf()
 
-  for (const runId of ['run-1', 'run-2', 'run-3']) await summarizer.observe(w.ports, runId, ['e1'])
+  for (const runId of ['run-1', 'run-2', 'run-3']) await summarizer.observe(w.ports, runId, [msg('e1')])
 
   expect(w.claude).toHaveLength(2)
   expect(w.codex).toHaveLength(1)
@@ -251,7 +252,7 @@ test('a third concurrent summary waits when only Claude candidates are left', as
   const w = fakePorts([CLAUDE])
   const summarizer = summarizerOf()
 
-  for (const runId of ['run-1', 'run-2', 'run-3']) await summarizer.observe(w.ports, runId, ['e1'])
+  for (const runId of ['run-1', 'run-2', 'run-3']) await summarizer.observe(w.ports, runId, [msg('e1')])
 
   expect(w.claude).toHaveLength(2)
   expect(w.codex).toHaveLength(0)
@@ -261,7 +262,7 @@ test('a Codex candidate has two slots of its own', async () => {
   const w = fakePorts([CODEX])
   const summarizer = summarizerOf()
 
-  for (const runId of ['run-1', 'run-2', 'run-3']) await summarizer.observe(w.ports, runId, ['e1'])
+  for (const runId of ['run-1', 'run-2', 'run-3']) await summarizer.observe(w.ports, runId, [msg('e1')])
 
   expect(w.codex).toHaveLength(2)
 })
@@ -269,14 +270,14 @@ test('a Codex candidate has two slots of its own', async () => {
 test('a Claude 429 does not hold back Codex', async () => {
   const w = fakePorts([CLAUDE])
   const summarizer = summarizerOf()
-  await summarizer.observe(w.ports, 'run-1', ['e1'])
+  await summarizer.observe(w.ports, 'run-1', [msg('e1')])
   await w.answer(w.claude, apiError(429))
 
-  await summarizer.observe(w.ports, 'run-2', ['e1'])
+  await summarizer.observe(w.ports, 'run-2', [msg('e1')])
   expect(w.claude).toHaveLength(0)
 
   w.state.candidates = [CLAUDE, CODEX]
-  await summarizer.observe(w.ports, 'run-3', ['e1'])
+  await summarizer.observe(w.ports, 'run-3', [msg('e1')])
   expect(w.claude).toHaveLength(0)
   expect(w.codex).toHaveLength(1)
 })
@@ -286,7 +287,7 @@ test('a Claude 429 does not hold back Codex', async () => {
 test('a Codex summary is not recorded through usage add', async () => {
   const w = fakePorts([CODEX])
 
-  await summarizerOf().observe(w.ports, 'run-1', ['e1'])
+  await summarizerOf().observe(w.ports, 'run-1', [msg('e1')])
   await w.answer(w.codex, answered('Reading auth.go'))
 
   expect(w.recorded).toEqual([])
@@ -295,7 +296,7 @@ test('a Codex summary is not recorded through usage add', async () => {
 test('an Anthropic summary is recorded under the model it used', async () => {
   const w = fakePorts([{ provider: 'anthropic', model: 'claude-sonnet-5' }])
 
-  await summarizerOf().observe(w.ports, 'run-1', ['e1'])
+  await summarizerOf().observe(w.ports, 'run-1', [msg('e1')])
   await w.answer(w.claude, answered('Reading auth.go'))
 
   expect(w.recorded).toEqual([{ usage: answered('').usage, runId: 'run-1', model: 'claude-sonnet-5' }])
@@ -304,7 +305,7 @@ test('an Anthropic summary is recorded under the model it used', async () => {
 test('a request handed off to Claude is recorded under the model of the candidate that took it', async () => {
   const w = fakePorts([CODEX, CLAUDE])
 
-  await summarizerOf().observe(w.ports, 'run-1', ['e1'])
+  await summarizerOf().observe(w.ports, 'run-1', [msg('e1')])
   await w.answer(w.codex, apiError(429))
   await w.answer(w.claude, answered('Reading auth.go'))
 
@@ -317,7 +318,7 @@ test('a live Codex summary is asked with the run id, and aborted when its run is
   const w = fakePorts([CODEX])
   const summarizer = summarizerOf()
 
-  await summarizer.observe(w.ports, 'run-1', ['e1'])
+  await summarizer.observe(w.ports, 'run-1', [msg('e1')])
   expect(w.codex[0]!.call.runId).toBe('run-1')
   expect(w.codex[0]!.signal!.aborted).toBe(false)
 
@@ -434,11 +435,11 @@ test('live and recorded summaries share the slots of a provider', async () => {
   const summarizer = createSummarizer({}, choice)
   const recorder = createRecorder({ runId: 'run-2', every: 8, choice, ports: w.ports })
 
-  await summarizer.observe(w.ports, 'run-1', ['e1'])
+  await summarizer.observe(w.ports, 'run-1', [msg('e1')])
   recorder.add(entries(8))
   await flush()
   expect(w.codex).toHaveLength(2)
 
-  await summarizer.observe(w.ports, 'run-3', ['e1'])
+  await summarizer.observe(w.ports, 'run-3', [msg('e1')])
   expect(w.codex).toHaveLength(2)
 })

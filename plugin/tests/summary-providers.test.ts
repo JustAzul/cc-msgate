@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { SESSION, answered, cmd, codex, isShim, msg, ok, step, world } from './kit'
+import { SESSION, answered, cmd, codex, isShim, msg, ok, serveSpawn, step, world } from './kit'
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 const LIVE_ONLY = { options: { recordedSummaryEvery: 0 } }
@@ -24,15 +24,9 @@ async function summarise($: any, on: any, models: unknown[], slices = [[msg('I w
 // The children `msgate complete` is run as, answered like the CLI does: one
 // piece of output, then the end of the child.
 function serveComplete(on: any) {
-  const spawns: any[] = []
   const usage = { input_tokens: 3349, cached_input_tokens: 2432, output_tokens: 10, reasoning_output_tokens: 4 }
   const body = JSON.stringify({ outcome: 'answered', text: 'Reading auth.go', model: 'gpt-6-luna', usage })
-  on('process.spawn', async function* (_$: any, e: any) {
-    spawns.push(e)
-    yield { stream: 'stdout', text: body }
-    return { value: { code: 0, signal: null } }
-  })
-  return spawns
+  return serveSpawn(on, { pieces: [{ stream: 'stdout', text: body }], end: { code: 0, signal: null } }).requests
 }
 
 test('a summary ranked to Codex runs msgate complete with the model, effort, session, run id and source, and is not recorded through usage add', LIVE_ONLY, async ($, on) => {
@@ -84,4 +78,16 @@ test('one read of the providers listing serves the candidates of every request',
 
   expect(w.modelRequests).toHaveLength(2)
   expect(w.runs.filter((r) => isListing(r.argv))).toHaveLength(1)
+})
+
+test('a Codex summary still running when its run ends has its spawn loop left, which stops the child', LIVE_ONLY, async ($, on) => {
+  const child = serveSpawn(on, { pieces: [{ stream: 'stdout', text: '{"outcome"' }], end: 'hangs' })
+  const w = await summarise($, on, [CODEX, SONNET])
+
+  await step($, 'ag-1')
+  await w.clock.advance(0)
+
+  expect(child.requests).toHaveLength(1)
+  expect(child.returned).toBe(1)
+  expect(w.modelRequests).toEqual([])
 })

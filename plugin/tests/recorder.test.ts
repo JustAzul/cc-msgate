@@ -3,7 +3,7 @@ import { cleanRecord, createRecorder, finishOnStop } from '../hooks/recorder.js'
 import { summarySettings } from '../hooks/settings.js'
 import { createSummarizer } from '../hooks/summarizer.js'
 import { createSummaryChoice } from '../hooks/summary-choice.js'
-import { answered, apiError, emptyReply } from './kit'
+import { answered, apiError, cmd, emptyReply, msg } from './kit'
 
 // The one candidate an empty ranking gives, and a choice that a 429 to Claude
 // has paused at time 0.
@@ -40,6 +40,7 @@ function fakePorts() {
       logs.push(text)
     },
     labelSettled: () => {},
+    random: () => 0,
     after: (ms: number, callback: () => void) => {
       const timer = { ms, callback, isCancelled: false }
       timers.push(timer)
@@ -81,7 +82,7 @@ test('a live request in flight leaves one slot of the limiter the summarizer sha
   const choice = createSummaryChoice()
   const summarizer = createSummarizer({}, choice)
 
-  await summarizer.observe(world.ports, 'run-1', ['e1'])
+  await summarizer.observe(world.ports, 'run-1', [msg('e1')])
 
   expect(world.requests).toHaveLength(1)
   expect(choice.take([FALLBACK], 0)).not.toBeNull()
@@ -92,12 +93,12 @@ test('the live summarizer asks again after the number of entries its options giv
   const world = fakePorts()
   const summarizer = createSummarizer({ liveEvery: 5 })
 
-  await summarizer.observe(world.ports, 'run-1', ['e1'])
+  await summarizer.observe(world.ports, 'run-1', [msg('e1')])
   await world.answer(answered('Reading a.go'))
-  await summarizer.observe(world.ports, 'run-1', ['e2', 'e3', 'e4', 'e5'])
+  await summarizer.observe(world.ports, 'run-1', [msg('e2'), msg('e3'), msg('e4'), msg('e5')])
   expect(world.requests).toHaveLength(1)
 
-  await summarizer.observe(world.ports, 'run-1', ['e6'])
+  await summarizer.observe(world.ports, 'run-1', [msg('e6')])
   expect(world.requests).toHaveLength(2)
 })
 
@@ -106,7 +107,7 @@ test('a 429 to a live summary pauses the limiter for a minute', async () => {
   const choice = createSummaryChoice()
   const summarizer = createSummarizer({}, choice)
 
-  await summarizer.observe(world.ports, 'run-1', ['e1'])
+  await summarizer.observe(world.ports, 'run-1', [msg('e1')])
   await world.answer(apiError(429))
 
   expect(choice.take([FALLBACK], 59999)).toBeNull()
@@ -181,7 +182,7 @@ const SYSTEM = [
   'At most 400 characters, no markdown, no quotes.',
 ].join('\n')
 
-const entries = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => 'entry ' + (from + i))
+const entries = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => msg('entry ' + (from + i)))
 
 function recorderOf(world: ReturnType<typeof fakePorts>, over: Record<string, unknown> = {}) {
   return createRecorder({ runId: 'run-1', every: 8, choice: createSummaryChoice(), ports: world.ports, ...over })
@@ -202,10 +203,20 @@ test('the recorder asks once eight entries have accumulated and not before, with
     model: 'claude-haiku-5-5',
     effort: 'low',
     system: SYSTEM,
-    prompt: 'Newest activity of the agent, oldest first:\n' + entries(1, 8).map((e) => '- ' + e).join('\n'),
+    prompt: 'Newest activity of the agent, oldest first:\n' + entries(1, 8).map((e) => '- ' + e.text).join('\n'),
     maxTokens: 120,
     timeoutMs: 15000,
   })
+})
+
+test('a command entry is sent to the recorded request as a shell line, a message as its text', async () => {
+  const world = fakePorts()
+  const recorder = recorderOf(world)
+
+  recorder.add([cmd('rg -n token auth.go'), ...entries(2, 8)])
+  await flush()
+
+  expect(world.requests[0].prompt.split('\n').slice(1, 3)).toEqual(['- $ rg -n token auth.go', '- entry 2'])
 })
 
 test('a reply settles as a record that names the first and last entry of its window', async () => {
@@ -249,20 +260,14 @@ test('a window of one entry prints its number once', async () => {
 
 test('a window carries the newest 24 unrecorded entries, and the older ones stay a gap', async () => {
   const world = fakePorts()
-  const choice = await pausedChoice()
-  const recorder = recorderOf(world, { choice })
+  const recorder = recorderOf(world)
 
-  recorder.add(entries(1, 31))
-  await flush()
-  expect(world.requests).toHaveLength(0)
-
-  world.advance(60000)
-  recorder.add(entries(32, 32))
+  recorder.add(entries(1, 32))
   await flush()
   await world.answer(answered('Worked through the files.'))
 
   const sent = world.requests[0].prompt.split('\n').slice(1)
-  expect(sent).toEqual(entries(9, 32).map((e) => '- ' + e))
+  expect(sent).toEqual(entries(9, 32).map((e) => '- ' + e.text))
   expect(recorder.records()).toEqual([{ from: 9, to: 32, text: '» 9–32: Worked through the files.\n' }])
 })
 
@@ -270,7 +275,7 @@ test('an entry is cut to 300 characters when sent', async () => {
   const world = fakePorts()
   const recorder = recorderOf(world, { every: 1 })
 
-  recorder.add(['y'.repeat(301)])
+  recorder.add([msg('y'.repeat(301))])
   await flush()
 
   expect(world.requests[0].prompt).toBe('Newest activity of the agent, oldest first:\n- ' + 'y'.repeat(300))
@@ -299,7 +304,7 @@ for (const [name, fail] of Object.entries(FAILURES)) {
 
     recorder.add(entries(9, 9))
     await flush()
-    expect(world.requests[1].prompt.split('\n').slice(1)).toEqual(entries(1, 9).map((e) => '- ' + e))
+    expect(world.requests[1].prompt.split('\n').slice(1)).toEqual(entries(1, 9).map((e) => '- ' + e.text))
     await fail(world)
 
     expect(recorder.records()).toEqual([])
@@ -332,11 +337,11 @@ test('a 429 to a recorded request pauses the live summaries for a minute', async
   recorder.add(entries(1, 8))
   await flush()
   await world.answer(apiError(429))
-  await summarizer.observe(world.ports, 'run-2', ['e1'])
+  await summarizer.observe(world.ports, 'run-2', [msg('e1')])
   expect(world.requests).toHaveLength(1)
 
   world.advance(60000)
-  await summarizer.observe(world.ports, 'run-2', [])
+  await summarizer.observe(world.ports, 'run-3', [msg('e1')])
   expect(world.requests).toHaveLength(2)
 })
 
@@ -346,14 +351,14 @@ test('a 429 to a live summary pauses the recorder for a minute', async () => {
   const summarizer = createSummarizer({}, choice)
   const recorder = recorderOf(world, { choice })
 
-  await summarizer.observe(world.ports, 'run-2', ['e1'])
+  await summarizer.observe(world.ports, 'run-2', [msg('e1')])
   await world.answer(apiError(429))
   recorder.add(entries(1, 8))
   await flush()
   expect(world.requests).toHaveLength(1)
 
   world.advance(60000)
-  recorder.add([])
+  recorder.add(entries(9, 16))
   await flush()
   expect(world.requests).toHaveLength(2)
 })
@@ -366,8 +371,8 @@ test('a recorded request in flight takes one of the two slots the live summaries
 
   recorder.add(entries(1, 8))
   await flush()
-  await summarizer.observe(world.ports, 'run-2', ['e1'])
-  await summarizer.observe(world.ports, 'run-3', ['e1'])
+  await summarizer.observe(world.ports, 'run-2', [msg('e1')])
+  await summarizer.observe(world.ports, 'run-3', [msg('e1')])
 
   expect(world.requests).toHaveLength(2)
 })
@@ -378,8 +383,8 @@ test('a request the limiter refuses is made at the next add, with the entries si
   const summarizer = createSummarizer({}, choice)
   const recorder = recorderOf(world, { choice })
 
-  await summarizer.observe(world.ports, 'run-2', ['e1'])
-  await summarizer.observe(world.ports, 'run-3', ['e1'])
+  await summarizer.observe(world.ports, 'run-2', [msg('e1')])
+  await summarizer.observe(world.ports, 'run-3', [msg('e1')])
   recorder.add(entries(1, 8))
   await flush()
   expect(world.requests).toHaveLength(2)
@@ -388,7 +393,7 @@ test('a request the limiter refuses is made at the next add, with the entries si
   recorder.add(entries(9, 9))
   await flush()
   expect(world.requests).toHaveLength(3)
-  expect(world.requests[2].prompt.split('\n').slice(1)).toEqual(entries(1, 9).map((e) => '- ' + e))
+  expect(world.requests[2].prompt.split('\n').slice(1)).toEqual(entries(1, 9).map((e) => '- ' + e.text))
 })
 
 test('a completion that used tokens is handed to the usage record for its run, answered or not', async () => {
@@ -479,7 +484,7 @@ test('finish waits for the request in flight, then asks for what arrived meanwhi
 
   await world.answer(answered('Read the files.'))
   expect(world.requests).toHaveLength(2)
-  expect(world.requests[1].prompt.split('\n').slice(1)).toEqual(entries(9, 11).map((e) => '- ' + e))
+  expect(world.requests[1].prompt.split('\n').slice(1)).toEqual(entries(9, 11).map((e) => '- ' + e.text))
   await world.answer(answered('Ran the tests.'))
 
   expect(end.result).toEqual([
@@ -579,8 +584,8 @@ test('finish waits for a slot of the limiter and asks as soon as one frees', asy
   const summarizer = createSummarizer({}, choice)
   const recorder = recorderOf(world, { choice })
 
-  await summarizer.observe(world.ports, 'run-2', ['e1'])
-  await summarizer.observe(world.ports, 'run-3', ['e1'])
+  await summarizer.observe(world.ports, 'run-2', [msg('e1')])
+  await summarizer.observe(world.ports, 'run-3', [msg('e1')])
   recorder.add(entries(1, 3))
   const end = ending(recorder, world)
   await flush()
@@ -594,7 +599,7 @@ test('finish waits for a slot of the limiter and asks as soon as one frees', asy
   expect(end.result).toEqual([{ from: 1, to: 3, text: '» 1–3: Read the files.\n' }])
 })
 
-test('finish waits for a pause of the limiter that ends before the deadline', async () => {
+test('finish does not wait for a pause of the limiter: the last window is its proxy line, with no request', async () => {
   const world = fakePorts()
   const choice = await pausedChoice()
   const recorder = recorderOf(world, { choice })
@@ -603,19 +608,16 @@ test('finish waits for a pause of the limiter that ends before the deadline', as
   recorder.add(entries(1, 3))
   const end = ending(recorder, world)
   await flush()
+
   expect(world.requests).toHaveLength(0)
-
-  world.advance(10000)
-  await world.expire(10000)
-  expect(world.requests).toHaveLength(1)
-  await world.answer(answered('Read the files.'))
-
-  expect(end.result).toEqual([{ from: 1, to: 3, text: '» 1–3: Read the files.\n' }])
+  expect(end.result).toEqual([{ from: 1, to: 3, text: '» 1–3: entry 3\n' }])
 })
 
 test('finish skips the final request when the limiter never frees, with one line in the log', async () => {
   const world = fakePorts()
-  const choice = await pausedChoice()
+  const choice = createSummaryChoice()
+  choice.take([FALLBACK], 0)
+  choice.take([FALLBACK], 0)
   const recorder = recorderOf(world, { choice })
 
   recorder.add(entries(1, 3))
@@ -750,7 +752,7 @@ test('a live cadence beyond the window of ten asks at ten entries', async () => 
   const world = fakePorts()
   const summarizer = createSummarizer({ liveEvery: 11 })
 
-  await summarizer.observe(world.ports, 'run-1', ['e1'])
+  await summarizer.observe(world.ports, 'run-1', [msg('e1')])
   await world.answer(answered('Reading a.go'))
   await summarizer.observe(world.ports, 'run-1', entries(2, 10))
   expect(world.requests).toHaveLength(1)
@@ -764,7 +766,7 @@ test('a live cadence that is not a whole number is the default of three', async 
     const world = fakePorts()
     const summarizer = createSummarizer({ liveEvery })
 
-    await summarizer.observe(world.ports, 'run-1', ['e1'])
+    await summarizer.observe(world.ports, 'run-1', [msg('e1')])
     await world.answer(answered('Reading a.go'))
     await summarizer.observe(world.ports, 'run-1', entries(2, 3))
     expect(world.requests).toHaveLength(1)
@@ -861,7 +863,7 @@ test('a clock that fails when a window is due is logged once, and the next add a
   isBroken = false
   recorder.add(entries(10, 10))
   await flush()
-  expect(world.requests[0].prompt.split('\n').slice(1)).toEqual(entries(1, 10).map((e) => '- ' + e))
+  expect(world.requests[0].prompt.split('\n').slice(1)).toEqual(entries(1, 10).map((e) => '- ' + e.text))
 })
 
 // Ending a follow with a stop that can come at any time.

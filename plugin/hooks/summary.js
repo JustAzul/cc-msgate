@@ -3,6 +3,8 @@
 // Nothing here touches the mods API, so these functions can be read and tested
 // on their own.
 
+import { progressLine } from './subagent.js'
+
 export const SUMMARY_MODEL = 'claude-haiku-5-5'
 export const SUMMARY_EFFORT = 'low'
 export const SUMMARY_MAX_TOKENS = 40
@@ -21,6 +23,13 @@ export const SESSION_IN_FLIGHT_MAX = 2
 // After a provider answers 429 no request goes out to it for this long.
 export const RATE_LIMIT_PAUSE_MS = 60000
 export const LABEL_MARK = '» '
+
+// The words a label is when no provider can be asked, as Claude Code's spinner
+// has its own.
+export const LABEL_WORDS = [
+  'Pondering', 'Musing', 'Mulling', 'Brewing', 'Tinkering', 'Noodling',
+  'Ruminating', 'Cogitating', 'Simmering', 'Percolating', 'Whittling', 'Puzzling',
+]
 
 const USAGE_COUNTS = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']
 
@@ -55,9 +64,10 @@ export function newestEntries(entries) {
 }
 
 // summaryPrompt is the user message of a request: the window oldest first, and
-// the previous label when there is one.
+// the previous label when there is one. The entries are typed, { kind, text }, and
+// each is shown as progressLine shows it.
 export function summaryPrompt(entries, previous) {
-  const lines = newestEntries(entries).map((entry) => '- ' + entry.slice(0, ENTRY_CHARS)).join('\n')
+  const lines = newestEntries(entries).map((entry) => '- ' + progressLine(entry).slice(0, ENTRY_CHARS)).join('\n')
   const tail = previous === null ? '' : '\n\nPrevious label: ' + previous + ' (say something NEW).'
   return 'Newest activity of the agent, oldest first:\n' + lines + tail
 }
@@ -116,10 +126,23 @@ export function labelLine(label) {
   return LABEL_MARK + label
 }
 
+// pickWord is a word of LABEL_WORDS chosen by `random()`, a number in [0, 1),
+// and never `previous`.
+export function pickWord(random, previous) {
+  const at = Math.min(LABEL_WORDS.length - 1, Math.floor(random() * LABEL_WORDS.length))
+  return LABEL_WORDS[at] === previous ? LABEL_WORDS[(at + 1) % LABEL_WORDS.length] : LABEL_WORDS[at]
+}
+
+// wordLine is a random word as the spinner and the thinking line show it.
+export function wordLine(word) {
+  return LABEL_MARK + word + '…'
+}
+
 // newRun is what is known of one run's summaries: the entries since the last
-// request, the last label and what the display is to show next.
+// request, the last label, the random word shown since and what the display is
+// to show next.
 export function newRun() {
-  return { entries: [], hasRequested: false, isInFlight: false, label: null, isUnread: false, isFailureLogged: false }
+  return { entries: [], hasRequested: false, isInFlight: false, label: null, word: null, isUnread: false, isWordUnread: false, isFailureLogged: false }
 }
 
 // isDue tells that a run asks for a label now: its first entry has arrived, or

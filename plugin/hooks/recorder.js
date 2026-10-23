@@ -13,6 +13,7 @@ import {
   SUMMARY_TIMEOUT_MS,
   wholeWithin,
 } from './summary.js'
+import { progressLine } from './subagent.js'
 
 export const RECORD_CHARS = 400
 export const RECORD_MAX_TOKENS = 120
@@ -75,9 +76,9 @@ function recordOutcome(result) {
 }
 
 // recordRequest is the completion that summarizes a window: its entries oldest
-// first, each cut to ENTRY_CHARS.
+// first, each shown as progressLine shows it and cut to ENTRY_CHARS.
 export function recordRequest(window) {
-  const lines = window.map((entry) => '- ' + entry.text.slice(0, ENTRY_CHARS)).join('\n')
+  const lines = window.map((entry) => '- ' + progressLine(entry).slice(0, ENTRY_CHARS)).join('\n')
   return {
     model: SUMMARY_MODEL,
     effort: SUMMARY_EFFORT,
@@ -109,6 +110,19 @@ function createDeadline(ports, startedAt, onExpire) {
     allowedMs: () => allowed,
     cancel: () => timer?.cancel(),
   }
+}
+
+// proxyOf is the record of a window when no provider can be asked: its last
+// message, else its last command, cleaned and cut like a record, or null when it
+// has neither. A reasoning entry is never the record.
+function proxyOf(window) {
+  const newest = window.slice().reverse()
+  for (const kind of ['message', 'command']) {
+    const entry = newest.find((candidate) => candidate.kind === kind)
+    const record = entry === undefined ? null : cleanRecord({ isAnswered: true, text: progressLine(entry) })
+    if (record !== null) return record
+  }
+  return null
 }
 
 // recordText is the block a record writes into a row's history: the numbers of
@@ -156,13 +170,13 @@ export function createRecorder({ runId, every: asked, choice, ports }) {
     return deadline?.extend(next)
   }
 
-  // add takes the progress lines a display has just read, oldest first. It
-  // starts a request when one is due and never waits for it. Once finish has
-  // been called it ignores them.
+  // add takes the progress entries, { kind, text }, a display has just read,
+  // oldest first. It starts a request when one is due and never waits for it.
+  // Once finish has been called it ignores them.
   function add(lines, through = ports) {
     if (isFinishing) return
 
-    for (const text of lines) unrecorded.push({ number: ++count, text })
+    for (const entry of lines) unrecorded.push({ number: ++count, kind: entry.kind, text: entry.text })
     unrecorded = unrecorded.slice(-RECORD_WINDOW_ENTRIES)
     void startIfDue(through).catch((error) => {
       logFailure(through, 'could not schedule a record: ' + String(error && error.message ? error.message : error))
@@ -178,9 +192,22 @@ export function createRecorder({ runId, every: asked, choice, ports }) {
     const now = await through.now()
     // A finish that began during the awaits starts the last window itself.
     if (isFinishing || !isDue()) return
+    if (choice.isNoneAvailable(candidates, now)) return writeProxy()
 
     const lease = choice.take(candidates, now)
     if (lease !== null) start(through, lease, candidates)
+  }
+
+  // writeProxy records the unrecorded window as its proxy line, with no request.
+  // The window is spent, whether or not it has a line.
+  function writeProxy() {
+    const window = unrecorded
+    unrecorded = []
+    const sentence = proxyOf(window)
+    if (sentence === null) return
+    const from = window[0].number
+    const to = window[window.length - 1].number
+    settled.push({ from, to, text: recordText(from, to, sentence) })
   }
 
   // start sends everything unrecorded; the caller holds the leased slot, which
@@ -274,9 +301,13 @@ export function createRecorder({ runId, every: asked, choice, ports }) {
 
       const candidates = await ports.candidates()
       const now = await ports.now()
-      // Nothing can take the request, or an add can have started one: look again.
-      if (isOver(isAborted) || candidates.length === 0) return true
+      // An add can have started a request: look again.
+      if (isOver(isAborted)) return true
       if (isInFlight) continue
+      if (choice.isNoneAvailable(candidates, now)) {
+        writeProxy()
+        return true
+      }
 
       const lease = choice.take(candidates, now)
       if (lease !== null) {

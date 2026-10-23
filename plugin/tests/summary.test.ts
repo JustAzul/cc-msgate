@@ -50,6 +50,14 @@ test('with summaries turned off in the config the row shows the raw lines', { op
   expect(thinkingOf(out.chunks)).toEqual(['I will read auth.go'])
 })
 
+test('a command entry reaches the live prompt as a shell line and a message as its text, the prompt otherwise as before', LIVE_ONLY, async ($, on) => {
+  const w = world(on)
+  w.surfaces = ['terminal']
+  await row($, w, [[cmd('rg -n token auth.go'), msg('I will read auth.go')], []])
+
+  expect(w.modelRequests[0].prompt).toBe('Newest activity of the agent, oldest first:\n- $ rg -n token auth.go\n- I will read auth.go')
+})
+
 test('the first entry of a run asks for one label with the measured request', LIVE_ONLY, async ($, on) => {
   const w = world(on)
   w.surfaces = ['terminal']
@@ -273,13 +281,13 @@ test('a 429 pauses every request for a minute, then they resume', async ($, on) 
   await w.clock.advance(BAND_REFRESH_MS)
   expect(await bandText($)).toEqual(['msgate · code-review · hook-post-commit · 20s'])
 
-  entries.push(msg('e2'), msg('e3'), msg('e4'))
   // The pause runs from 15s to 75s.
   await w.clock.advance(50000)
   expect(w.modelRequests).toHaveLength(1)
+  entries.push(msg('e5'), msg('e6'), msg('e7'))
   await w.clock.advance(BAND_REFRESH_MS)
   expect(w.modelRequests).toHaveLength(2)
-  expect(w.modelRequests[1].prompt).toBe('Newest activity of the agent, oldest first:\n- e2\n- e3\n- e4')
+  expect(w.modelRequests[1].prompt).toBe('Newest activity of the agent, oldest first:\n- e5\n- e6\n- e7')
 })
 
 // What counts as a failure.
