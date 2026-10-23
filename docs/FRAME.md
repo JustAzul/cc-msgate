@@ -270,6 +270,27 @@ after the point, and no point for whole numbers. `prices.lock` uses `flock(2)`
 like the other locks. A model-call provider's models sit under its own key
 (`"anthropic": {"claude-haiku-5-5": {…}}`) once a refresh has priced them.
 
+`providers.json`, written whole (temp file and rename) by `providers refresh`
+and `providers mark`, each read-modify-write under a blocking `flock(2)` on
+`providers.write.lock`. A refresh takes `providers.refresh.lock` without
+blocking and exits 0 when another refresh holds it:
+
+```json
+{"version": 1, "providers": {"codex": {"available": true, "reason": "", "checked_at": "RFC3339 UTC", "resets_at": null, "source": "check", "skipped": ["status page: unreachable"]}}}
+```
+
+Keys are each registered provider plus `anthropic` (Claude, checked by its
+status page alone, `MSGATE_STATUS_URL_ANTHROPIC`). `source` is `check` or
+`mark`; `skipped` is omitted when empty. An available entry is stale after 5
+minutes, an unavailable one after 1 minute, except a mark whose `resets_at` is
+still in the future, which is never stale. A refresh keeps such a mark and
+replaces every other entry. `msgate providers` answers from the file at once;
+a provider with no entry reads as available (`checked_at` null, `source`
+`none`), and a stale or missing entry starts one detached
+`msgate providers refresh`. `providers --json` lists each entry with the same
+fields, `skipped` included when the entry has it. A file that is missing, is not
+JSON or has another `version` is an empty cache.
+
 ## ETA estimate
 
 `agentcli eta --scenario <name> [--cwd <dir>] [--json]` folds the whole
@@ -646,6 +667,17 @@ agentcli · spawned <scenario> · trigger <source> · finished in 3s
 - Every e2e sandbox sets `AGENTCLI_PRICES_URL=off` unless the test sets it to the
   URL of an `httptest` server on 127.0.0.1 that serves a fixture price list
   (`testdata/prices/`).
+- `MSGATE_STATUS_URL_OPENAI` and `MSGATE_STATUS_URL_ANTHROPIC` point the status
+  page checks at another source or switch them off with `off`; the provider
+  tests set them to an `httptest` server or to `off`.
+- `MSGATE_TEST_REFRESH_LOG` names a file the provider refresh machinery appends
+  to: `spawned` when `msgate providers` starts a refresh, `busy` when a refresh
+  finds the lock held, `ran` when a refresh has written the cache. A test counts
+  lines instead of waiting on wall time.
+- `MSGATE_TEST_REFRESH_GATE` names a path: a refresh that holds the lock creates
+  `<path>.reached` and waits for `<path>.release` (at most 10 seconds) before
+  its checks, so a test can start a second refresh while the first holds the
+  lock.
 - A model call is recorded in an e2e test by running `agentcli usage add` with
   usage on stdin; no fake binary is involved.
 - The plugin test kit (`plugin/tests/kit.ts`) answers two seams beneath the
