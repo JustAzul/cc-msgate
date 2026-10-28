@@ -1,0 +1,32 @@
+{
+  "name": "msgate",
+  "version": "1.6.1",
+  "description": "msgate: the engine that runs agent CLIs (Codex today) for Claude Code, hooks, scripts and other plugins, with resumable conversations, background jobs and append-only telemetry.",
+  "author": {
+    "name": "Diego (Azul) Ferreira"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/JustAzul/cc-msgate",
+  "repository": "https://github.com/JustAzul/cc-msgate",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "summaries": {
+      "type": "boolean",
+      "title": "Summarize progress",
+      "description": "Summarize what a run is doing with claude-haiku-5-5: a live label in the agent row and above the prompt, and a one- or two-sentence summary of every window of steps stored in the agent's history. This sends the run's progress text (commands, file names, messages) to the Anthropic API, and the calls count toward your Claude usage. Turn it off to pass the raw Codex output through. The environment variable MSGATE_SUMMARIES (0 off, 1 on) overrides this option.",
+      "default": true
+    },
+    "liveSummaryEvery": {
+      "type": "number",
+      "title": "Live label interval",
+      "description": "How many new progress entries come between live labels in the agent row and above the prompt (1 to 10; 3 if left out or out of range).",
+      "default": 3
+    },
+    "recordedSummaryEvery": {
+      "type": "number",
+      "title": "Recorded summary interval",
+      "description": "How many new progress entries each sentence stored in the agent's history covers (1 to 24; 8 if left out or out of range); 0 stops the stored sentences.",
+      "default": 8
+    }
+  }
+}
