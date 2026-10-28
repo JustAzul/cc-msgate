@@ -5,28 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
-
-// fakeGH stands in for the GitHub CLI: it logs each call's arguments to
-// FAKEGH_LOG, answers `release view` with FAKEGH_VIEW_EXIT, and copies the
-// notes file `release create` is given to FAKEGH_NOTES.
-const fakeGH = `#!/bin/sh
-printf '%s\n' "$*" >> "$FAKEGH_LOG"
-case "$1 $2" in
-"release view")
-  exit "${FAKEGH_VIEW_EXIT:-1}"
-  ;;
-"release create")
-  while [ $# -gt 0 ]; do
-    [ "$1" = "--notes-file" ] && cp "$2" "$FAKEGH_NOTES"
-    shift
-  done
-  ;;
-esac
-exit 0
-`
 
 type commitSpec struct {
 	subject string
@@ -138,107 +118,15 @@ func TestReleaseNotesOfTheFirstVersionListEveryCommit(t *testing.T) {
 	}
 }
 
-// fakeGHEnv writes the fake gh into a directory put first on PATH and returns
-// the environment for it, with its log and notes paths.
-func fakeGHEnv(t *testing.T, viewExit string) (env []string, logPath, notesPath string) {
-	t.Helper()
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(fakeGH), 0o755); err != nil {
-		t.Fatal(err)
+// The gate, the publish script and the dist workflow are tested offline by one
+// shell script, which the plugin repository runs the same way; real git runs
+// against local repositories and the GitHub CLI is a fake.
+func TestReleaseScripts(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
 	}
-	logPath = filepath.Join(t.TempDir(), "gh.log")
-	notesPath = filepath.Join(t.TempDir(), "notes.md")
-	env = []string{
-		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"FAKEGH_LOG=" + logPath, "FAKEGH_NOTES=" + notesPath, "FAKEGH_VIEW_EXIT=" + viewExit,
-	}
-	return env, logPath, notesPath
-}
-
-const distSHA = "1111111111111111111111111111111111111111"
-
-func TestPublishReleaseTagsTheDistBuildOfANewVersion(t *testing.T) {
-	dir, shas := newReleaseRepo(t, threeVersions...)
-	source := shas[6]
-	env, logPath, notesPath := fakeGHEnv(t, "1")
-
-	r := runScript(t, dir, "publish-release.sh", env, distSHA, source)
+	r := runScript(t, repoRoot, "test-release.sh", nil)
 	if r.code != 0 {
-		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", r.code, r.stdout, r.stderr)
-	}
-	calls := strings.Split(strings.TrimSpace(readFile(t, logPath)), "\n")
-	if len(calls) != 2 || calls[0] != "release view v0.3.0" ||
-		!strings.HasPrefix(calls[1], "release create v0.3.0 --target "+distSHA+" --title v0.3.0 --notes-file ") {
-		t.Fatalf("gh calls = %q", calls)
-	}
-	want := "Build of " + source + ".\n" +
-		"\n### Features\n- feat(cli): add a flag (" + shortSHA(t, dir, shas[3]) + ")\n" +
-		"\n### Fixes\n- fix: handle an empty file (" + shortSHA(t, dir, shas[4]) + ")\n" +
-		"\n### Other\n- docs: describe the flag (" + shortSHA(t, dir, shas[5]) + ")\n"
-	if got := readFile(t, notesPath); got != want {
-		t.Errorf("release notes:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-func TestPublishReleaseRefusesAVersionThatIsNotSemVer(t *testing.T) {
-	for _, version := range []string{"0.4", "v0.4.0", "0.04.0", "0.4.0-", "0.4.0-rc..1", "0.4.0+", "1.2.3\ngarbage"} {
-		t.Run(strings.ReplaceAll(version, "\n", `\n`), func(t *testing.T) {
-			dir, shas := newReleaseRepo(t, commitSpec{"chore: bootstrap", version})
-			env, logPath, _ := fakeGHEnv(t, "1")
-
-			r := runScript(t, dir, "publish-release.sh", env, distSHA, shas[0])
-			if r.code != 2 || !strings.Contains(r.stderr, "not a semantic version") {
-				t.Errorf("exit %d stderr %q, want exit 2 naming the version as not semantic", r.code, r.stderr)
-			}
-			if exists(logPath) {
-				t.Errorf("gh was called: %q", readFile(t, logPath))
-			}
-		})
-	}
-}
-
-func TestPublishReleaseMarksOnlyAPreReleaseVersionAsPreRelease(t *testing.T) {
-	for _, tc := range []struct {
-		version    string
-		prerelease bool
-	}{
-		{"0.5.0-rc.1", true},
-		{"1.0.0-alpha+exp.sha.5114f85", true},
-		{"1.0.0+build-1", false},
-		{"1.2.3", false},
-	} {
-		t.Run(tc.version, func(t *testing.T) {
-			dir, shas := newReleaseRepo(t, commitSpec{"chore: bootstrap", tc.version})
-			env, logPath, _ := fakeGHEnv(t, "1")
-
-			r := runScript(t, dir, "publish-release.sh", env, distSHA, shas[0])
-			if r.code != 0 {
-				t.Fatalf("exit %d\nstderr: %s", r.code, r.stderr)
-			}
-			calls := strings.Split(strings.TrimSpace(readFile(t, logPath)), "\n")
-			create := calls[len(calls)-1]
-			if !strings.HasPrefix(create, "release create v"+tc.version+" ") {
-				t.Fatalf("gh calls = %q", calls)
-			}
-			if got := strings.HasSuffix(create, " --prerelease"); got != tc.prerelease {
-				t.Errorf("create = %q, --prerelease %v, want %v", create, got, tc.prerelease)
-			}
-		})
-	}
-}
-
-func TestPublishReleaseLeavesAnExistingReleaseAlone(t *testing.T) {
-	dir, shas := newReleaseRepo(t, threeVersions...)
-	env, logPath, _ := fakeGHEnv(t, "0")
-
-	r := runScript(t, dir, "publish-release.sh", env, distSHA, shas[7])
-	if r.code != 0 {
-		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", r.code, r.stdout, r.stderr)
-	}
-	if calls := strings.TrimSpace(readFile(t, logPath)); calls != "release view v0.3.0" {
-		t.Errorf("gh calls = %q, want only the release view", calls)
-	}
-	if !strings.Contains(r.stdout, "v0.3.0 exists") {
-		t.Errorf("stdout %q does not say the release exists", r.stdout)
+		t.Fatalf("test-release.sh exit %d\nstdout: %s\nstderr: %s", r.code, r.stdout, r.stderr)
 	}
 }

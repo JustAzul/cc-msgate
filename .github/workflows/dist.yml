@@ -1,26 +1,28 @@
 name: dist
 
-# Publishes the plugin build (static binaries, shim, hooks, manifest) as a
-# single orphan commit on the dist branch, which the marketplace manifest on
-# main points at, and creates the GitHub release of a version that has none,
-# tagged on that commit. Runs are serialized; a newer push cancels an older run.
+# Every push to main runs the checks and builds the plugin tree; nothing is
+# published by it. A release, a commit that scripts/release-gate.sh accepts,
+# publishes in a separate job: the dist build as a single orphan commit, tagged
+# v<version>, the GitHub release of that tag, and then the dist branch, which
+# the marketplace manifest on main points at, moved to that commit last.
+# Publishing is serialized and never cancelled once started. Rerunning a failed
+# release run finishes what is missing and moves no tag.
 
 on:
   push:
     branches: [main]
 
-concurrency:
-  group: dist
-  cancel-in-progress: true
-
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  dist:
+  check:
     runs-on: ubuntu-latest
     env:
       CGO_ENABLED: "0"
+    outputs:
+      release: ${{ steps.gate.outputs.release }}
+      version: ${{ steps.gate.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,36 +30,45 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: 1.27.x
+      - name: Release gate
+        id: gate
+        run: |
+          set -eu
+          sh scripts/release-gate.sh "$GITHUB_SHA" >"$RUNNER_TEMP/gate"
+          cat "$RUNNER_TEMP/gate"
+          cat "$RUNNER_TEMP/gate" >>"$GITHUB_OUTPUT"
       - name: Test
         run: go test ./...
       - name: Build dist tree
         run: sh scripts/build-dist.sh "$RUNNER_TEMP/dist"
       - name: PII scan of the dist tree
         run: go run ./tools/piiscan --allowlist testdata/pii-allowlist.txt "$RUNNER_TEMP/dist"
+
+  publish:
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # One release at a time, none cancelled. GitHub keeps one waiting run per
+    # group, so a third queued release replaces the second; rerun the dropped one.
+    concurrency:
+      group: dist-publish
+      cancel-in-progress: false
+    env:
+      CGO_ENABLED: "0"
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # build_seq, the notes and the dist ancestry check need the history
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.x
+      - name: Build dist tree
+        run: sh scripts/build-dist.sh "$RUNNER_TEMP/dist"
+      - name: PII scan of the dist tree
+        run: go run ./tools/piiscan --allowlist testdata/pii-allowlist.txt "$RUNNER_TEMP/dist"
       - name: Publish
-        id: publish
-        run: |
-          set -eu
-          remote=$(git ls-remote origin refs/heads/main | cut -f1)
-          if [ "$remote" != "$GITHUB_SHA" ]; then
-            echo "main is now ${remote:-unknown}, not $GITHUB_SHA: this build is stale, not publishing"
-            exit 0
-          fi
-          git checkout --orphan dist-publish
-          git rm -rf --quiet .
-          cp -R "$RUNNER_TEMP/dist/." .
-          git add -A -f
-          git -c user.name="github-actions[bot]" \
-              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit --quiet -m "dist: build of $GITHUB_SHA"
-          git push --force origin HEAD:refs/heads/dist
-          echo "dist_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Release
-        if: steps.publish.outputs.dist_sha != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DIST_SHA: ${{ steps.publish.outputs.dist_sha }}
-        run: |
-          set -eu
-          git checkout --quiet --detach "$GITHUB_SHA"
-          sh scripts/publish-release.sh "$DIST_SHA" "$GITHUB_SHA"
+        run: sh scripts/publish-release.sh "$GITHUB_SHA" "$RUNNER_TEMP/dist"
