@@ -4,10 +4,11 @@
 #
 #   scripts/build-dist.sh <outdir>
 #
-# The version comes from the VERSION file. SOURCE_SHA and BUILD_SEQ may be set
-# in the environment (make dist does, because git metadata is not visible
-# inside the container); otherwise they come from git, which must then hold the
-# full history, because build_seq is the commit count.
+# The version comes from the VERSION file; it is also the version field of the
+# dist manifest. SOURCE_SHA and BUILD_SEQ may be set in the environment (make
+# dist does, because git metadata is not visible inside the container);
+# otherwise they come from git, which must then hold the full history, because
+# build_seq is the commit count.
 set -eu
 
 die() {
@@ -28,6 +29,12 @@ mkdir -p "$out"
 out=$(cd "$out" && pwd -P)
 
 version=$(cat VERSION)
+# The version is written into a JSON string, so it may hold only the characters
+# a Semantic Versioning 2.0.0 version is made of.
+case $version in
+"") die "VERSION is empty" ;;
+*[!0-9A-Za-z.+-]*) die "VERSION holds a character a version does not use: $version" ;;
+esac
 if [ -z "${SOURCE_SHA:-}" ]; then
   SOURCE_SHA=$(git rev-parse HEAD 2>/dev/null) || die "SOURCE_SHA is not set and git cannot name HEAD"
 fi
@@ -45,6 +52,14 @@ cp -R plugin/. "$out/"
 # Mod tests and the type declarations Claude Code generates beside the mod are
 # development files; they are not part of the shipped plugin.
 rm -rf "$out/tests" "$out/.claude-plugin/types" "$out/tsconfig.json"
+
+# The source manifest carries no version, so VERSION stays the only source: the
+# dist manifest gets it as its second field, and a plugin installed from dist is
+# cached and updated by it.
+manifest="$out/.claude-plugin/plugin.json"
+awk -v v="$version" '{ print } /^  "name": /{ printf "  \"version\": \"%s\",\n", v }' "$manifest" >"$manifest.tmp"
+mv "$manifest.tmp" "$manifest"
+grep -q '^  "version": ' "$manifest" || die "plugin.json has no name line to put the version after"
 cp LICENSE README.md "$out/"
 chmod 755 "$out/bin/msgate"
 mkdir -p "$out/libexec"

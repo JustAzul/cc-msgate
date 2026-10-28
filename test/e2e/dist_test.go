@@ -70,8 +70,13 @@ func TestDistContent(t *testing.T) {
 	if manifest["name"] != "msgate" {
 		t.Errorf("manifest name = %v", manifest["name"])
 	}
-	if _, has := manifest["version"]; has {
-		t.Error("dist manifest carries a version field")
+	wantVersion := strings.TrimSpace(readFile(t, filepath.Join(repoRoot, "VERSION")))
+	if manifest["version"] != wantVersion {
+		t.Errorf("dist manifest version = %v, want %q, the content of VERSION", manifest["version"], wantVersion)
+	}
+	source := readJSONFile(t, filepath.Join(repoRoot, "plugin", ".claude-plugin", "plugin.json"))
+	if _, has := source["version"]; has {
+		t.Error("source manifest carries a version field; VERSION is the only source")
 	}
 
 	shim := filepath.Join(out, "bin", "msgate")
@@ -173,6 +178,42 @@ func TestDistOmitsGeneratedModFiles(t *testing.T) {
 	}
 	if !exists(filepath.Join(out, ".claude-plugin", "plugin.json")) || !exists(filepath.Join(out, "hooks", "register.js")) {
 		t.Error("dist lost the manifest or the mod entry")
+	}
+}
+
+// A manifest without a usable version would install under an unnamed cache
+// folder and never update, so the build refuses one.
+func TestDistRefusesEmptyVersion(t *testing.T) {
+	repo := t.TempDir()
+	copyTree(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "VERSION"), []byte("\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, r := buildDist(t, repo, fixedEnv...)
+	if r.code == 0 || !strings.Contains(r.stderr, "VERSION") {
+		t.Errorf("empty VERSION: exit %d stderr %q, want a refusal naming VERSION", r.code, r.stderr)
+	}
+	if exists(filepath.Join(out, ".claude-plugin", "plugin.json")) {
+		t.Error("the build wrote a manifest although VERSION is empty")
+	}
+}
+
+// The version is written into a JSON string, so text that JSON would have to
+// escape, or that spans lines, is refused instead of producing a broken manifest.
+func TestDistRefusesVersionThatBreaksTheManifest(t *testing.T) {
+	for _, version := range []string{"1.0.0\"x", "1.0\\0", "1.0.0\n1.0.1", "1.0.0 beta"} {
+		repo := t.TempDir()
+		copyTree(t, repo)
+		if err := os.WriteFile(filepath.Join(repo, "VERSION"), []byte(version+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, r := buildDist(t, repo, fixedEnv...)
+		if r.code == 0 || !strings.Contains(r.stderr, "VERSION") {
+			t.Errorf("VERSION %q: exit %d stderr %q, want a refusal naming VERSION", version, r.code, r.stderr)
+		}
+		if exists(filepath.Join(out, ".claude-plugin", "plugin.json")) {
+			t.Errorf("VERSION %q: the build wrote a manifest", version)
+		}
 	}
 }
 
