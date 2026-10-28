@@ -95,7 +95,8 @@ claude plugin update msgate@cc-msgate
 ```
 
 Restart Claude Code to load the new version. The launcher follows it at the
-next session start.
+next session start. An update installs only when a release changes `VERSION`:
+a build pushed between two releases reaches no installed copy.
 
 Engine 1.4.0 is the first version with the `models` method of the
 [interface](#for-plugin-authors-the-msgate-interface) and with `purpose` and
@@ -1339,9 +1340,11 @@ with a usage error.
 - CI runs the tests on Linux and macOS. On every push to `main`, a separate
   workflow builds the plugin tree, scans it for personal data, and publishes it
   as a single commit on the `dist` branch. The marketplace manifest on `main`
-  points at that branch. When `VERSION` names a version that has no release
-  yet, the workflow also creates the GitHub release `v<version>`, tagged on
-  that build, with notes listing the commits since the previous version.
+  points at that branch. The build's manifest carries `VERSION` as its
+  `version`, so an installed copy updates only when `VERSION` changes. When
+  `VERSION` names a version that has no release yet, the workflow also creates
+  the GitHub release `v<version>`, tagged on that build, with notes listing the
+  commits since the previous version.
 - The plugin's mod is plain JavaScript, tested with `claude plugin test plugin`.
   `make verify-plugin` loads the plugin in a model-free `claude -p` and fails
   unless the `msgate` interface is mounted with its seven methods; run it before
