@@ -255,10 +255,13 @@ history() {
   git push -q origin main 2>/dev/null
   : >"$log"
 }
-# publish <sha>: runs publish-release.sh against $origin; sets pub_code. The calls the fake gh and the origin saw are in $log.
+# publish <sha> [VAR=value...]: runs publish-release.sh against $origin; sets pub_code. The calls the fake gh and the origin saw are in $log.
+# The extra settings reach only that run: a setting put before a call to this function stays set after it in bash 3.2's POSIX mode.
 publish() {
+  pub_sha=$1
+  shift
   PATH="$work/bin:$PATH" ORDER_LOG=$log FAKEGH_ORIGIN=$origin FAKEGH_NOTES=$notes \
-    sh "$root/scripts/publish-release.sh" "$1" "$tree" >"$work/pub.out" 2>"$work/pub.err"
+    env "$@" sh "$root/scripts/publish-release.sh" "$pub_sha" "$tree" >"$work/pub.out" 2>"$work/pub.err"
   pub_code=$?
 }
 ref() { git -C "$origin" rev-parse --verify --quiet "$1" || true; }
@@ -288,7 +291,7 @@ expect "publish: the notes name the source and list its feature" "Build of $a.
 for mode in 401 500 neterr; do
   newpub publish-lookup-$mode
   history
-  FAKEGH_API=$mode publish "$a"
+  publish "$a" FAKEGH_API=$mode
   aborted "publish: a failed lookup ($mode) aborts"
   expect "publish: a failed lookup ($mode) leaves everything as it was" "$lookup" "$(calls)"
   expect "publish: a failed lookup ($mode) creates no tag" "" "$(ref refs/tags/v1.6.1)"
@@ -306,7 +309,7 @@ expect "publish: a commit that is not a release pushes nothing" "" "$(ref refs/h
 # A run that fails after the tag is pushed, rerun at the same source commit.
 newpub publish-rerun
 history
-FAKEGH_CREATE_EXIT=1 publish "$a"
+publish "$a" FAKEGH_CREATE_EXIT=1
 aborted "publish: a failed release creation fails the run"
 tagged=$(ref refs/tags/v1.6.1)
 expect "publish: a failed release creation leaves dist alone" "" "$(ref refs/heads/dist)"
@@ -324,7 +327,7 @@ expect "publish: the rerun moves dist to the tagged commit" "$tagged" "$(ref ref
 # The release exists and dist is missing: only dist is left to do.
 : >"$log"
 git -C "$origin" update-ref -d refs/heads/dist
-FAKEGH_API=found publish "$a"
+publish "$a" FAKEGH_API=found
 expect "publish: a run with only dist missing exits 0" 0 "$pub_code"
 expect "publish: a run with only dist missing moves dist and nothing else" "$lookup
 push refs/heads/dist" "$(calls)"
@@ -332,7 +335,7 @@ expect "publish: a run with only dist missing puts dist on the tagged commit" "$
 
 # Everything is done: a rerun changes nothing.
 : >"$log"
-FAKEGH_API=found publish "$a"
+publish "$a" FAKEGH_API=found
 expect "publish: a rerun of a finished release exits 0" 0 "$pub_code"
 expect "publish: a rerun of a finished release only looks the release up" "$lookup" "$(calls)"
 
@@ -359,7 +362,7 @@ expect "publish: a tag on a build of another source creates no release and no di
 
 newpub publish-release-without-tag
 history
-FAKEGH_API=found publish "$a"
+publish "$a" FAKEGH_API=found
 aborted "publish: a release without its tag aborts"
 expect "publish: a release without its tag pushes nothing" "$lookup" "$(calls)"
 
@@ -440,8 +443,7 @@ expect "publish: a dist commit of no known form changes nothing" "" "$(calls | s
 # before it tags or releases anything.
 newpub publish-dist-list-fails
 history
-FAKEGIT_FAIL_LS_DIST=1 publish "$a"
-unset FAKEGIT_FAIL_LS_DIST
+publish "$a" FAKEGIT_FAIL_LS_DIST=1
 aborted "publish: a failed listing of dist aborts"
 expect "publish: a failed listing of dist stops before any tag or release" "$lookup" "$(calls)"
 expect "publish: a failed listing of dist creates no tag" "" "$(ref refs/tags/v1.6.1)"
