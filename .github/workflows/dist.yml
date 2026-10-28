@@ -1,12 +1,13 @@
 name: dist
 
-# Every push to main runs the checks and builds the plugin tree; nothing is
-# published by it. A release, a commit that scripts/release-gate.sh accepts,
-# publishes in a separate job: the dist build as a single orphan commit, tagged
-# v<version>, the GitHub release of that tag, and then the dist branch, which
-# the marketplace manifest on main points at, moved to that commit last.
-# Publishing is serialized and never cancelled once started. Rerunning a failed
-# release run finishes what is missing and moves no tag.
+# Every push to main runs the release gate, builds the plugin tree and calls
+# the full ci workflow; nothing is published by it. A release, a commit that
+# scripts/release-gate.sh accepts, publishes in a separate job, and only after
+# the whole ci workflow has passed on that commit: the dist build as a single
+# orphan commit, tagged v<version>, the GitHub release of that tag, and then
+# the dist branch, which the marketplace manifest on main points at, moved to
+# that commit last. Publishing is serialized and never cancelled once started.
+# Rerunning a failed release run finishes what is missing and moves no tag.
 
 on:
   push:
@@ -37,15 +38,17 @@ jobs:
           sh scripts/release-gate.sh "$GITHUB_SHA" >"$RUNNER_TEMP/gate"
           cat "$RUNNER_TEMP/gate"
           cat "$RUNNER_TEMP/gate" >>"$GITHUB_OUTPUT"
-      - name: Test
-        run: go test ./...
       - name: Build dist tree
         run: sh scripts/build-dist.sh "$RUNNER_TEMP/dist"
       - name: PII scan of the dist tree
         run: go run ./tools/piiscan --allowlist testdata/pii-allowlist.txt "$RUNNER_TEMP/dist"
 
+  # The tests live in ci.yml alone; the publish job waits for them.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   publish:
-    needs: check
+    needs: [check, ci]
     if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:

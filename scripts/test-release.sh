@@ -463,6 +463,7 @@ expect "publish: a release that main has moved past still moves dist" "$(ref ref
 # --- .github/workflows/dist.yml ---------------------------------------------
 
 wf=$root/.github/workflows/dist.yml
+ci_wf=$root/.github/workflows/ci.yml
 
 # block <start-regex> <file>: the lines from the first one matching the regex
 # up to the next line indented no deeper than it.
@@ -484,7 +485,9 @@ wf_lacks() { # <name> <text> <block>
 whole=$(cat "$wf")
 check_job=$(block '^  check:' "$wf")
 publish_job=$(block '^  publish:' "$wf")
+ci_job=$(block '^  ci:' "$wf")
 top_permissions=$(block '^permissions:' "$wf")
+ci_triggers=$(block '^on:' "$ci_wf")
 
 wf_has "a push to main triggers it" "branches: [main]" "$whole"
 expect "workflow: no concurrency group covers the whole workflow" "" "$(grep -n '^concurrency:' "$wf" || true)"
@@ -495,7 +498,11 @@ wf_has "the check job exists" "runs-on" "$check_job"
 wf_has "the check job asks the gate" "scripts/release-gate.sh" "$check_job"
 wf_has "the check job hands the gate's answer on" 'release: ${{ steps.gate.outputs.release }}' "$check_job"
 wf_lacks "the check job cannot write" "contents: write" "$check_job"
-wf_has "the publish job waits for the checks" "needs: check" "$publish_job"
+wf_has "the ci job calls the ci workflow" "uses: ./.github/workflows/ci.yml" "$ci_job"
+wf_has "the ci workflow can be called" "workflow_call:" "$ci_triggers"
+wf_has "the ci workflow still runs on a push" "push:" "$ci_triggers"
+wf_has "the ci workflow still runs on a pull request" "pull_request:" "$ci_triggers"
+wf_has "the publish job waits for the checks and the ci job" "needs: [check, ci]" "$publish_job"
 wf_has "only a release enters the publish job" "if: needs.check.outputs.release == 'true'" "$publish_job"
 wf_has "the publish job has a group of its own" "group: dist-publish" "$publish_job"
 wf_has "the publish job never cancels a run in progress" "cancel-in-progress: false" "$publish_job"
