@@ -216,6 +216,19 @@ esac
 FAKE
 chmod +x "$work/bin/gh"
 
+# A git that fails the listing of origin's dist branch when FAKEGIT_FAIL_LS_DIST
+# is set, and is the real git otherwise.
+real_git=$(command -v git)
+cat >"$work/bin/git" <<FAKE
+#!/bin/sh
+if [ -n "\${FAKEGIT_FAIL_LS_DIST:-}" ] && [ "\$1 \$2 \$3" = "ls-remote origin refs/heads/dist" ]; then
+  echo "fatal: unable to access origin" >&2
+  exit 128
+fi
+exec "$real_git" "\$@"
+FAKE
+chmod +x "$work/bin/git"
+
 # newpub <name>: a repository with a bare origin that logs each ref pushed to
 # it in $log, and a dist tree in $tree.
 newpub() {
@@ -422,6 +435,17 @@ dist_of "something else"
 publish "$a"
 aborted "publish: a dist commit of no known form aborts"
 expect "publish: a dist commit of no known form changes nothing" "" "$(calls | sed '/^gh api/d')"
+
+# A listing of dist that fails is not a dist that is missing: the run stops
+# before it tags or releases anything.
+newpub publish-dist-list-fails
+history
+FAKEGIT_FAIL_LS_DIST=1 publish "$a"
+unset FAKEGIT_FAIL_LS_DIST
+aborted "publish: a failed listing of dist aborts"
+expect "publish: a failed listing of dist stops before any tag or release" "$lookup" "$(calls)"
+expect "publish: a failed listing of dist creates no tag" "" "$(ref refs/tags/v1.6.1)"
+expect "publish: a failed listing of dist says what failed" 1 "$(grep -c '^publish-release: cannot list the branches of origin$' "$work/pub.err")"
 
 # main has moved on since the release commit: the release still publishes, now
 # or on a rerun, because what stops a stale build is dist's own source.

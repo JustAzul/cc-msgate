@@ -54,7 +54,8 @@ fi
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/publish-release.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 
-current=$(git ls-remote origin refs/heads/dist | cut -f1) || die "cannot list the branches of origin"
+dist_line=$(git ls-remote origin refs/heads/dist) || die "cannot list the branches of origin"
+current=$(printf '%s\n' "$dist_line" | cut -f1)
 move_dist=yes
 if [ -n "$current" ]; then
   git fetch -q origin refs/heads/dist || die "cannot fetch dist"
