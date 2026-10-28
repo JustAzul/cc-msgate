@@ -95,8 +95,8 @@ claude plugin update msgate@cc-msgate
 ```
 
 Restart Claude Code to load the new version. The launcher follows it at the
-next session start. An update installs only when a release changes `VERSION`:
-a build pushed between two releases reaches no installed copy.
+next session start. An update installs only when a release changes `VERSION`;
+a push to `main` without a release reaches no installed copy.
 
 Engine 1.4.0 is the first version with the `models` method of the
 [interface](#for-plugin-authors-the-msgate-interface) and with `purpose` and
