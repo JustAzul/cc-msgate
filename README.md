@@ -1338,13 +1338,16 @@ with a usage error.
   ```
 
 - CI runs the tests on Linux and macOS. On every push to `main`, a separate
-  workflow builds the plugin tree, scans it for personal data, and publishes it
-  as a single commit on the `dist` branch. The marketplace manifest on `main`
-  points at that branch. The build's manifest carries `VERSION` as its
-  `version`, so an installed copy updates only when `VERSION` changes. When
-  `VERSION` names a version that has no release yet, the workflow also creates
-  the GitHub release `v<version>`, tagged on that build, with notes listing the
-  commits since the previous version.
+  workflow runs the checks, builds the plugin tree and scans it for personal
+  data, and publishes nothing. Only a release publishes: a commit whose subject
+  is `chore: release <version>`, which changes only `VERSION`. A separate job
+  then builds the plugin tree as a single commit, tags it `v<version>`, creates
+  the GitHub release with notes listing the commits since the previous version,
+  and moves the `dist` branch to that commit last. The marketplace manifest on
+  `main` points at `dist`. The build's manifest carries `VERSION` as its
+  `version`, so an installed copy updates only when a release changes it. The
+  release steps are in the guide at
+  <https://raw.githubusercontent.com/JustAzul/agent-docs/main/plugin-releasing-dist.md>.
 - The plugin's mod is plain JavaScript, tested with `claude plugin test plugin`.
   `make verify-plugin` loads the plugin in a model-free `claude -p` and fails
   unless the `msgate` interface is mounted with its seven methods; run it before

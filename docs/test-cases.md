@@ -72,7 +72,7 @@ Unless stated otherwise:
 - [ ] **namespaced attrs (FR36):** `--attr-json review.findings='{"total":2}'` → stored under the literal key `review.findings`, not nested as `review → findings`.
 - [ ] **marketplace manifest (FR39):** `claude plugin validate` on the repository root passes. The manifest lists one plugin `agentcli` with source `github`, `ref: dist` and no `sha`.
 - [ ] **dist content (FR40, FR42):** the published `dist` tree contains the plugin manifest without `version` (msgate FR6 adds it), `bin/agentcli`, four binaries, `SHA256SUMS` (all four checksums verify), the skill, the mod, commands, and a hooks file whose SessionStart runs `agentcli link --quiet; agentcli prune --auto`.
-- [ ] **release of a new version (FR93):** a temp repository whose `VERSION` went 0.1.0 → 0.2.0 → 0.3.0, a fake `gh` that has no release `v0.3.0` → `scripts/publish-release.sh <dist sha> <source sha>` runs `gh release create v0.3.0 --target <dist sha> --title v0.3.0 --notes-file <file>`. The notes start with `Build of <source sha>.` and list, oldest first under Features, Fixes and Other, the subjects of the commits after the 0.2.0 commit up to the source commit, each with its short sha, without `chore: release 0.3.0`.
+- [ ] **release of a new version (FR93):** a temp repository whose `VERSION` went 0.1.0 → 0.2.0 → 0.3.0, a fake `gh` whose release lookup answers HTTP 404 → `scripts/publish-release.sh <source sha> <dist tree>` looks `v0.3.0` up, pushes the tag `v0.3.0` on an orphan dist build of the source commit, runs `gh release create v0.3.0 --verify-tag --title v0.3.0 --notes-file <file>`, and force-pushes `dist` to the tagged commit, in that order. The notes start with `Build of <source sha>.` and list, oldest first under Features, Fixes and Other, the subjects of the commits after the 0.2.0 commit up to the source commit, each with its short sha, without `chore: release 0.3.0`.
 - [ ] **pre-release version (FR93):** `VERSION` is `0.5.0-rc.1` or `1.0.0-alpha+exp.sha.5114f85` → `gh release create` gets `--prerelease`. `1.0.0+build-1` and `1.2.3` → no `--prerelease`.
 - [ ] **release notes of the first version (FR93):** a temp repository whose `VERSION` was never changed after the first commit → the notes list every commit up to the source commit.
 - [ ] **repository identity (FR45):** `git log --format='%an <%ae>'` on the public repo shows only the owner's global git identity. LICENSE is MIT with the owner's name.
@@ -527,8 +527,10 @@ Fixtures for this section:
 - [ ] **run vanishes mid-read (FR60):** a `status`, `wait`, `result`, `cancel`, `annotate` or `send <run id>` whose run directory is removed after it first read the run (test gate `AGENTCLI_TEST_READ_GATE`) exits 4; `result` does not report success with no output.
 - [ ] **auto prune failure is loud (FR61):** the `runs` directory is read-only so a removal fails → `prune --auto` exits 70 and prints the reason on stderr.
 - [ ] **indexed run directory gone (FR62):** the index lists a run whose directory was deleted → `status --session-id S` skips it without a warning and lists the others.
-- [ ] **CI stale publish (FR40):** the dist workflow run for commit A finishes after commit B landed → the HEAD check fails and `dist` is not updated by A.
-- [ ] **version not semantic (FR93):** `VERSION` is `0.4`, `v0.4.0`, `0.04.0`, `0.4.0-`, `0.4.0-rc..1`, `0.4.0+`, or a valid version followed by a second line → `publish-release.sh` exits 2 saying the version is not a semantic version, and `gh` is never called.
+- [ ] **release older than dist (FR40, FR93):** `dist` holds a build of release 0.4.0 and the run for release 0.3.0 comes after it → the run tags and releases `v0.3.0` and exits 0, and `dist` stays on the 0.4.0 build. A `dist` built from a commit outside the release's history, or from a commit the checkout lacks, stops the run before it changes anything.
+- [ ] **main moved on (FR40, FR93):** the default branch has commits after the release commit → the release still publishes.
+- [ ] **not a release (FR93):** the pushed commit has another subject than `chore: release <V>`, changes a file besides `VERSION`, has a `VERSION` that is not `<V>`, is not a semantic version, has a pre-release part, or has no parent → `release-gate.sh` prints `release=false` with the reason and exits 0, the publish job does not run, and `publish-release.sh` given that commit exits 2 with no `gh` call and no push.
+- [ ] **release lookup fails (FR93):** the fake `gh` answers the lookup with HTTP 401, HTTP 500 or a network error → `publish-release.sh` exits non-zero before it pushes anything.
 
 ---
 
@@ -550,7 +552,7 @@ Fixtures for this section:
 - [ ] **mod notice pruned run (FR47):** `status <run_id>` exits 4 → the entry leaves the queue and one debug-log line names it.
 - [ ] **mod abandoned queues (FR47):** another session's queue whose newest entry is 31 days old → removed at session start; one 2 days old → kept.
 - [ ] **dist reproducible (FR40):** `make dist` twice on the same commit → identical binaries (byte-equal) and identical `SHA256SUMS`.
-- [ ] **existing release kept (FR93):** the fake `gh` already has release `v0.3.0` → `publish-release.sh` exits 0, says the release exists, and runs no `gh release create`, so the tag stays on the build it named.
+- [ ] **rerun of a failed release (FR93):** a run that failed after pushing the tag is rerun at the same source commit with a different dist tree → it exits 0, pushes no tag, leaves the tag on its first build, creates the release and moves `dist` to the tagged commit; a rerun after the release exists and `dist` is missing only moves `dist`; a rerun after everything is done only looks the release up. A tag on any commit but a dist build of the source commit, and a release whose tag is missing, stop the run with the tag unchanged.
 
 ---
 
